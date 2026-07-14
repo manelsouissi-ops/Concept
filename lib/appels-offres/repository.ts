@@ -3,11 +3,14 @@ import type {
   AppelOffresDetail,
   AppelOffresInput,
   AppelOffresRecord,
+  AppelOffresBusinessStatus,
   AppelOffresSource,
   AppelOffresStatus,
   AuditLogRecord,
   DocumentRecord,
   ListAppelsOffresFilters,
+  ProcessingJobCallbackStatus,
+  ProcessingJobErrorStage,
   ProcessingJobRecord,
   ProcessingJobStatus,
   ProcessingJobType,
@@ -42,6 +45,7 @@ type AppelOffresRow = {
   priorite: AppelOffresInput["priorite"] | null;
   responsable_commercial: string | null;
   status: AppelOffresStatus;
+  business_status: AppelOffresBusinessStatus | null;
   source: AppelOffresSource;
   created_at: string | Date;
   updated_at: string | Date;
@@ -64,10 +68,21 @@ type DocumentRow = {
 type ProcessingJobRow = {
   id: number | string;
   appel_offres_id: number | string;
+  public_id: string | null;
   job_type: ProcessingJobType;
   status: ProcessingJobStatus;
   started_at: string | Date;
   finished_at: string | Date | null;
+  contract_version: string | null;
+  correlation_id: string | null;
+  execution_id: string | null;
+  launch_accepted_at: string | Date | null;
+  callback_received_at: string | Date | null;
+  callback_status: ProcessingJobCallbackStatus | null;
+  callback_idempotency_key: string | null;
+  retry_of_job_id: number | string | null;
+  error_stage: ProcessingJobErrorStage | null;
+  error_code: string | null;
   error_message: string | null;
   metadata: Record<string, unknown> | null;
 };
@@ -128,6 +143,40 @@ function normalizeTimestamp(value: string | Date | null | undefined) {
   return value instanceof Date ? value.toISOString() : value;
 }
 
+function mapBusinessStatusToStoredStatus(
+  status: AppelOffresBusinessStatus
+): AppelOffresStatus {
+  switch (status) {
+    case "brouillon":
+      return "draft";
+    case "analyse_en_cours":
+      return "processing";
+    case "erreur":
+      return "error";
+    case "archive":
+      return "archived";
+    default:
+      return "ready";
+  }
+}
+
+function mapStoredStatusToBusinessStatus(
+  status: AppelOffresStatus
+): AppelOffresBusinessStatus {
+  switch (status) {
+    case "draft":
+      return "brouillon";
+    case "processing":
+      return "analyse_en_cours";
+    case "error":
+      return "erreur";
+    case "archived":
+      return "archive";
+    default:
+      return "cdc_importe";
+  }
+}
+
 function mapAppelOffresRow(row: AppelOffresRow): AppelOffresRecord {
   return {
     id: Number(row.id),
@@ -141,6 +190,7 @@ function mapAppelOffresRow(row: AppelOffresRow): AppelOffresRecord {
     priorite: row.priorite ?? "normale",
     responsableCommercial: row.responsable_commercial ?? "",
     status: row.status,
+    businessStatus: row.business_status ?? null,
     source: row.source,
     createdAt: normalizeTimestamp(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: normalizeTimestamp(row.updated_at) ?? new Date(0).toISOString(),
@@ -166,10 +216,21 @@ function mapProcessingJobRow(row: ProcessingJobRow): ProcessingJobRecord {
   return {
     id: Number(row.id),
     appelOffresId: Number(row.appel_offres_id),
+    publicId: row.public_id,
     jobType: row.job_type,
     status: row.status,
     startedAt: normalizeTimestamp(row.started_at) ?? new Date(0).toISOString(),
     finishedAt: normalizeTimestamp(row.finished_at),
+    contractVersion: row.contract_version,
+    correlationId: row.correlation_id,
+    executionId: row.execution_id,
+    launchAcceptedAt: normalizeTimestamp(row.launch_accepted_at),
+    callbackReceivedAt: normalizeTimestamp(row.callback_received_at),
+    callbackStatus: row.callback_status,
+    callbackIdempotencyKey: row.callback_idempotency_key,
+    retryOfJobId: row.retry_of_job_id == null ? null : Number(row.retry_of_job_id),
+    errorStage: row.error_stage,
+    errorCode: row.error_code,
     errorMessage: row.error_message,
     metadata: row.metadata ?? null
   };
@@ -272,6 +333,7 @@ async function ensureSchemaInternal(pool: Pool) {
         priorite text null,
         responsable_commercial text null,
         status text not null check (status in ('draft', 'processing', 'ready', 'error', 'archived')),
+        business_status text null,
         source text not null check (source in ('manual', 'fiche-flow')) default 'manual',
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
@@ -283,6 +345,7 @@ async function ensureSchemaInternal(pool: Pool) {
       alter table ${APPELS_OFFRES_TABLE}
       add column if not exists priorite text null,
       add column if not exists responsable_commercial text null,
+      add column if not exists business_status text null,
       add column if not exists archived_at timestamptz null,
       add column if not exists deleted_at timestamptz null
     `);
@@ -303,6 +366,27 @@ async function ensureSchemaInternal(pool: Pool) {
       check (priorite in ('basse', 'normale', 'haute', 'critique'))
     `);
     await client.query(`
+      alter table ${APPELS_OFFRES_TABLE}
+      drop constraint if exists appels_offres_business_status_check
+    `);
+    await client.query(`
+      alter table ${APPELS_OFFRES_TABLE}
+      add constraint appels_offres_business_status_check
+      check (
+        business_status is null
+        or business_status in (
+          'brouillon',
+          'cdc_importe',
+          'en_attente_analyse',
+          'analyse_en_cours',
+          'fiche_a_valider',
+          'fiche_validee',
+          'erreur',
+          'archive'
+        )
+      )
+    `);
+    await client.query(`
       create table if not exists ${DOCUMENTS_TABLE} (
         id bigserial primary key,
         appel_offres_id bigint not null references ${APPELS_OFFRES_TABLE}(id) on delete cascade,
@@ -320,13 +404,105 @@ async function ensureSchemaInternal(pool: Pool) {
       create table if not exists ${PROCESSING_JOBS_TABLE} (
         id bigserial primary key,
         appel_offres_id bigint not null references ${APPELS_OFFRES_TABLE}(id) on delete cascade,
+        public_id text null,
         job_type text not null check (job_type in ('appel_offres_upload', 'appel_offres_update', 'fiche_generation')),
-        status text not null check (status in ('processing', 'completed', 'failed')),
+        status text not null check (status in ('created', 'queued', 'running', 'completed', 'failed', 'cancelled', 'retrying')),
         started_at timestamptz not null default now(),
         finished_at timestamptz null,
+        contract_version text null,
+        correlation_id text null,
+        execution_id text null,
+        launch_accepted_at timestamptz null,
+        callback_received_at timestamptz null,
+        callback_status text null,
+        callback_idempotency_key text null,
+        retry_of_job_id bigint null references ${PROCESSING_JOBS_TABLE}(id) on delete set null,
+        error_stage text null,
+        error_code text null,
         error_message text null,
         metadata jsonb null
       )
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      add column if not exists public_id text null,
+      add column if not exists contract_version text null,
+      add column if not exists correlation_id text null,
+      add column if not exists execution_id text null,
+      add column if not exists launch_accepted_at timestamptz null,
+      add column if not exists callback_received_at timestamptz null,
+      add column if not exists callback_status text null,
+      add column if not exists callback_idempotency_key text null,
+      add column if not exists retry_of_job_id bigint null,
+      add column if not exists error_stage text null,
+      add column if not exists error_code text null
+    `);
+    await client.query(`
+      update ${PROCESSING_JOBS_TABLE}
+      set status = case status
+        when 'processing' then 'running'
+        when 'completed' then 'completed'
+        when 'failed' then 'failed'
+        else status
+      end
+      where status in ('processing', 'completed', 'failed')
+    `);
+    await client.query(`
+      update ${PROCESSING_JOBS_TABLE}
+      set public_id = concat('legacy_pj_', id)
+      where public_id is null
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      drop constraint if exists processing_jobs_status_check
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      add constraint processing_jobs_status_check
+      check (status in ('created', 'queued', 'running', 'completed', 'failed', 'cancelled', 'retrying'))
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      drop constraint if exists processing_jobs_callback_status_check
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      add constraint processing_jobs_callback_status_check
+      check (
+        callback_status is null
+        or callback_status in ('completed', 'failed', 'cancelled')
+      )
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      drop constraint if exists processing_jobs_error_stage_check
+    `);
+    await client.query(`
+      alter table ${PROCESSING_JOBS_TABLE}
+      add constraint processing_jobs_error_stage_check
+      check (
+        error_stage is null
+        or error_stage in (
+          'webhook',
+          'upload',
+          'marker',
+          'markdown',
+          'anonymization',
+          'llm',
+          'xml',
+          'callback',
+          'unknown'
+        )
+      )
+    `);
+    await client.query(`
+      create unique index if not exists processing_jobs_public_id_uidx
+      on ${PROCESSING_JOBS_TABLE} (public_id)
+    `);
+    await client.query(`
+      create unique index if not exists processing_jobs_correlation_id_uidx
+      on ${PROCESSING_JOBS_TABLE} (correlation_id)
+      where correlation_id is not null
     `);
     await client.query(`
       create table if not exists ${AUDIT_LOGS_TABLE} (
@@ -455,6 +631,7 @@ export async function listAppelsOffres(filters: ListAppelsOffresFilters = {}) {
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -517,6 +694,7 @@ export async function getAppelOffresRecordByCode(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -534,7 +712,11 @@ export async function getAppelOffresRecordByCode(
 }
 
 export async function createAppelOffres(
-  input: AppelOffresInput & { status: AppelOffresStatus; source: AppelOffresSource }
+  input: AppelOffresInput & {
+    status: AppelOffresStatus;
+    businessStatus?: AppelOffresBusinessStatus | null;
+    source: AppelOffresSource;
+  }
 ) {
   const pool = await requirePool();
   const result = await pool.query<AppelOffresRow>(
@@ -550,13 +732,14 @@ export async function createAppelOffres(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
         archived_at,
         deleted_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), null, null)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now(), null, null)
       returning
         id,
         code,
@@ -569,6 +752,7 @@ export async function createAppelOffres(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -586,6 +770,7 @@ export async function createAppelOffres(
       input.priorite,
       input.responsableCommercial || null,
       input.status,
+      input.businessStatus ?? null,
       input.source
     ]
   );
@@ -594,7 +779,11 @@ export async function createAppelOffres(
 }
 
 export async function ensureAppelOffresRecord(
-  input: AppelOffresInput & { status: AppelOffresStatus; source: AppelOffresSource }
+  input: AppelOffresInput & {
+    status: AppelOffresStatus;
+    businessStatus?: AppelOffresBusinessStatus | null;
+    source: AppelOffresSource;
+  }
 ) {
   const pool = await requirePool();
   const result = await pool.query<AppelOffresRow>(
@@ -610,13 +799,14 @@ export async function ensureAppelOffresRecord(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
         archived_at,
         deleted_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), null, null)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now(), null, null)
       on conflict (code)
       do update set
         title = excluded.title,
@@ -628,6 +818,7 @@ export async function ensureAppelOffresRecord(
         priorite = excluded.priorite,
         responsable_commercial = excluded.responsable_commercial,
         status = excluded.status,
+        business_status = coalesce(excluded.business_status, ${APPELS_OFFRES_TABLE}.business_status),
         source = excluded.source,
         updated_at = now()
       returning
@@ -642,6 +833,7 @@ export async function ensureAppelOffresRecord(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -659,6 +851,7 @@ export async function ensureAppelOffresRecord(
       input.priorite,
       input.responsableCommercial || null,
       input.status,
+      input.businessStatus ?? null,
       input.source
     ]
   );
@@ -697,6 +890,7 @@ export async function updateAppelOffres(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -743,6 +937,7 @@ export async function setAppelOffresStatus(
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -756,6 +951,59 @@ export async function setAppelOffresStatus(
 
   if (current && next && current.status !== next.status) {
     await appendAuditLog(code, "appel_offres.status_changed", {
+      previousStatus: current.status,
+      nextStatus: next.status,
+      ...(details ?? {})
+    });
+  }
+
+  return next;
+}
+
+export async function setAppelOffresBusinessStatus(
+  code: string,
+  businessStatus: AppelOffresBusinessStatus,
+  details: Record<string, unknown> | null = null
+) {
+  const pool = await requirePool();
+  const current = await getAppelOffresRecordByCode(code, { includeArchived: true });
+  const storedStatus = mapBusinessStatusToStoredStatus(businessStatus);
+  const result = await pool.query<AppelOffresRow>(
+    `
+      update ${APPELS_OFFRES_TABLE}
+      set
+        status = $2,
+        business_status = $3,
+        updated_at = now()
+      where code = $1
+      returning
+        id,
+        code,
+        title,
+        reference,
+        buyer,
+        country,
+        due_date::text,
+        notes,
+        priorite,
+        responsable_commercial,
+        status,
+        business_status,
+        source,
+        created_at,
+        updated_at,
+        archived_at,
+        deleted_at
+    `,
+    [code, storedStatus, businessStatus]
+  );
+
+  const next = result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
+
+  if (current && next && current.businessStatus !== next.businessStatus) {
+    await appendAuditLog(code, "appel_offres.business_status_changed", {
+      previousBusinessStatus: current.businessStatus,
+      nextBusinessStatus: next.businessStatus,
       previousStatus: current.status,
       nextStatus: next.status,
       ...(details ?? {})
@@ -782,6 +1030,7 @@ export async function archiveAppelOffres(code: string) {
       update ${APPELS_OFFRES_TABLE}
       set
         status = 'archived',
+        business_status = 'archive',
         archived_at = now(),
         deleted_at = now(),
         updated_at = now()
@@ -798,6 +1047,7 @@ export async function archiveAppelOffres(code: string) {
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
@@ -841,6 +1091,7 @@ export async function unarchiveAppelOffres(code: string) {
       update ${APPELS_OFFRES_TABLE}
       set
         status = $2,
+        business_status = $3,
         archived_at = null,
         deleted_at = null,
         updated_at = now()
@@ -857,13 +1108,14 @@ export async function unarchiveAppelOffres(code: string) {
         priorite,
         responsable_commercial,
         status,
+        business_status,
         source,
         created_at,
         updated_at,
         archived_at,
         deleted_at
     `,
-    [code, nextStatus]
+    [code, nextStatus, mapStoredStatusToBusinessStatus(nextStatus)]
   );
 
   const next = result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
@@ -950,7 +1202,8 @@ export async function syncStoredDocumentsMetadata(code: string) {
 export async function createProcessingJobByCode(
   code: string,
   jobType: ProcessingJobType,
-  metadata: Record<string, unknown> | null = null
+  metadata: Record<string, unknown> | null = null,
+  status: ProcessingJobStatus = "running"
 ) {
   const pool = await requirePool();
   const appelOffresId = await getAppelOffresIdByCode(code, true);
@@ -963,23 +1216,115 @@ export async function createProcessingJobByCode(
     `
       insert into ${PROCESSING_JOBS_TABLE} (
         appel_offres_id,
+        public_id,
         job_type,
         status,
         started_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
+        error_message,
         metadata
       )
-      values ($1, $2, 'processing', now(), $3::jsonb)
+      values ($1, null, $2, $3, now(), null, null, null, null, null, null, null, null, null, null, null, $4::jsonb)
       returning
         id,
         appel_offres_id,
+        public_id,
         job_type,
         status,
         started_at,
         finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
         error_message,
         metadata
     `,
-    [appelOffresId, jobType, metadata ? JSON.stringify(metadata) : null]
+    [appelOffresId, jobType, status, metadata ? JSON.stringify(metadata) : null]
+  );
+
+  return mapProcessingJobRow(result.rows[0]);
+}
+
+export async function createContractProcessingJobByCode(
+  code: string,
+  input: {
+    publicId: string;
+    jobType: ProcessingJobType;
+    status: ProcessingJobStatus;
+    contractVersion: string;
+    correlationId: string;
+    retryOfJobId?: number | null;
+    metadata?: Record<string, unknown> | null;
+  }
+) {
+  const pool = await requirePool();
+  const appelOffresId = await getAppelOffresIdByCode(code, true);
+
+  if (!appelOffresId) {
+    throw new Error(`Appel d'offres ${code} introuvable.`);
+  }
+
+  const result = await pool.query<ProcessingJobRow>(
+    `
+      insert into ${PROCESSING_JOBS_TABLE} (
+        appel_offres_id,
+        public_id,
+        job_type,
+        status,
+        started_at,
+        contract_version,
+        correlation_id,
+        retry_of_job_id,
+        metadata
+      )
+      values ($1, $2, $3, $4, now(), $5, $6, $7, $8::jsonb)
+      returning
+        id,
+        appel_offres_id,
+        public_id,
+        job_type,
+        status,
+        started_at,
+        finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
+        error_message,
+        metadata
+    `,
+    [
+      appelOffresId,
+      input.publicId,
+      input.jobType,
+      input.status,
+      input.contractVersion,
+      input.correlationId,
+      input.retryOfJobId ?? null,
+      input.metadata ? JSON.stringify(input.metadata) : null
+    ]
   );
 
   return mapProcessingJobRow(result.rows[0]);
@@ -987,7 +1332,7 @@ export async function createProcessingJobByCode(
 
 export async function finishProcessingJob(
   jobId: number,
-  status: Exclude<ProcessingJobStatus, "processing">,
+  status: Exclude<ProcessingJobStatus, "created" | "queued" | "running" | "retrying">,
   errorMessage?: string | null
 ) {
   const pool = await requirePool();
@@ -1002,10 +1347,21 @@ export async function finishProcessingJob(
       returning
         id,
         appel_offres_id,
+        public_id,
         job_type,
         status,
         started_at,
         finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
         error_message,
         metadata
     `,
@@ -1015,10 +1371,141 @@ export async function finishProcessingJob(
   return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
 }
 
+export async function getProcessingJobByPublicId(publicId: string) {
+  const pool = await requirePool();
+  const result = await pool.query<ProcessingJobRow>(
+    `
+      select
+        id,
+        appel_offres_id,
+        public_id,
+        job_type,
+        status,
+        started_at,
+        finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
+        error_message,
+        metadata
+      from ${PROCESSING_JOBS_TABLE}
+      where public_id = $1
+      limit 1
+    `,
+    [publicId]
+  );
+
+  return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
+}
+
+export async function updateProcessingJobByPublicId(
+  publicId: string,
+  patch: {
+    status?: ProcessingJobStatus;
+    executionId?: string | null;
+    contractVersion?: string | null;
+    launchAcceptedAt?: string | null;
+    callbackReceivedAt?: string | null;
+    callbackStatus?: ProcessingJobCallbackStatus | null;
+    callbackIdempotencyKey?: string | null;
+    errorStage?: ProcessingJobErrorStage | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+    finishedAt?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }
+) {
+  const pool = await requirePool();
+  const current = await getProcessingJobByPublicId(publicId);
+  if (!current) {
+    return null;
+  }
+
+  const nextMetadata =
+    patch.metadata === undefined
+      ? current.metadata
+      : {
+          ...(current.metadata ?? {}),
+          ...(patch.metadata ?? {})
+        };
+
+  const result = await pool.query<ProcessingJobRow>(
+    `
+      update ${PROCESSING_JOBS_TABLE}
+      set
+        status = $2,
+        execution_id = $3,
+        contract_version = $4,
+        launch_accepted_at = $5,
+        callback_received_at = $6,
+        callback_status = $7,
+        callback_idempotency_key = $8,
+        error_stage = $9,
+        error_code = $10,
+        error_message = $11,
+        finished_at = $12,
+        metadata = $13::jsonb
+      where public_id = $1
+      returning
+        id,
+        appel_offres_id,
+        public_id,
+        job_type,
+        status,
+        started_at,
+        finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
+        error_message,
+        metadata
+    `,
+    [
+      publicId,
+      patch.status ?? current.status,
+      patch.executionId === undefined ? current.executionId : patch.executionId,
+      patch.contractVersion === undefined
+        ? current.contractVersion
+        : patch.contractVersion,
+      patch.launchAcceptedAt === undefined
+        ? current.launchAcceptedAt
+        : patch.launchAcceptedAt,
+      patch.callbackReceivedAt === undefined
+        ? current.callbackReceivedAt
+        : patch.callbackReceivedAt,
+      patch.callbackStatus === undefined ? current.callbackStatus : patch.callbackStatus,
+      patch.callbackIdempotencyKey === undefined
+        ? current.callbackIdempotencyKey
+        : patch.callbackIdempotencyKey,
+      patch.errorStage === undefined ? current.errorStage : patch.errorStage,
+      patch.errorCode === undefined ? current.errorCode : patch.errorCode,
+      patch.errorMessage === undefined ? current.errorMessage : patch.errorMessage,
+      patch.finishedAt === undefined ? current.finishedAt : patch.finishedAt,
+      nextMetadata ? JSON.stringify(nextMetadata) : null
+    ]
+  );
+
+  return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
+}
+
 export async function finishLatestProcessingJobByCode(
   code: string,
   jobType: ProcessingJobType,
-  status: Exclude<ProcessingJobStatus, "processing">,
+  status: Exclude<ProcessingJobStatus, "created" | "queued" | "running" | "retrying">,
   errorMessage?: string | null
 ) {
   const pool = await requirePool();
@@ -1032,8 +1519,10 @@ export async function finishLatestProcessingJobByCode(
     `
       select id
       from ${PROCESSING_JOBS_TABLE}
-      where appel_offres_id = $1 and job_type = $2 and status = 'processing'
-      order by started_at desc
+      where appel_offres_id = $1
+        and job_type = $2
+        and status in ('created', 'queued', 'running', 'retrying')
+      order by started_at desc, id desc
       limit 1
     `,
     [appelOffresId, jobType]
@@ -1044,6 +1533,111 @@ export async function finishLatestProcessingJobByCode(
   }
 
   return finishProcessingJob(Number(latest.rows[0].id), status, errorMessage);
+}
+
+export async function getLatestProcessingJobByCode(
+  code: string,
+  jobType?: ProcessingJobType
+) {
+  const pool = await requirePool();
+  const appelOffresId = await getAppelOffresIdByCode(code, true);
+
+  if (!appelOffresId) {
+    return null;
+  }
+
+  const values: Array<number | string> = [appelOffresId];
+  let jobTypeClause = "";
+  if (jobType) {
+    values.push(jobType);
+    jobTypeClause = `and job_type = $2`;
+  }
+
+  const result = await pool.query<ProcessingJobRow>(
+    `
+      select
+        id,
+        appel_offres_id,
+        public_id,
+        job_type,
+        status,
+        started_at,
+        finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
+        error_message,
+        metadata
+      from ${PROCESSING_JOBS_TABLE}
+      where appel_offres_id = $1
+        ${jobTypeClause}
+      order by started_at desc, id desc
+      limit 1
+    `,
+    values
+  );
+
+  return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
+}
+
+export async function getActiveProcessingJobByCode(
+  code: string,
+  jobType?: ProcessingJobType
+) {
+  const pool = await requirePool();
+  const appelOffresId = await getAppelOffresIdByCode(code, true);
+
+  if (!appelOffresId) {
+    return null;
+  }
+
+  const values: Array<number | string> = [appelOffresId];
+  let jobTypeClause = "";
+  if (jobType) {
+    values.push(jobType);
+    jobTypeClause = `and job_type = $2`;
+  }
+
+  const result = await pool.query<ProcessingJobRow>(
+    `
+      select
+        id,
+        appel_offres_id,
+        public_id,
+        job_type,
+        status,
+        started_at,
+        finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
+        error_message,
+        metadata
+      from ${PROCESSING_JOBS_TABLE}
+      where appel_offres_id = $1
+        ${jobTypeClause}
+        and status in ('created', 'queued', 'running', 'retrying')
+      order by started_at desc, id desc
+      limit 1
+    `,
+    values
+  );
+
+  return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
 }
 
 export async function appendAuditLog(
@@ -1120,10 +1714,21 @@ export async function listProcessingJobsForCode(code: string) {
       select
         id,
         appel_offres_id,
+        public_id,
         job_type,
         status,
         started_at,
         finished_at,
+        contract_version,
+        correlation_id,
+        execution_id,
+        launch_accepted_at,
+        callback_received_at,
+        callback_status,
+        callback_idempotency_key,
+        retry_of_job_id,
+        error_stage,
+        error_code,
         error_message,
         metadata
       from ${PROCESSING_JOBS_TABLE}

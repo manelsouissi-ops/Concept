@@ -1,19 +1,10 @@
 import { NextResponse } from "next/server";
+import { applyCanonicalN8nCallback } from "@/lib/appels-offres/analysis.ts";
 import {
-  appendAuditLog,
-  finishLatestProcessingJobByCode,
-  setAppelOffresStatus,
-  syncStoredDocumentsMetadata
+  getAppelOffresDetailByCode,
+  getLatestProcessingJobByCode
 } from "@/lib/appels-offres/repository.ts";
-import { syncFicheIndexSafely } from "@/lib/db";
-import { parseFiche, serializeFiche } from "@/lib/fiche-xml";
-import {
-  finalizeProcessingSuccess,
-  markProcessingError,
-  readFicheBundle,
-  readFicheIndexSourceForSync,
-  readFicheStatus
-} from "@/lib/storage";
+import { DEFAULT_N8N_CONTRACT_VERSION, type N8nCallbackPayload, type N8nErrorStage } from "@/lib/integrations/n8n-contract.ts";
 import type { FicheErrorStage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -56,40 +47,47 @@ function isFailureBody(value: unknown): value is FailureBody {
   );
 }
 
-async function syncCurrentState(codeInterne: string, context: string) {
-  const indexed = await readFicheIndexSourceForSync(codeInterne);
-  await syncFicheIndexSafely(
-    codeInterne,
-    indexed.xml,
-    indexed.fiche,
-    indexed.status,
-    context
-  );
-}
-
-async function syncAppelOffresSafely(
-  codeInterne: string,
-  context: string,
-  callback: () => Promise<void>
-) {
-  try {
-    await callback();
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[appels-offres] Sync skipped after ${context} for ${codeInterne}: ${reason}`
-    );
-  }
-}
-
 function isAuthorized(request: Request) {
   const expected = process.env.N8N_COMPLETE_SECRET?.trim();
   if (!expected) {
     return false;
   }
 
-  const provided = request.headers.get("X-Complete-Secret")?.trim();
+  const provided = request.headers.get("x-complete-secret")?.trim();
   return provided === expected;
+}
+
+function toCanonicalErrorStage(stage: FicheErrorStage): N8nErrorStage {
+  switch (stage) {
+    case "webhook":
+      return "WEBHOOK";
+    case "upload":
+      return "UPLOAD";
+    case "marker":
+      return "MARKER";
+    case "markdown":
+      return "MARKDOWN";
+    case "anonymization":
+      return "ANONYMIZATION";
+    case "llm":
+      return "LLM";
+    case "xml":
+      return "XML";
+    case "callback":
+      return "CALLBACK";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+function calculateDurationMs(startedAt: string, finishedAt: string) {
+  const start = Date.parse(startedAt);
+  const finish = Date.parse(finishedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(finish) || finish < start) {
+    return 0;
+  }
+
+  return finish - start;
 }
 
 export async function POST(
@@ -103,110 +101,78 @@ export async function POST(
   try {
     const { code } = await params;
     const body = (await request.json()) as unknown;
-    const currentStatus = await readFicheStatus(code);
 
-    if (currentStatus.status !== "processing") {
-      return NextResponse.json(
-        { error: "La fiche n'est plus en attente de completion." },
-        { status: 409 }
-      );
-    }
-
-    const executionId =
-      isSuccessBody(body) || isFailureBody(body) ? body.executionId.trim() : "";
-    if (!executionId) {
-      return NextResponse.json(
-        { error: "executionId manquant dans le callback." },
-        { status: 400 }
-      );
-    }
-
-    if (
-      currentStatus.n8nExecutionId &&
-      currentStatus.n8nExecutionId !== executionId
-    ) {
-      return NextResponse.json(
-        { error: "executionId inattendu pour cette fiche." },
-        { status: 409 }
-      );
-    }
-
-    if (isFailureBody(body)) {
-      await markProcessingError(code, body.error, body.stage);
-      await syncAppelOffresSafely(code, "complete:error", async () => {
-        await setAppelOffresStatus(code, "error");
-        await finishLatestProcessingJobByCode(
-          code,
-          "fiche_generation",
-          "failed",
-          body.error
-        );
-        await appendAuditLog(code, "fiche.complete.failed", {
-          stage: body.stage,
-          error: body.error
-        });
-      });
-      await syncCurrentState(code, "complete:error");
-      return NextResponse.json({ ok: true });
-    }
-
-    if (!isSuccessBody(body)) {
+    if (!isSuccessBody(body) && !isFailureBody(body)) {
       return NextResponse.json(
         { error: "Payload de completion invalide." },
         { status: 400 }
       );
     }
 
-    let normalizedXml: string;
-
-    try {
-      const parsed = parseFiche(body.xml);
-      normalizedXml = serializeFiche(parsed, { referenceInterne: "" });
-    } catch {
-      await markProcessingError(
-        code,
-        "XML malforme retourne par le pipeline",
-        "groq"
-      );
-      await syncAppelOffresSafely(code, "complete:invalid-xml", async () => {
-        await setAppelOffresStatus(code, "error");
-        await finishLatestProcessingJobByCode(
-          code,
-          "fiche_generation",
-          "failed",
-          "XML malforme retourne par le pipeline"
-        );
-        await appendAuditLog(code, "fiche.complete.invalid_xml");
-      });
-      await syncCurrentState(code, "complete:invalid-xml");
-
+    const appel = await getAppelOffresDetailByCode(code, { includeArchived: true });
+    if (!appel) {
       return NextResponse.json(
-        { error: "XML malforme retourne par le pipeline." },
-        { status: 422 }
+        { error: "Appel d'offres introuvable." },
+        { status: 404 }
       );
     }
 
-    await finalizeProcessingSuccess({
-      codeInterne: code,
-      xml: normalizedXml,
-      markdown: body.markdown
-    });
-    await syncAppelOffresSafely(code, "complete:success", async () => {
-      await setAppelOffresStatus(code, "ready");
-      await syncStoredDocumentsMetadata(code);
-      await finishLatestProcessingJobByCode(
-        code,
-        "fiche_generation",
-        "completed"
+    const latestJob = await getLatestProcessingJobByCode(code, "fiche_generation");
+    if (
+      !latestJob?.publicId ||
+      !latestJob.correlationId ||
+      !latestJob.executionId ||
+      latestJob.executionId !== body.executionId.trim()
+    ) {
+      return NextResponse.json(
+        { error: "executionId inattendu pour cet appel d'offres." },
+        { status: 409 }
       );
-      await appendAuditLog(code, "fiche.complete.succeeded", {
-        executionId: body.executionId
-      });
-    });
-    await syncCurrentState(code, "complete:success");
+    }
 
-    const fiche = await readFicheBundle(code);
-    return NextResponse.json(fiche);
+    const startedAt = latestJob.launchAcceptedAt ?? latestJob.startedAt;
+    const finishedAt = new Date().toISOString();
+    const commonEnvelope = {
+      contract_version:
+        latestJob.contractVersion ??
+        process.env.N8N_CONTRACT_VERSION?.trim() ??
+        DEFAULT_N8N_CONTRACT_VERSION,
+      processing_job_id: latestJob.publicId,
+      appel_offre_id: `ao_${appel.id}`,
+      code_interne: code,
+      correlation_id: latestJob.correlationId,
+      execution_id: latestJob.executionId,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      duration_ms: calculateDurationMs(startedAt, finishedAt),
+      metadata: {
+        compatibilityRoute: "/api/fiche/[code]/complete"
+      }
+    };
+
+    const payload: N8nCallbackPayload = isSuccessBody(body)
+      ? {
+          ...commonEnvelope,
+          status: "COMPLETED",
+          result: {
+            xml: body.xml,
+            markdown: body.markdown
+          }
+        }
+      : {
+          ...commonEnvelope,
+          status: "FAILED",
+          error: {
+            stage: toCanonicalErrorStage(body.stage),
+            code: "LEGACY_CALLBACK_FAILURE",
+            message: body.error,
+            retryable: true,
+            provider: "legacy-complete-route"
+          }
+        };
+
+    const result = await applyCanonicalN8nCallback(payload);
+    return NextResponse.json(result.body, { status: result.httpStatus });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Impossible de terminer la fiche.";

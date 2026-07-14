@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { appendAuditLog } from "@/lib/appels-offres/repository.ts";
+import {
+  appendAuditLog,
+  setAppelOffresBusinessStatus
+} from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
 import {
   markFicheValidated,
@@ -65,6 +68,9 @@ export async function POST(
       indexed.status,
       "validate"
     );
+    await setAppelOffresBusinessStatus(code, "fiche_validee", {
+      validatedAt: indexed.status.validatedAt
+    }).catch(() => undefined);
     await appendAuditLog(code, "fiche_cdc.validated", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);

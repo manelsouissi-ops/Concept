@@ -90,9 +90,13 @@ const PROCESSING_JOB_LABELS: Record<ProcessingJobRecord["jobType"], string> = {
 };
 
 const PROCESSING_JOB_STATUS_LABELS: Record<ProcessingJobRecord["status"], string> = {
-  processing: "En cours",
+  created: "Cree",
+  queued: "En attente",
+  running: "En cours",
   completed: "Termine",
-  failed: "Echoue"
+  failed: "Echoue",
+  cancelled: "Annule",
+  retrying: "Nouvelle tentative"
 };
 
 const DOCUMENT_LABELS: Record<DocumentKind, string> = {
@@ -113,6 +117,10 @@ function getRawBusinessStatus(appel: AppelOffresDetail): BusinessStatusKey {
     return "archive";
   }
 
+  if (appel.businessStatus != null) {
+    return appel.businessStatus;
+  }
+
   if (
     appel.status === "error" ||
     ficheStatus === "error" ||
@@ -129,7 +137,13 @@ function getRawBusinessStatus(appel: AppelOffresDetail): BusinessStatusKey {
     return "fiche_a_valider";
   }
 
-  if (ficheStatus === "processing" || appel.status === "processing") {
+  if (
+    ficheStatus === "processing" ||
+    appel.status === "processing" ||
+    appel.processingJobs.some((job) =>
+      ["created", "queued", "running", "retrying"].includes(job.status)
+    )
+  ) {
     return "analyse_en_cours";
   }
 

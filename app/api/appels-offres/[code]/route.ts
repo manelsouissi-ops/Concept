@@ -5,6 +5,7 @@ import {
   createProcessingJobByCode,
   finishProcessingJob,
   getAppelOffresDetailByCode,
+  setAppelOffresBusinessStatus,
   setAppelOffresStatus,
   syncStoredDocumentsMetadata,
   updateAppelOffres
@@ -127,7 +128,7 @@ export async function PUT(
         source: "update"
       });
       await syncStoredDocumentsMetadata(code);
-      await setAppelOffresStatus(code, "ready");
+      await setAppelOffresBusinessStatus(code, "cdc_importe");
       await finishProcessingJob(jobId, "completed");
     }
 

@@ -7,6 +7,16 @@ export type AppelOffresStatus =
   | "error"
   | "archived";
 
+export type AppelOffresBusinessStatus =
+  | "brouillon"
+  | "cdc_importe"
+  | "en_attente_analyse"
+  | "analyse_en_cours"
+  | "fiche_a_valider"
+  | "fiche_validee"
+  | "erreur"
+  | "archive";
+
 export type AppelOffresSource = "manual" | "fiche-flow";
 
 export type AppelOffresPriorite = "basse" | "normale" | "haute" | "critique";
@@ -17,7 +27,27 @@ export type DocumentKind =
   | "fiche_markdown"
   | "status_json";
 
-export type ProcessingJobStatus = "processing" | "completed" | "failed";
+export type ProcessingJobStatus =
+  | "created"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "retrying";
+
+export type ProcessingJobCallbackStatus = "completed" | "failed" | "cancelled";
+
+export type ProcessingJobErrorStage =
+  | "webhook"
+  | "upload"
+  | "marker"
+  | "markdown"
+  | "anonymization"
+  | "llm"
+  | "xml"
+  | "callback"
+  | "unknown";
 
 export type ProcessingJobType =
   | "appel_offres_upload"
@@ -39,6 +69,7 @@ export type AppelOffresInput = {
 export type AppelOffresRecord = AppelOffresInput & {
   id: number;
   status: AppelOffresStatus;
+  businessStatus: AppelOffresBusinessStatus | null;
   source: AppelOffresSource;
   createdAt: string;
   updatedAt: string;
@@ -60,10 +91,21 @@ export type DocumentRecord = {
 export type ProcessingJobRecord = {
   id: number;
   appelOffresId: number;
+  publicId: string | null;
   jobType: ProcessingJobType;
   status: ProcessingJobStatus;
   startedAt: string;
   finishedAt: string | null;
+  contractVersion: string | null;
+  correlationId: string | null;
+  executionId: string | null;
+  launchAcceptedAt: string | null;
+  callbackReceivedAt: string | null;
+  callbackStatus: ProcessingJobCallbackStatus | null;
+  callbackIdempotencyKey: string | null;
+  retryOfJobId: number | null;
+  errorStage: ProcessingJobErrorStage | null;
+  errorCode: string | null;
   errorMessage: string | null;
   metadata: Record<string, unknown> | null;
 };

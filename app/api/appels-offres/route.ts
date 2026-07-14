@@ -7,6 +7,7 @@ import {
   getAppelOffresDetailByCode,
   getAppelOffresRecordByCode,
   listAppelsOffres,
+  setAppelOffresBusinessStatus,
   setAppelOffresStatus,
   syncStoredDocumentsMetadata
 } from "@/lib/appels-offres/repository.ts";
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
     await createAppelOffres({
       ...input,
       status: "processing",
+      businessStatus: "brouillon",
       source: "manual"
     });
     created = true;
@@ -93,7 +95,7 @@ export async function POST(request: Request) {
       fileName: file?.name ?? "cdc.pdf"
     });
     await syncStoredDocumentsMetadata(code);
-    await setAppelOffresStatus(code, "ready");
+    await setAppelOffresBusinessStatus(code, "cdc_importe");
     await finishProcessingJob(jobId, "completed");
     await appendAuditLog(code, "appel_offres.created", {
       status: "ready",
