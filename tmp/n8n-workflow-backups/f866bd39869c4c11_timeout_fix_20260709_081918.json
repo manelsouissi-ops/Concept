@@ -1,0 +1,611 @@
+{
+  "id": "f866bd39869c4c11",
+  "name": "CDC Initiation - Fiche Projet XML",
+  "active": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cdc-initiation-fiche-projet-xml",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "274d6460-796c-479c-877f-4429f5bdb385",
+      "name": "Webhook CDC Initiation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1968,
+        672
+      ],
+      "webhookId": "66c6df34-9401-4e0f-be46-5ef27d7a5043"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst payload = item.json.body ?? item.json ?? {};\nconst codeInterne = String(payload.code_interne ?? '').trim();\nconst binary = item.binary ?? {};\nconst binaryKeys = Object.keys(binary);\nconst fileKey = binary.file ? 'file' : binaryKeys[0];\n\nif (!codeInterne) {\n  throw new Error(\"Champ code_interne manquant dans la requête multipart/form-data.\");\n}\n\nif (!fileKey) {\n  throw new Error(\"Champ file manquant dans la requête multipart/form-data.\");\n}\n\nreturn [{\n  json: {\n    code_interne: codeInterne,\n    file_field: fileKey,\n  },\n  binary,\n}];"
+      },
+      "id": "766a384a-0a6a-45dd-b64a-1651c838c1ff",
+      "name": "Validate Webhook Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compute deterministic, collision-free paths for this run\nconst now = new Date();\nconst pad = (n) => String(n).padStart(2, '0');\nconst ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;\n\nconst inputItem = $input.first();\nconst codeInterne = inputItem.json.code_interne;\nconst requestedFileKey = inputItem.json.file_field;\nconst binaryKey = requestedFileKey && inputItem.binary?.[requestedFileKey]\n  ? requestedFileKey\n  : Object.keys(inputItem.binary || {})[0];\nconst meta = binaryKey ? inputItem.binary[binaryKey] : null;\nconst safeOriginalName = meta && meta.fileName\n  ? meta.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')\n  : 'cdc.pdf';\n\nif (!binaryKey) {\n  throw new Error(\"Aucun fichier PDF trouvé dans la requête webhook.\");\n}\n\nconst incomingDir = 'C:\\\\Users\\\\lotfi\\\\.n8n-files\\\\incoming';\nconst markerBaseOutputDir = 'C:\\\\Users\\\\lotfi\\\\.n8n-files\\\\marker_output';\n\nconst pdfFileName = `${ts}_${safeOriginalName}`;\nconst pdfPath = `${incomingDir}\\\\${pdfFileName}`;\nconst mdOutputDir = `${markerBaseOutputDir}\\\\${ts}`;\n\nreturn [{\n  json: {\n    code_interne: codeInterne,\n    binaryKey,\n    pdfFileName,\n    pdfPath,\n    mdOutputDir\n  },\n  binary: inputItem.binary\n}];"
+      },
+      "id": "71927fe9-0bff-4746-857e-3d5abde90c22",
+      "name": "Prepare Upload Paths",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1520,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.pdfPath }}",
+        "dataPropertyName": "={{ $json.binaryKey }}",
+        "options": {}
+      },
+      "id": "deff541a-ae12-4106-918c-9cab5d17d6f4",
+      "name": "Save Uploaded PDF",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1296,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/convert",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "={{ $json.binaryKey }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "id": "6ccf8f9d-7899-4ad8-b9d9-0a632f0feef1",
+      "name": "Convert PDF via FastAPI Marker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1072,
+        672
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "95abc7e7-2c11-4a40-bc03-2ecdb91cc20d",
+      "name": "Wait 30s Before Marker Result",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -624,
+        672
+      ],
+      "webhookId": "75dfd2cc-66d0-4704-9642-664a9126fd28"
+    },
+    {
+      "parameters": {
+        "url": "=http://127.0.0.1:8000/result/{{ $json.job_id }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "84d09392-1a04-45d2-b4b5-29f18ce8d2e4",
+      "name": "Get Marker Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -176,
+        672
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "completed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Completed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "processing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Processing"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Failed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b87bba0d-68c6-44fa-a041-07c39b866e09",
+      "name": "Check Marker Status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nthrow new Error(`Marker job failed for job_id ${item.json.job_id} (${item.json.original_filename || 'unknown file'}): ${item.json.error}`);\n\n// Unreachable: the throw above always stops execution for this branch.\n// Kept only so static analysis sees a valid return path.\nreturn [item];"
+      },
+      "id": "2ba72ba8-58e5-49ff-bc92-09aca1731544",
+      "name": "Marker Job Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nlet text;\n\nif (item.binary && Object.keys(item.binary).length > 0) {\n  const binaryKey = Object.keys(item.binary)[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(0, binaryKey);\n  text = buffer.toString('utf-8');\n} else {\n  text = item.json.markdown;\n}\n\nreturn [{\n  json: {\n    text,\n    markdown: text,\n  },\n}];"
+      },
+      "id": "42a7d8b6-2201-4e79-8391-e28ee3dae72d",
+      "name": "Read Markdown as Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Anonymisation dynamique du CDC ===\n// Détecte client/ville LOCALEMENT (regex + dictionnaire), JAMAIS via LLM.\n// Renvoie texte_anonymise + mapping_reverse pour restauration finale.\n\n// 1. Dictionnaire CONCEPT des clients connus (éditable)\nconst CLIENTS_CONNUS = [\n  { canonical: 'SODECI', forms: ['SODECI', \"Société de Distribution d'Eau de Côte d'Ivoire\"] },\n  { canonical: 'ONEP', forms: ['ONEP', \"Office National de l'Eau Potable\"] },\n  { canonical: 'REGIDESO', forms: ['REGIDESO', \"Régie de Distribution d'Eau\"] },\n  { canonical: 'SDE', forms: ['SDE', \"Sénégalaise des Eaux\"] },\n  { canonical: 'SONES', forms: ['SONES', \"Société Nationale des Eaux du Sénégal\"] },\n  { canonical: 'CIE', forms: ['CIE', \"Compagnie Ivoirienne d'Électricité\"] },\n  { canonical: 'CWA', forms: ['CWA', 'Central Water Authority'] },\n  { canonical: 'NWSC', forms: ['NWSC', 'National Water and Sewerage Corporation'] },\n];\n\n// 2. Villes connues (Afrique de l'Ouest + zones CONCEPT)\nconst VILLES_CONNUES = [\n  'Abidjan', 'Bouaké', 'Yamoussoukro', 'San-Pédro', 'Korhogo',\n  'Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack',\n  'Nouakchott', 'Nouadhibou', 'Rosso',\n  'Bamako', 'Sikasso', 'Ségou', 'Mopti',\n  'Ouagadougou', 'Bobo-Dioulasso',\n  'Niamey', 'Zinder', 'Maradi',\n  'Cotonou', 'Porto-Novo',\n  'Lomé', 'Sokodé',\n  'Conakry', 'Kankan',\n  'Bissau', 'Kigali', 'Port-Louis',\n  'Tunis', 'Sfax', 'Sousse', 'Bizerte', 'Gabès',\n];\n\n// 3. Libellés contextuels qui précèdent un nom de client\nconst LIBELLES_CLIENT = [\n  \"Maître d'Ouvrage\",\n  \"Maitre d'Ouvrage\",\n  \"Maître de l'Ouvrage\",\n  \"Maitre de l'Ouvrage\",\n  \"Pouvoir adjudicateur\",\n  \"Autorité contractante\",\n  \"Autorite contractante\",\n  \"Bénéficiaire\",\n  \"Beneficiaire\",\n  \"Entité contractante\",\n  \"Acheteur public\",\n  \"Acheteur\",\n  \"Le Client\",\n];\n\nconst texteOriginal = $input.first().json.text;\n\n// === Détection client (1) via dictionnaire ===\nlet clientCanonical = null;\nlet clientFormsDetectees = [];\n\nfor (const c of CLIENTS_CONNUS) {\n  const formsTrouvees = c.forms.filter(f => texteOriginal.includes(f));\n  if (formsTrouvees.length > 0) {\n    clientCanonical = c.canonical;\n    clientFormsDetectees = formsTrouvees;\n    break;\n  }\n}\n\n// === Détection client (2) via libellés contextuels (fallback) ===\nif (!clientCanonical) {\n  for (const libelle of LIBELLES_CLIENT) {\n    const idx = texteOriginal.indexOf(libelle);\n    if (idx === -1) continue;\n    // Prend les 200 chars après le libellé\n    const after = texteOriginal.substring(idx + libelle.length, idx + libelle.length + 200);\n    // Cherche la première séquence \"propre\" : strip séparateurs initiaux puis prend jusqu'à ponctuation/retour ligne\n    const match = after.match(/^[\\s:：\\-–—]*([^\\n\\r.,;()]{3,100})/);\n    if (match && match[1]) {\n      const candidate = match[1].trim();\n      // Évite les faux positifs trop génériques\n      if (candidate.length >= 3 && !/^(le|la|les|du|de|des)\\s/i.test(candidate)) {\n        clientCanonical = candidate;\n        clientFormsDetectees = [candidate];\n        break;\n      }\n    }\n  }\n}\n\n// === Détection ville via dictionnaire ===\nlet villeCanonical = null;\nfor (const v of VILLES_CONNUES) {\n  if (texteOriginal.includes(v)) {\n    villeCanonical = v;\n    break;\n  }\n}\n\n// === Construction des remplacements client/ville (comportement inchangé) ===\nconst remplacements = [];\nfor (const forme of clientFormsDetectees) {\n  remplacements.push({ from: forme, to: 'Client A' });\n}\nif (villeCanonical) {\n  remplacements.push({ from: villeCanonical, to: '[VILLE]' });\n}\n\n// Tri du plus long au plus court (évite remplacements partiels)\nremplacements.sort((a, b) => b.from.length - a.from.length);\n\nlet texteAnonymise = texteOriginal;\nfor (const { from, to } of remplacements) {\n  texteAnonymise = texteAnonymise.split(from).join(to);\n}\n\n// === Mapping inverse pour dé-anonymisation finale ===\nconst mappingReverse = {};\nif (clientCanonical) mappingReverse['Client A'] = clientCanonical;\nif (villeCanonical) mappingReverse['[VILLE]'] = villeCanonical;\n\n// =========================================================================\n// === NOUVELLES COUCHES D'ANONYMISATION LOCALE (regex, sans LLM) ===\n// Appliquées APRES le client/ville, sur le texte déjà partiellement\n// anonymisé. Ainsi ces regex ne peuvent jamais \"manger\" un placeholder\n// déjà créé ('Client A', '[VILLE]') puisque ces chaînes ne matchent pas\n// les motifs email / url / téléphone / référence ci-dessous.\n// =========================================================================\n\nlet nbEmails = 0;\nlet nbPhones = 0;\nlet nbUrls = 0;\nlet nbReferences = 0;\n\n// Petit utilitaire : remplace toutes les occurrences uniques d'un regex\n// par des placeholders numérotés [PREFIX_n], dans l'ordre d'apparition,\n// et alimente mappingReverse. Retourne le nouveau texte + le nb d'entrées.\nfunction anonymiserParRegex(texte, regex, prefix, mappingReverse) {\n  const vues = new Map(); // valeur originale -> placeholder\n  let compteur = 0;\n\n  const nouveauTexte = texte.replace(regex, (match) => {\n    if (vues.has(match)) {\n      return vues.get(match);\n    }\n    compteur += 1;\n    const placeholder = `[${prefix}_${compteur}]`;\n    vues.set(match, placeholder);\n    mappingReverse[placeholder] = match;\n    return placeholder;\n  });\n\n  return { texte: nouveauTexte, nb: compteur };\n}\n\n// --- 1. Emails ---\nconst REGEX_EMAIL = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g;\n{\n  const res = anonymiserParRegex(texteAnonymise, REGEX_EMAIL, 'EMAIL', mappingReverse);\n  texteAnonymise = res.texte;\n  nbEmails = res.nb;\n}\n\n// --- 2. URLs / sites web (avec ou sans protocole) ---\nconst REGEX_URL = /\\bhttps?:\\/\\/[^\\s<>\"')]+|\\bwww\\.[a-zA-Z0-9-]+\\.[a-zA-Z]{2,}(?:\\/[^\\s<>\"')]*)?/gi;\n{\n  const res = anonymiserParRegex(texteAnonymise, REGEX_URL, 'URL', mappingReverse);\n  texteAnonymise = res.texte;\n  nbUrls = res.nb;\n}\n\n// --- 3. Références projet / appel d'offres (AAO, DAO, AO, N°...) ---\n// Ex: \"AAO N°12/2024\", \"DAO n° 05/2025-MEF\", \"Appel d'Offres N° 003/2026\",\n//     \"N°2024/AEP/015\", \"AO-2025-014\"\nconst REGEX_REFERENCE = /\\b(?:Appel d'Offres|Appel Offres|AAO|DAO|AO)\\s*(?:N°|No|Num[ée]ro)?\\s*[:°]?\\s*[A-Z0-9][A-Z0-9\\/\\-\\._]{2,29}\\b|\\bN°\\s*[:\\-]?\\s*[A-Z0-9][A-Z0-9\\/\\-\\._]{2,29}\\b/gi;\n{\n  const res = anonymiserParRegex(texteAnonymise, REGEX_REFERENCE, 'REF', mappingReverse);\n  texteAnonymise = res.texte;\n  nbReferences = res.nb;\n}\n\n// --- 4. Numéros de téléphone (appliqué en dernier, après les références,\n//        pour limiter les collisions avec des numéros de référence) ---\n// Deux cas couverts, volontairement CONSERVATEURS pour ne jamais capturer\n// des montants financiers (ex: \"250 000 000 FCFA\") ou des numéros de\n// référence par erreur :\n//   (a) précédé d'un mot-clé téléphonique explicite (Tél, GSM, Mobile, Fax...)\n//   (b) format international explicite commençant par \"+\"\n// Un simple groupe de chiffres isolé (ex: un montant) n'est JAMAIS anonymisé\n// en tant que téléphone.\nconst REGEX_PHONE = /(?:(?<=(?:t[ée]l[ée]?phone|t[ée]l\\.?|gsm|mobile|portable|cellulaire|fax|whatsapp)[\\s:\\-]{0,4})\\+?\\d(?:[\\s.-]?\\d){6,13})|(?:\\+\\d{1,3}(?:[\\s.-]?\\d){6,12})/gi;\n{\n  const res = anonymiserParRegex(texteAnonymise, REGEX_PHONE, 'PHONE', mappingReverse);\n  texteAnonymise = res.texte;\n  nbPhones = res.nb;\n}\n\nconst nbTotalRemplacements = remplacements.length + nbEmails + nbUrls + nbReferences + nbPhones;\n\n// === Warnings (ne bloque jamais le pipeline) ===\nlet warning = null;\nif (!clientCanonical && !villeCanonical) {\n  warning = 'AUCUN client ni ville detectes. Texte envoye sans anonymisation - verifier le CDC.';\n} else if (!clientCanonical) {\n  warning = 'Client non detecte ; seule la ville a ete anonymisee.';\n} else if (!villeCanonical) {\n  warning = 'Ville non detectee ; seul le client a ete anonymise.';\n}\n\nreturn [\n  {\n    json: {\n      texte_anonymise: texteAnonymise,\n      mapping_reverse: mappingReverse,\n      detection: {\n        client: clientCanonical,\n        client_formes_detectees: clientFormsDetectees,\n        ville: villeCanonical,\n        warning: warning,\n      },\n      nb_remplacements: nbTotalRemplacements,\n      longueur_originale: texteOriginal.length,\n      longueur_anonymisee: texteAnonymise.length,\n      anonymisation_stats: {\n        clients: clientFormsDetectees.length,\n        villes: villeCanonical ? 1 : 0,\n        emails: nbEmails,\n        phones: nbPhones,\n        urls: nbUrls,\n        references: nbReferences,\n      },\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1968,
+        -96
+      ],
+      "id": "233f4734-414a-405d-9796-09d6bd041ae7",
+      "name": "Code JS (anonymisation)",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (function() {\n  const texte = $json.texte_anonymise || '';\n  const instructions = \"Tu es un outil d'anonymisation de documents. Voici un texte de cahier des charges (CDC) deja partiellement anonymise par des regles automatiques (client -> 'Client A', ville -> '[VILLE]', emails/telephones/urls/references -> [EMAIL_n]/[PHONE_n]/[URL_n]/[REF_n]).\\n\\nTa mission : relire ce texte et anonymiser tout ce qui reste et qui pourrait identifier des personnes ou organisations reelles :\\n- Noms de personnes (ex: signataires, contacts, responsables)\\n- Noms d'organisations autres que le client deja anonymise (sous-traitants, ministeres, bailleurs nommes explicitement, partenaires)\\n- Adresses postales\\n- Emails, telephones, sites web ou references qui auraient echappe aux regles\\n\\nREGLES STRICTES :\\n1. Reponds UNIQUEMENT avec un objet JSON valide, rien d'autre. Pas de markdown, pas de balises de code, pas d'explication avant ou apres.\\n2. Le JSON doit respecter EXACTEMENT ce schema :\\n{\\\"anonymized_text\\\": \\\"...\\\", \\\"mapping\\\": {\\\"[PERSON_1]\\\": \\\"valeur originale\\\", \\\"[ORG_1]\\\": \\\"valeur originale\\\", \\\"[ADDRESS_1]\\\": \\\"valeur originale\\\"}}\\n3. Utilise [PERSON_n] pour les personnes, [ORG_n] pour les organisations, [ADDRESS_n] pour les adresses (numerotation continue a partir de 1 ; une meme valeur reelle doit toujours reutiliser le meme placeholder si elle apparait plusieurs fois).\\n4. Chaque cle de \\\"mapping\\\" doit etre le placeholder insere dans \\\"anonymized_text\\\", et sa valeur doit etre le texte original exact qu'il remplace (necessaire pour pouvoir tout restaurer plus tard).\\n5. NE TOUCHE JAMAIS aux placeholders deja presents dans le texte fourni : 'Client A', '[VILLE]', '[EMAIL_n]', '[PHONE_n]', '[URL_n]', '[REF_n]'. Ne les renomme jamais, ne les modifie jamais, et ne les ajoute jamais dans \\\"mapping\\\".\\n6. Ne modifie AUCUN autre mot, chiffre, montant, date ou terme technique.\\n7. Conserve exactement la structure Markdown du texte (titres, listes, tableaux, sauts de ligne) dans \\\"anonymized_text\\\".\\n8. Si aucune entite supplementaire n'est trouvee, renvoie \\\"mapping\\\": {} et \\\"anonymized_text\\\" identique au texte fourni.\";\n  const fullPrompt = instructions + \"\\n\\n=== TEXTE A ANONYMISER ===\\n\" + texte;\n  return JSON.stringify({\n    model: 'llama3.1',\n    prompt: fullPrompt,\n    stream: false,\n    format: 'json',\n    options: { temperature: 0.1 }\n  });\n})() }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "54ab3467-c125-4773-a55d-7cf7db1b75b3",
+      "name": "HTTP Request → Ollama (anonymisation)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1968,
+        128
+      ],
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Fusion du résultat Ollama (protocole JSON structuré) avec la sortie règles ===\n// Cette couche est OPTIONNELLE : si Ollama est indisponible, en erreur, ou renvoie\n// un JSON invalide/incomplet, texte_anonymise_final reste null et mapping_reverse\n// reste strictement celui de la couche règles. Le pipeline aval n'échoue jamais ici.\n\nconst anonOut = $('Code JS (anonymisation)').first().json;\nconst ollamaResponse = $input.first().json;\n\nconst baseMapping = anonOut.mapping_reverse || {};\n\nlet texteFinal = null;\nlet ollamaMappingPropre = null;\nlet ollamaError = null;\nlet ollamaUsed = false;\nlet nbEntitesDetectees = 0;\n\ntry {\n  const raw = ollamaResponse && ollamaResponse.response ? String(ollamaResponse.response).trim() : '';\n  if (!raw) {\n    throw new Error('Réponse Ollama vide.');\n  }\n\n  // Sécurité : Ollama respecte rarement les balises de code avec format:\"json\",\n  // mais on nettoie au cas où un modèle les ajoute quand même.\n  let cleaned = raw.replace(/^```[a-zA-Z]*\\n?/, '');\n  if (cleaned.endsWith('```')) {\n    cleaned = cleaned.slice(0, -3);\n  }\n  cleaned = cleaned.trim();\n\n  const parsed = JSON.parse(cleaned);\n\n  if (\n    !parsed ||\n    typeof parsed.anonymized_text !== 'string' ||\n    parsed.anonymized_text.length === 0 ||\n    typeof parsed.mapping !== 'object' ||\n    parsed.mapping === null ||\n    Array.isArray(parsed.mapping)\n  ) {\n    throw new Error('JSON Ollama ne respecte pas le schéma attendu (anonymized_text / mapping).');\n  }\n\n  // Garde-fou n°7 : on ignore toute tentative de renommer/écraser un placeholder\n  // déjà créé par la couche règles (Client A, [VILLE], [EMAIL_n], [PHONE_n], [URL_n], [REF_n]).\n  const cleanMapping = {};\n  for (const [placeholder, valeurOriginale] of Object.entries(parsed.mapping)) {\n    if (Object.prototype.hasOwnProperty.call(baseMapping, placeholder)) {\n      continue; // placeholder déjà utilisé par les règles -> jamais écrasé\n    }\n    cleanMapping[placeholder] = valeurOriginale;\n  }\n\n  texteFinal = parsed.anonymized_text;\n  ollamaMappingPropre = cleanMapping;\n  nbEntitesDetectees = Object.keys(cleanMapping).length;\n  ollamaUsed = true;\n} catch (e) {\n  ollamaError = 'Erreur lors du traitement de la réponse Ollama: ' + e.message;\n}\n\n// Garde-fou : si l'appel HTTP a échoué (onError: continueRegularOutput), l'item\n// peut contenir un champ \"error\" au lieu de \"response\".\nif (!ollamaUsed && ollamaResponse && ollamaResponse.error) {\n  ollamaError = 'Ollama HTTP error: ' + JSON.stringify(ollamaResponse.error);\n}\n\n// mapping_reverse final : fusion règles + Ollama si succès, sinon règles seules (inchangé).\nconst mappingReverseFinal = ollamaUsed\n  ? { ...baseMapping, ...ollamaMappingPropre }\n  : baseMapping;\n\nreturn [\n  {\n    json: {\n      // --- Champs de la couche règles, préservés ---\n      texte_anonymise: anonOut.texte_anonymise,\n      mapping_reverse: mappingReverseFinal,\n      detection: anonOut.detection,\n      nb_remplacements: anonOut.nb_remplacements,\n      longueur_originale: anonOut.longueur_originale,\n      longueur_anonymisee: anonOut.longueur_anonymisee,\n      anonymisation_stats: anonOut.anonymisation_stats,\n      // --- Nouvelle couche IA locale (Ollama), optionnelle et réversible ---\n      texte_anonymise_final: ollamaUsed ? texteFinal : null,\n      anonymisation_ia: {\n        utilisee: ollamaUsed,\n        moteur: 'Ollama',\n        nb_entites_detectees: nbEntitesDetectees,\n        erreur: ollamaError,\n      },\n    },\n  },\n];"
+      },
+      "id": "dc32aa6b-696a-4fa1-ab2a-a0eb6e50dca6",
+      "name": "Code JS (fusion Ollama)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1968,
+        352
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$credentials.groqApiKey}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (function() {\n  const documentText = $json.markdown || $json.text || '';\n  if (!documentText.trim()) {\n    throw new Error('Document markdown vide avant appel Groq XML — vérifier les étapes Marker en amont.');\n  }\n  const prompt = \"Tu es un assistant qui lit un cahier des charges et produit une fiche projet standard au format XML.\\n\\nLe document est à la fin. Exécute trois étapes dans l'ordre, puis rends un seul document XML.\\n\\nÉTAPE 1. Extraction\\nPour chaque champ, donne la valeur exacte du dossier et sa source (page ou section).\\nN'invente rien. Si l'information manque, mets \\\"Non trouvé\\\".\\nReprends les termes du dossier. Ne reformule pas les chiffres ni les dates.\\n\\nÉTAPE 2. Évaluation\\nAttribue trois notes de 1 à 5. Justifie chaque note avec des éléments du dossier.\\n\\nComplexité technique.\\n1. Une seule discipline. 2. Peu de disciplines. 3. Plusieurs disciplines coordonnées. 4. Multi-disciplines avec modélisation. 5. Multi-sites, multi-composantes.\\n\\nDifficulté terrain.\\n1. Site unique, accès facile. 2. Site urbain simple. 3. Bassin urbain avec contraintes. 4. Plusieurs sites sensibles. 5. Sites multiples, logistique lourde.\\n\\nRisque de sous-dimensionnement.\\nEstime d'abord la charge réelle des livrables et des phases. Compare-la au volume demandé. Puis note.\\n1. Moyens largement suffisants. 2. Volume cohérent. 3. Volume tendu. 4. Charge élevée à surveiller. 5. Sous-dimensionnement probable.\\n\\nÉTAPE 3. Contrôle\\nVérifie ta propre fiche.\\nListe les champs \\\"Non trouvé\\\" et où chercher.\\nSignale les valeurs incohérentes entre elles.\\nSignale les dates et chiffres à revérifier.\\n\\nSORTIE\\nRends uniquement le document XML ci-dessous, rempli. Aucun texte avant ni après. Laisse reference_interne vide, je la remplis à la main. Garde exactement cette structure et ces noms de balises.\\n\\n<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?>\\n<fiche_projet>\\n<reference_interne></reference_interne>\\n<extraction>\\n<reference_officielle source=\\\"\\\"></reference_officielle>\\n<intitule_mission source=\\\"\\\"></intitule_mission>\\n<client_maitre_ouvrage source=\\\"\\\"></client_maitre_ouvrage>\\n<pays source=\\\"\\\"></pays>\\n<zone_execution source=\\\"\\\"></zone_execution>\\n<projet_rattachement source=\\\"\\\"></projet_rattachement>\\n<source_financement source=\\\"\\\"></source_financement>\\n<credit_financement source=\\\"\\\"></credit_financement>\\n<secteur source=\\\"\\\"></secteur>\\n<nature_prestation source=\\\"\\\"></nature_prestation>\\n<type_procedure source=\\\"\\\"></type_procedure>\\n<methode_selection source=\\\"\\\"></methode_selection>\\n<type_proposition source=\\\"\\\"></type_proposition>\\n<type_contrat source=\\\"\\\"></type_contrat>\\n<date_emission source=\\\"\\\"></date_emission>\\n<date_limite_depot source=\\\"\\\"></date_limite_depot>\\n<langue_offre source=\\\"\\\"></langue_offre>\\n<ponderation_technique_financiere source=\\\"\\\"></ponderation_technique_financiere>\\n<note_technique_minimale source=\\\"\\\"></note_technique_minimale>\\n<duree_totale source=\\\"\\\"></duree_totale>\\n<volume_hommes_mois source=\\\"\\\"></volume_hommes_mois>\\n<nombre_profils_experts source=\\\"\\\"></nombre_profils_experts>\\n<phases_mission source=\\\"\\\"></phases_mission>\\n<livrables_principaux source=\\\"\\\"></livrables_principaux>\\n<nombre_livrables_structurants source=\\\"\\\"></nombre_livrables_structurants>\\n<profils_cles source=\\\"\\\"></profils_cles>\\n<disciplines_techniques source=\\\"\\\"></disciplines_techniques>\\n<nombre_sites source=\\\"\\\"></nombre_sites>\\n<contraintes_site source=\\\"\\\"></contraintes_site>\\n<outils_methodes source=\\\"\\\"></outils_methodes>\\n<moyens_materiels source=\\\"\\\"></moyens_materiels>\\n<exigences_es source=\\\"\\\"></exigences_es>\\n<normes_referentiels source=\\\"\\\"></normes_referentiels>\\n<points_techniques_structurants source=\\\"\\\"></points_techniques_structurants>\\n</extraction>\\n<evaluation>\\n<complexite_technique note=\\\"\\\">\\n<justification></justification>\\n</complexite_technique>\\n<difficulte_terrain note=\\\"\\\">\\n<justification></justification>\\n</difficulte_terrain>\\n<risque_sous_dimensionnement note=\\\"\\\">\\n<charge_estimee></charge_estimee>\\n<justification></justification>\\n</risque_sous_dimensionnement>\\n</evaluation>\\n<controle>\\n<champs_non_trouves></champs_non_trouves>\\n<incoherences></incoherences>\\n<a_verifier></a_verifier>\\n</controle>\\n</fiche_projet>\\n\\nDocument:\\n\" + documentText;\n  return JSON.stringify({\n    model: 'llama-3.3-70b-versatile',\n    messages: [{ role: 'user', content: prompt }],\n    temperature: 0.1,\n    max_tokens: 6000\n  });\n})() }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "id": "3ed04dcb-f407-468e-ab88-2b895d0203ce",
+      "name": "HTTP Request → Groq XML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        720,
+        576
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "62QeeUQCKHGytgLY",
+          "name": "Groq API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nlet xml = response?.choices?.[0]?.message?.content ?? '';\nxml = String(xml).trim();\nxml = xml.replace(/^```xml\\s*/i, '');\nxml = xml.replace(/^```\\s*/i, '');\nxml = xml.replace(/\\s*```$/i, '');\nxml = xml.trim();\n\nconst markdownSource = $('Read Markdown as Text').first().json;\nconst markdown = markdownSource.markdown || markdownSource.text || '';\n\nreturn [{\n  json: {\n    xml,\n    markdown,\n  },\n}];"
+      },
+      "id": "716cb30e-1bee-443a-9e28-4b482dbea2f8",
+      "name": "Clean XML Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ xml: $json.xml, markdown: $json.markdown }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "16a91440-aa1d-4eaa-aa31-f1731a160594",
+      "name": "Respond XML JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1168,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst now = Date.now();\n\nreturn [{\n  json: {\n    ...item.json,\n    marker_poll_count: 0,\n    marker_started_at: now,\n    marker_max_polls: 10,\n    marker_max_elapsed_ms: 300000,\n  },\n  binary: item.binary,\n}];"
+      },
+      "id": "93c3d6d3-f38f-4e77-b3f4-0cce1d4f71a1",
+      "name": "Init Marker Poll Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst now = Date.now();\nconst pollCount = Number(item.json.marker_poll_count ?? 0) + 1;\nconst startedAt = Number(item.json.marker_started_at ?? now);\nconst maxPolls = Number(item.json.marker_max_polls ?? 10);\nconst maxElapsedMs = Number(item.json.marker_max_elapsed_ms ?? 300000);\nconst elapsedMs = now - startedAt;\n\nif (pollCount > maxPolls || elapsedMs > maxElapsedMs) {\n  throw new Error('Marker timeout after 5 minutes');\n}\n\nreturn [{\n  json: {\n    ...item.json,\n    marker_poll_count: pollCount,\n    marker_started_at: startedAt,\n    marker_max_polls: maxPolls,\n    marker_max_elapsed_ms: maxElapsedMs,\n    marker_elapsed_ms: elapsedMs,\n    marker_last_poll_at: now,\n  },\n  binary: item.binary,\n}];"
+      },
+      "id": "6d2373fe-49fe-431c-9f92-0f0d1a6ae5dd",
+      "name": "Increment Marker Poll Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "41730874-6e4f-468d-9f1f-306a0a14d4f6",
+      "name": "Merge Marker Result With Guard",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        48,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "throw new Error('Marker timeout after 5 minutes');"
+      },
+      "id": "79f1d6a8-af97-4d0b-8b25-dfd3b9690bc4",
+      "name": "Marker Timeout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1968,
+        992
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook CDC Initiation": {
+      "main": [
+        [
+          {
+            "node": "Validate Webhook Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Webhook Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Upload Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Upload Paths": {
+      "main": [
+        [
+          {
+            "node": "Save Uploaded PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Uploaded PDF": {
+      "main": [
+        [
+          {
+            "node": "Convert PDF via FastAPI Marker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert PDF via FastAPI Marker": {
+      "main": [
+        [
+          {
+            "node": "Init Marker Poll Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Marker Poll Guard": {
+      "main": [
+        [
+          {
+            "node": "Wait 30s Before Marker Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s Before Marker Result": {
+      "main": [
+        [
+          {
+            "node": "Increment Marker Poll Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Marker Poll Guard": {
+      "main": [
+        [
+          {
+            "node": "Get Marker Result",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Marker Result With Guard",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Marker Result": {
+      "main": [
+        [
+          {
+            "node": "Merge Marker Result With Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Marker Result With Guard": {
+      "main": [
+        [
+          {
+            "node": "Check Marker Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Marker Status": {
+      "main": [
+        [
+          {
+            "node": "Read Markdown as Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30s Before Marker Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marker Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Markdown as Text": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request → Groq XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request → Groq XML": {
+      "main": [
+        [
+          {
+            "node": "Clean XML Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean XML Response": {
+      "main": [
+        [
+          {
+            "node": "Respond XML JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "updatedAt": "2026-07-09 07:50:33.838",
+  "versionCounter": 6
+}

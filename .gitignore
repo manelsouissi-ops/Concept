@@ -1,0 +1,11 @@
+node_modules
+.next
+.next-dev
+.next-prod
+.npm-cache
+.env.local
+*.log
+tsconfig.tsbuildinfo
+
+data/*
+!data/.gitkeep

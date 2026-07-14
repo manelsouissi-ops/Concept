@@ -1,0 +1,29 @@
+{
+  "name": "initiation-cdc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NEXT_DIST_DIR=.next-dev next dev",
+    "build:prod": "cross-env NEXT_DIST_DIR=.next-prod next build",
+    "start:prod": "cross-env NEXT_DIST_DIR=.next-prod next start -p 3016",
+    "typecheck": "tsc --noEmit",
+    "db:setup": "node --experimental-strip-types scripts/setup-fiche-index.ts",
+    "db:backfill": "node --experimental-strip-types scripts/backfill-fiches-to-postgres.ts"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.5.1",
+    "next": "^15.0.0",
+    "pdfjs-dist": "^6.1.200",
+    "pg": "^8.22.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "cross-env": "^10.1.0",
+    "typescript": "^5.7.2"
+  }
+}
