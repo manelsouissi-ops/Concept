@@ -1,18 +1,22 @@
 import "./globals.css";
+import type { ReactNode } from "react";
+import { AppShell } from "@/components/app-shell.tsx";
 
 export const metadata = {
-  title: "Initiation CDC",
-  description: "Interface de relecture et validation des fiches projet."
+  title: "CONCEPT | Gestion intelligente des appels d'offres",
+  description: "Plateforme interne de pilotage des appels d'offres, documents et Fiches CDC."
 };
 
 export default function RootLayout({
   children
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
   return (
     <html lang="fr">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import {
+  appendAuditLog,
+  finishLatestProcessingJobByCode,
+  setAppelOffresStatus,
+  syncStoredDocumentsMetadata
+} from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
 import { parseFiche, serializeFiche } from "@/lib/fiche-xml";
 import {
@@ -61,6 +67,21 @@ async function syncCurrentState(codeInterne: string, context: string) {
   );
 }
 
+async function syncAppelOffresSafely(
+  codeInterne: string,
+  context: string,
+  callback: () => Promise<void>
+) {
+  try {
+    await callback();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[appels-offres] Sync skipped after ${context} for ${codeInterne}: ${reason}`
+    );
+  }
+}
+
 function isAuthorized(request: Request) {
   const expected = process.env.N8N_COMPLETE_SECRET?.trim();
   if (!expected) {
@@ -112,6 +133,19 @@ export async function POST(
 
     if (isFailureBody(body)) {
       await markProcessingError(code, body.error, body.stage);
+      await syncAppelOffresSafely(code, "complete:error", async () => {
+        await setAppelOffresStatus(code, "error");
+        await finishLatestProcessingJobByCode(
+          code,
+          "fiche_generation",
+          "failed",
+          body.error
+        );
+        await appendAuditLog(code, "fiche.complete.failed", {
+          stage: body.stage,
+          error: body.error
+        });
+      });
       await syncCurrentState(code, "complete:error");
       return NextResponse.json({ ok: true });
     }
@@ -134,6 +168,16 @@ export async function POST(
         "XML malforme retourne par le pipeline",
         "groq"
       );
+      await syncAppelOffresSafely(code, "complete:invalid-xml", async () => {
+        await setAppelOffresStatus(code, "error");
+        await finishLatestProcessingJobByCode(
+          code,
+          "fiche_generation",
+          "failed",
+          "XML malforme retourne par le pipeline"
+        );
+        await appendAuditLog(code, "fiche.complete.invalid_xml");
+      });
       await syncCurrentState(code, "complete:invalid-xml");
 
       return NextResponse.json(
@@ -146,6 +190,18 @@ export async function POST(
       codeInterne: code,
       xml: normalizedXml,
       markdown: body.markdown
+    });
+    await syncAppelOffresSafely(code, "complete:success", async () => {
+      await setAppelOffresStatus(code, "ready");
+      await syncStoredDocumentsMetadata(code);
+      await finishLatestProcessingJobByCode(
+        code,
+        "fiche_generation",
+        "completed"
+      );
+      await appendAuditLog(code, "fiche.complete.succeeded", {
+        executionId: body.executionId
+      });
     });
     await syncCurrentState(code, "complete:success");
 

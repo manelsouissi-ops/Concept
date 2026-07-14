@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { appendAuditLog } from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
 import {
   readFicheBundle,
@@ -34,6 +35,10 @@ export async function PUT(
     const fiche = await writeFicheBundle(code, payload);
     const indexed = await readFicheIndexSource(code);
     await syncFicheIndexSafely(code, indexed.xml, indexed.fiche, indexed.status, "save");
+    await appendAuditLog(code, "fiche_cdc.saved", {
+      extractionFields: payload.extraction.length,
+      evaluationFields: payload.evaluation.length
+    }).catch(() => undefined);
     return NextResponse.json(fiche);
   } catch (error) {
     const message =

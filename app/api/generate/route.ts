@@ -1,4 +1,13 @@
 import { NextResponse } from "next/server";
+import {
+  appendAuditLog,
+  createAppelOffres,
+  createProcessingJobByCode,
+  finishLatestProcessingJobByCode,
+  getAppelOffresRecordByCode,
+  setAppelOffresStatus,
+  syncStoredDocumentsMetadata
+} from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
 import {
   createProcessingBundle,
@@ -81,6 +90,71 @@ function pickExecutionIdFromHeaders(response: Response) {
   }
 
   return null;
+}
+
+async function syncAppelOffresStart(codeInterne: string) {
+  const existing = await getAppelOffresRecordByCode(codeInterne);
+
+  if (existing) {
+    await setAppelOffresStatus(codeInterne, "processing");
+  } else {
+    await createAppelOffres({
+      code: codeInterne,
+      title: codeInterne,
+      reference: "",
+      buyer: "",
+      country: "",
+      dueDate: null,
+      notes: "",
+      priorite: "normale",
+      responsableCommercial: "",
+      status: "processing",
+      source: "fiche-flow"
+    });
+  }
+
+  await syncStoredDocumentsMetadata(codeInterne);
+  await createProcessingJobByCode(codeInterne, "fiche_generation", {
+    origin: "api-generate"
+  });
+  await appendAuditLog(codeInterne, "appel_offres.analysis_launched", {
+    source: "api-generate"
+  });
+  await appendAuditLog(codeInterne, "fiche.generate.started");
+}
+
+async function syncAppelOffresAccepted(codeInterne: string, executionId: string | null) {
+  await appendAuditLog(codeInterne, "fiche.generate.accepted", {
+    executionId
+  });
+}
+
+async function syncAppelOffresError(codeInterne: string, errorMessage: string) {
+  await setAppelOffresStatus(codeInterne, "error");
+  await finishLatestProcessingJobByCode(
+    codeInterne,
+    "fiche_generation",
+    "failed",
+    errorMessage
+  );
+  await appendAuditLog(codeInterne, "fiche.generate.failed", {
+    error: errorMessage
+  });
+}
+
+async function syncAppelOffresSafely(
+  codeInterne: string,
+  context: string,
+  callback: () => Promise<void>
+) {
+  try {
+    await callback();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[appels-offres] Sync skipped after ${context} for ${codeInterne}: ${reason}`
+    );
+  }
 }
 
 async function requestWebhookAcceptance(
@@ -238,11 +312,17 @@ export async function POST(request: Request) {
       codeInterne,
       pdfFile
     });
+    await syncAppelOffresSafely(codeInterne, "generate:start", () =>
+      syncAppelOffresStart(codeInterne)
+    );
     await syncStatusOnly(codeInterne, "generate:start");
 
     try {
       const accepted = await requestWebhookAcceptance(pdfFile, codeInterne);
       await updateProcessingExecutionId(codeInterne, accepted.executionId);
+      await syncAppelOffresSafely(codeInterne, "generate:accepted", () =>
+        syncAppelOffresAccepted(codeInterne, accepted.executionId)
+      );
       await syncStatusOnly(codeInterne, "generate:accepted");
 
       return NextResponse.json(
@@ -258,6 +338,12 @@ export async function POST(request: Request) {
         codeInterne,
         "Impossible de contacter n8n",
         "unknown"
+      );
+      await syncAppelOffresSafely(codeInterne, "generate:error", () =>
+        syncAppelOffresError(
+          codeInterne,
+          error instanceof Error ? error.message : "Impossible de contacter n8n"
+        )
       );
       await syncStatusOnly(codeInterne, "generate:error");
 

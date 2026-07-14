@@ -15,7 +15,7 @@ import type {
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_ROOT = path.join(MODULE_DIR, "..", "data");
 
-function sanitizeCodeInterne(codeInterne: string) {
+export function sanitizeCodeInterne(codeInterne: string) {
   const sanitized = codeInterne.trim().replace(/[^\w-]+/g, "_");
   if (!sanitized) {
     throw new Error("Code interne invalide.");
@@ -23,7 +23,7 @@ function sanitizeCodeInterne(codeInterne: string) {
   return sanitized;
 }
 
-function projectDir(codeInterne: string) {
+export function projectDir(codeInterne: string) {
   return path.join(DATA_ROOT, sanitizeCodeInterne(codeInterne));
 }
 
@@ -31,19 +31,19 @@ async function ensureDataRoot() {
   await fs.mkdir(DATA_ROOT, { recursive: true });
 }
 
-function statusPath(codeInterne: string) {
+export function statusPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "status.json");
 }
 
-function xmlPath(codeInterne: string) {
+export function xmlPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "fiche.xml");
 }
 
-function markdownPath(codeInterne: string) {
+export function markdownPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "cdc.md");
 }
 
-function pdfPath(codeInterne: string) {
+export function pdfPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "cdc.pdf");
 }
 
