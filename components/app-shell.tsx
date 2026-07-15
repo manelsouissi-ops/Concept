@@ -201,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-user">
           <span className="sidebar-user-avatar">LL</span>
           <div className="sidebar-user-copy">
-            <strong>Lotfi L.</strong>
+            <strong>Commercial Emp</strong>
             <span>Profil utilisateur</span>
           </div>
         </div>
@@ -260,7 +260,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
             <button type="button" className="topbar-user-button" aria-label="Profil utilisateur">
               <UserCircleIcon className="topbar-action-icon" />
-              <span>Lotfi</span>
+              <span>Commercial</span>
             </button>
 
             {routeMeta.actionHref && routeMeta.actionLabel ? (

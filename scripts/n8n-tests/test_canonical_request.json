@@ -1,0 +1,10 @@
+{
+  "contract_version": "1.0",
+  "processing_job_id": "job-test-0001",
+  "appel_offre_id": "ao-test-0001",
+  "code_interne": "TEST-CANONICAL",
+  "correlation_id": "corr-test-0001",
+  "callback_url": "http://127.0.0.1:8899/n8n-callback/test-001",
+  "pdf_path": "C:\\path\\to\\repo\\tmp\\n8n-shared\\data\\TEST-CANONICAL\\safe-test-cdc.pdf",
+  "requested_at": "2026-01-01T00:00:00.000000Z"
+}
