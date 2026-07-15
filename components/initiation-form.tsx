@@ -115,9 +115,7 @@ export function InitiationForm() {
       </div>
 
       <div className="callout info">
-        La generation cree maintenant un job asynchrone :
-        <span className="mono"> N8N_WEBHOOK_URL </span>
-        accepte le PDF, puis la fiche se complete en arriere-plan pendant que vous suivez son statut.
+        L'analyse démarre en mode asynchrone : le PDF est accepté, puis la Fiche CDC se complète en arrière-plan pendant que vous suivez son statut.
       </div>
 
       {error ? <div className="error-text">{error}</div> : null}
@@ -139,7 +137,7 @@ export function InitiationForm() {
 
       <div className="actions">
         <button className="button button-primary" type="submit" disabled={isPending}>
-          {isPending ? "Generation en cours..." : "Generate"}
+          {isPending ? "Génération en cours..." : "Lancer la génération"}
         </button>
       </div>
     </form>

@@ -15,7 +15,7 @@ import type {
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_ROOT = path.join(MODULE_DIR, "..", "data");
 
-function sanitizeCodeInterne(codeInterne: string) {
+export function sanitizeCodeInterne(codeInterne: string) {
   const sanitized = codeInterne.trim().replace(/[^\w-]+/g, "_");
   if (!sanitized) {
     throw new Error("Code interne invalide.");
@@ -23,7 +23,7 @@ function sanitizeCodeInterne(codeInterne: string) {
   return sanitized;
 }
 
-function projectDir(codeInterne: string) {
+export function projectDir(codeInterne: string) {
   return path.join(DATA_ROOT, sanitizeCodeInterne(codeInterne));
 }
 
@@ -31,19 +31,19 @@ async function ensureDataRoot() {
   await fs.mkdir(DATA_ROOT, { recursive: true });
 }
 
-function statusPath(codeInterne: string) {
+export function statusPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "status.json");
 }
 
-function xmlPath(codeInterne: string) {
+export function xmlPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "fiche.xml");
 }
 
-function markdownPath(codeInterne: string) {
+export function markdownPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "cdc.md");
 }
 
-function pdfPath(codeInterne: string) {
+export function pdfPath(codeInterne: string) {
   return path.join(projectDir(codeInterne), "cdc.pdf");
 }
 
@@ -57,6 +57,12 @@ async function readStatus(codeInterne: string): Promise<StatusPayload> {
 }
 
 function normalizeStatus(raw: Partial<StatusPayload>): StatusPayload {
+  const rawStage = raw.errorStage as string | null | undefined;
+  const normalizedStage =
+    rawStage === "groq" || rawStage === "gemini"
+      ? "llm"
+      : raw.errorStage ?? null;
+
   return {
     status: raw.status ?? "draft",
     createdAt: raw.createdAt ?? new Date(0).toISOString(),
@@ -65,7 +71,7 @@ function normalizeStatus(raw: Partial<StatusPayload>): StatusPayload {
     n8nExecutionId: raw.n8nExecutionId ?? null,
     processingStartedAt: raw.processingStartedAt ?? null,
     errorReason: raw.errorReason ?? null,
-    errorStage: raw.errorStage ?? null
+    errorStage: normalizedStage
   };
 }
 
@@ -361,6 +367,37 @@ export async function updateProcessingExecutionId(
     ...currentStatus,
     n8nExecutionId: executionId
   };
+  await writeFileAtomic(statusPath(codeInterne), JSON.stringify(nextStatus, null, 2));
+  return nextStatus;
+}
+
+export async function markProcessingActive(
+  codeInterne: string,
+  executionId: string | null
+) {
+  await ensureDataRoot();
+  await fs.mkdir(projectDir(codeInterne), { recursive: true });
+
+  const currentStatus = (await readExistingStatus(codeInterne)) ?? {
+    status: "draft",
+    createdAt: new Date().toISOString(),
+    validatedAt: null,
+    modifiedAt: null,
+    n8nExecutionId: null,
+    processingStartedAt: null,
+    errorReason: null,
+    errorStage: null
+  };
+
+  const nextStatus: StatusPayload = {
+    ...currentStatus,
+    status: "processing",
+    n8nExecutionId: executionId,
+    processingStartedAt: new Date().toISOString(),
+    errorReason: null,
+    errorStage: null
+  };
+
   await writeFileAtomic(statusPath(codeInterne), JSON.stringify(nextStatus, null, 2));
   return nextStatus;
 }

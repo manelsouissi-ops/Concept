@@ -1,6 +1,15 @@
 export type FicheStatus = "processing" | "draft" | "validated" | "error";
 
-export type FicheErrorStage = "marker" | "anonymization" | "groq" | "unknown";
+export type FicheErrorStage =
+  | "webhook"
+  | "upload"
+  | "marker"
+  | "markdown"
+  | "anonymization"
+  | "llm"
+  | "xml"
+  | "callback"
+  | "unknown";
 
 export const EXTRACTION_FIELD_DEFINITIONS = [
   { key: "reference_officielle", label: "reference_officielle", group: "Identification" },

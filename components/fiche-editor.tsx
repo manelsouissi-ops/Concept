@@ -633,13 +633,10 @@ export function FicheEditor({ code }: Props) {
           <div className="actions">
             <span className="status-pill processing">{statusLabel(statusData.status)}</span>
             <span className="badge mono">{code}</span>
-            {statusData.n8nExecutionId ? (
-              <span className="meta">Execution n8n {statusData.n8nExecutionId}</span>
-            ) : null}
           </div>
 
           <div className="callout info">
-            Traitement en cours (Marker - anonymisation - Groq).
+            Analyse du CDC en cours.
             {elapsedLabel ? ` Temps ecoule: ${elapsedLabel}.` : ""}
           </div>
 
@@ -658,14 +655,11 @@ export function FicheEditor({ code }: Props) {
           <div className="actions">
             <span className="status-pill error">{statusLabel(statusData.status)}</span>
             <span className="badge mono">{code}</span>
-            {statusData.n8nExecutionId ? (
-              <span className="meta">Execution n8n {statusData.n8nExecutionId}</span>
-            ) : null}
           </div>
 
           <div className="callout warning">
             {statusData.errorReason ?? "Le pipeline a echoue."}
-            {statusData.errorStage ? ` Etape: ${statusData.errorStage}.` : ""}
+            {statusData.errorStage ? " Des details techniques sont disponibles pour l'administration." : ""}
           </div>
 
           <div className="actions">
@@ -675,7 +669,7 @@ export function FicheEditor({ code }: Props) {
               onClick={() => void retryGeneration()}
               disabled={isPending}
             >
-              {isPending ? "Relance..." : "Reessayer"}
+              {isPending ? "Relance..." : "Relancer l'analyse"}
             </button>
           </div>
         </div>
@@ -797,7 +791,7 @@ export function FicheEditor({ code }: Props) {
         {data.status.status === "error" ? (
           <div className="callout warning">
             {data.status.errorReason ?? "Le pipeline a echoue."}
-            {data.status.errorStage ? ` Etape: ${data.status.errorStage}.` : ""}
+            {data.status.errorStage ? " Des details techniques sont disponibles pour l'administration." : ""}
             <div className="actions">
               <button
                 className="button button-primary"
@@ -805,7 +799,7 @@ export function FicheEditor({ code }: Props) {
                 onClick={() => void retryGeneration()}
                 disabled={isPending}
               >
-                {isPending ? "Relance..." : "Reessayer"}
+                {isPending ? "Relance..." : "Relancer l'analyse"}
               </button>
             </div>
           </div>
@@ -986,7 +980,7 @@ export function FicheEditor({ code }: Props) {
             onClick={() => persist("PUT", `/api/fiche/${encodeURIComponent(code)}`)}
             disabled={isLocked || isPending}
           >
-            {isPending ? "Sauvegarde..." : "Save draft"}
+            {isPending ? "Sauvegarde..." : "Enregistrer"}
           </button>
           <button
             className="button button-primary"
@@ -994,7 +988,7 @@ export function FicheEditor({ code }: Props) {
             onClick={() => persist("POST", `/api/fiche/${encodeURIComponent(code)}/validate`)}
             disabled={!canValidate}
           >
-            {isPending ? "Validation..." : "Validate"}
+            {isPending ? "Validation..." : "Valider la Fiche CDC"}
           </button>
         </div>
 

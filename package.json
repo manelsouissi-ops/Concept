@@ -8,7 +8,9 @@
     "start:prod": "cross-env NEXT_DIST_DIR=.next-prod next start -p 3016",
     "typecheck": "tsc --noEmit",
     "db:setup": "node --experimental-strip-types scripts/setup-fiche-index.ts",
-    "db:backfill": "node --experimental-strip-types scripts/backfill-fiches-to-postgres.ts"
+    "db:backfill": "node --experimental-strip-types scripts/backfill-fiches-to-postgres.ts",
+    "db:reconcile:appels-offres": "node --experimental-strip-types scripts/reconcile-appels-offres-to-postgres.ts",
+    "verify:platform-n8n-contract": "node --experimental-strip-types scripts/verify-platform-n8n-contract.ts"
   },
   "dependencies": {
     "fast-xml-parser": "^4.5.1",

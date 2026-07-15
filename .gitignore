@@ -3,9 +3,32 @@ node_modules
 .next-dev
 .next-prod
 .npm-cache
-.env.local
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local tooling
+.claude/
+
+# Local runtime artifacts
+tmp/
+*.sqlite
+*.sqlite.bak
+*.db
 *.log
+
 tsconfig.tsbuildinfo
 
 data/*
 !data/.gitkeep
+
+# Callback and workflow captures
+callback-captures/
+callback-sign-requests/
+n8n-workflow-backups/

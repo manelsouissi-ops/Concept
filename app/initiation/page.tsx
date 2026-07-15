@@ -1,22 +1,20 @@
 import { InitiationForm } from "@/components/initiation-form";
+import { PageHeader } from "@/components/page-header.tsx";
 
 export default function InitiationPage() {
   return (
-    <main className="shell">
-      <section className="hero">
-        <span className="eyebrow">Initiation CDC</span>
-        <h1>Déposer un CDC et générer sa fiche projet.</h1>
-        <p>
-          Cette première version enregistre le PDF d&apos;origine, stocke la fiche
-          XML sur disque et laisse la validation humaine visible et éditable.
-        </p>
-      </section>
+    <div className="page-stack">
+      <PageHeader
+        eyebrow="Compatibilité"
+        title="Initiation CDC"
+        description="Ancien point d'entrée conservé pour compatibilité, sans en faire le parcours principal."
+      />
 
-      <section className="panel">
-        <div className="panel-inner">
+      <section className="data-card">
+        <div className="section-body">
           <InitiationForm />
         </div>
       </section>
-    </main>
+    </div>
   );
 }
