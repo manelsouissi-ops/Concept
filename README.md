@@ -91,7 +91,9 @@ scripts/
 
 - `POST /api/generate`
   - multipart form-data: `code_interne`, `file`
-  - starts processing and contacts n8n
+  - compatibility route; launches analysis via the canonical n8n contract
+- `POST /api/appels-offres/[code]/analyse`
+  - canonical route that launches analysis for an existing appel d'offres
 - `GET /api/fiche/[code]/status`
   - returns current processing state
 - `GET /api/fiche/[code]`
@@ -100,25 +102,42 @@ scripts/
   - saves edited fiche XML
 - `POST /api/fiche/[code]/validate`
   - validates fiche and updates status
+- `POST /api/fiche/callbacks/n8n`
+  - canonical n8n callback endpoint (bearer token + HMAC signature)
 - `POST /api/fiche/[code]/complete`
-  - n8n callback endpoint (protected by secret header)
+  - legacy callback endpoint (shared secret header only); not called by the
+    current n8n workflow, kept for backward compatibility only
 - `GET /api/fiche/[code]/pdf`
   - streams stored CDC PDF
 
 ## Environment Variables
 
-See `docs/env-variables.md` for canonical reference.
+See `docs/env-variables.md` for the canonical reference (kept in sync with
+`lib/integrations/n8n-config.ts`) and `.env.example` for a fillable template.
 
 Required for app:
 - `DATABASE_URL` - PostgreSQL connection string
-- `N8N_WEBHOOK_URL` - webhook called by `POST /api/generate`
+- `N8N_WEBHOOK_URL` - canonical n8n launch webhook
+- `N8N_WEBHOOK_TOKEN` - bearer token sent to the n8n launch webhook
+- `PLATFORM_CALLBACK_TOKEN` - bearer token n8n must send back on the canonical callback
+- `N8N_CALLBACK_SECRET` - HMAC secret verifying the canonical callback signature
+- `PLATFORM_PUBLIC_BASE_URL` - base URL used to build the canonical callback URL for n8n
 
-Optional/conditional:
-- `N8N_WEBHOOK_TOKEN` - bearer token for n8n webhook if required
-- `N8N_COMPLETE_SECRET` - shared secret checked on completion callback
+Optional (have defaults):
+- `N8N_CONTRACT_VERSION` - defaults to `1.0`
+- `N8N_LAUNCH_TIMEOUT_MS` - defaults to `10000`
+- `MAX_CDC_UPLOAD_BYTES` - defaults to `52428800` (50 MB)
 
-n8n side:
-- `N8N_COMPLETE_SECRET` must match the app value
+Legacy/optional:
+- `N8N_COMPLETE_SECRET` - shared secret for the legacy `/api/fiche/[code]/complete`
+  callback only; not part of the canonical contract and not used by the current
+  n8n workflow
+
+n8n side (set in the n8n process environment, not in this app's `.env.local`):
+- `N8N_WEBHOOK_TOKEN`, `N8N_CONTRACT_VERSION`, `PLATFORM_CALLBACK_TOKEN`,
+  `N8N_CALLBACK_SECRET`, `N8N_SHARED_STORAGE_ROOT`, `MARKER_CONVERT_URL`,
+  `MARKER_STATUS_URL`, `MARKER_RESULT_URL`, `GEMINI_API_KEY` - see
+  `docs/n8n-canonical-contract-env.md`
 
 ## Local Development
 
@@ -179,7 +198,13 @@ npm run db:backfill
 ## Security Notes
 
 - There is no built-in auth yet; treat this as internal/prototype.
-- Protect callback endpoint by setting `N8N_COMPLETE_SECRET` in both systems.
+- The canonical callback (`/api/fiche/callbacks/n8n`) is protected by a bearer
+  token (`PLATFORM_CALLBACK_TOKEN`) plus an HMAC signature over the request
+  body (`N8N_CALLBACK_SECRET`) - set both, matching, in this app's env and in
+  the n8n runtime env.
+- The legacy callback (`/api/fiche/[code]/complete`) is protected only by a
+  shared secret header (`N8N_COMPLETE_SECRET`); keep it set only if that route
+  is still in use.
 - Do not commit real secrets into source control.
 
 ## Key Docs
