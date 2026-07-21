@@ -7,7 +7,8 @@ export function StatCard({
   value,
   description,
   href,
-  actionLabel
+  actionLabel,
+  tone = "default"
 }: {
   icon: ReactNode;
   label: string;
@@ -15,6 +16,7 @@ export function StatCard({
   description: string;
   href?: string;
   actionLabel?: string;
+  tone?: "default" | "success" | "ai" | "warning" | "danger";
 }) {
   const content = (
     <>
@@ -30,11 +32,11 @@ export function StatCard({
 
   if (href) {
     return (
-      <Link href={href} className="stat-card interactive">
+      <Link href={href} className={`stat-card interactive stat-card-${tone}`}>
         {content}
       </Link>
     );
   }
 
-  return <div className="stat-card">{content}</div>;
+  return <div className={`stat-card stat-card-${tone}`}>{content}</div>;
 }

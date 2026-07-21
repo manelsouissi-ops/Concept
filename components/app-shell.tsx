@@ -17,6 +17,7 @@ import {
   SettingsIcon,
   UserCircleIcon
 } from "./app-icons.tsx";
+import { BrandLogo } from "./brand-logo.tsx";
 
 type NavigationItem = {
   label: string;
@@ -40,13 +41,13 @@ const primaryNavigation: NavigationItem[] = [
     icon: <DatabaseIcon className="nav-icon" />,
     disabled: true
   },
-  { label: "Référentiels", icon: <LibraryIcon className="nav-icon" />, disabled: true },
+  { label: "Referentiels", icon: <LibraryIcon className="nav-icon" />, disabled: true },
   { label: "Statistiques", icon: <ChartIcon className="nav-icon" />, disabled: true }
 ];
 
 const referentialsNavigation = [
-  "Employés",
-  "Compétences",
+  "Employes",
+  "Competences",
   "Logiciels",
   "Clients",
   "Partenaires",
@@ -56,7 +57,7 @@ const referentialsNavigation = [
 const utilityNavigation: NavigationItem[] = [
   { label: "Notifications", icon: <BellIcon className="nav-icon" />, disabled: true },
   { label: "Administration", icon: <SettingsIcon className="nav-icon" />, disabled: true },
-  { label: "Paramètres", icon: <SettingsIcon className="nav-icon" />, disabled: true }
+  { label: "Parametres", icon: <SettingsIcon className="nav-icon" />, disabled: true }
 ];
 
 function getRouteMeta(pathname: string) {
@@ -81,7 +82,7 @@ function getRouteMeta(pathname: string) {
   if (pathname === "/appels-offres/nouveau") {
     return {
       title: "Nouvel appel d'offres",
-      breadcrumbs: ["Appels d'offres", "Création"]
+      breadcrumbs: ["Appels d'offres", "Creation"]
     };
   }
 
@@ -133,7 +134,7 @@ function SidebarItem({
         {item.icon}
         <span className="sidebar-link-text">
           {item.label}
-          <small>Bientôt disponible</small>
+          <small>Bientot</small>
         </span>
       </span>
     );
@@ -160,11 +161,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className={sidebarOpen ? "app-sidebar open" : "app-sidebar"}>
         <div className="sidebar-brand">
-          <div className="sidebar-brand-mark">C</div>
-          <div className="sidebar-brand-copy">
-            <strong>CONCEPT</strong>
-            <span>Gestion intelligente des appels d'offres</span>
-          </div>
+          <BrandLogo compact priority />
         </div>
 
         <nav className="sidebar-group" aria-label="Navigation principale">
@@ -179,12 +176,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <section className="sidebar-section">
-          <div className="sidebar-section-title">Référentiels</div>
+          <div className="sidebar-section-title">Referentiels</div>
           <div className="sidebar-submenu">
             {referentialsNavigation.map((label) => (
               <span key={label} className="sidebar-subitem" aria-disabled="true">
                 {label}
-                <small>Bientôt disponible</small>
+                <small>Bientot</small>
               </span>
             ))}
           </div>
@@ -202,7 +199,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="sidebar-user-avatar">LL</span>
           <div className="sidebar-user-copy">
             <strong>Commercial Emp</strong>
-            <span>Profil utilisateur</span>
+            <span>Espace collaborateur</span>
           </div>
         </div>
       </aside>
@@ -249,8 +246,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className="topbar-search-input"
                 value=""
                 readOnly
-                aria-label="Recherche globale bientôt disponible"
-                placeholder="Recherche globale · Bientôt disponible"
+                aria-label="Recherche globale bientot disponible"
+                placeholder="Recherche globale · Bientot disponible"
               />
             </label>
 

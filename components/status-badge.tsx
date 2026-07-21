@@ -13,5 +13,10 @@ export function StatusBadge({
     .filter(Boolean)
     .join(" ");
 
-  return <span className={classes}>{label}</span>;
+  return (
+    <span className={classes}>
+      <span className="status-badge-dot" aria-hidden="true" />
+      {label}
+    </span>
+  );
 }
