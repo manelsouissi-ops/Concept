@@ -61,7 +61,7 @@ function buildInput(values: {
   notes: string;
   priorite: string;
   responsableCommercial: string;
-}, options: { requireCode: boolean }): AppelOffresInput {
+}, options: { requireCode: boolean; requireTitle: boolean }): AppelOffresInput {
   const code = options.requireCode
     ? sanitizeCodeInterne(values.code)
     : values.code.trim()
@@ -69,7 +69,7 @@ function buildInput(values: {
       : "";
   const title = values.title.trim();
 
-  if (!title) {
+  if (options.requireTitle && !title) {
     throw new Error("L'intitule est obligatoire.");
   }
 
@@ -88,7 +88,7 @@ function buildInput(values: {
 
 export function parseAppelOffresFormData(
   formData: FormData,
-  options: { requireCode?: boolean; requirePdf?: boolean }
+  options: { requireCode?: boolean; requirePdf?: boolean; requireTitle?: boolean }
 ) {
   const codeValue = readString(formData.get("code"));
   const file = formData.get("file");
@@ -103,7 +103,8 @@ export function parseAppelOffresFormData(
 
   if (file instanceof File) {
     const mimeType = file.type?.trim();
-    if (mimeType && mimeType !== "application/pdf") {
+    const hasPdfExtension = file.name.trim().toLowerCase().endsWith(".pdf");
+    if ((mimeType && mimeType !== "application/pdf") || (!mimeType && !hasPdfExtension)) {
       throw new Error("Seuls les fichiers PDF sont acceptes.");
     }
   }
@@ -123,7 +124,8 @@ export function parseAppelOffresFormData(
         "responsable_commercial"
       ])
     }, {
-      requireCode: Boolean(options.requireCode)
+      requireCode: Boolean(options.requireCode),
+      requireTitle: options.requireTitle ?? true
     }),
     file: file instanceof File ? file : null
   };

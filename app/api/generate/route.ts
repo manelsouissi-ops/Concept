@@ -4,8 +4,21 @@ import {
   getAppelOffresRecordByCode
 } from "@/lib/appels-offres/repository.ts";
 import { launchAnalysisForAppelOffres, AnalysisRequestError } from "@/lib/appels-offres/analysis.ts";
+import { toBusinessSafeAnalysisError } from "@/lib/appels-offres/user-errors.ts";
 
 export const runtime = "nodejs";
+
+function logGenerateFailure(status: number, errorKind: string, error: unknown) {
+  console.error("[generate] request_failed", {
+    status,
+    errorKind,
+    errorMessage: error instanceof Error ? error.message : String(error)
+  });
+
+  if (error instanceof Error && error.stack) {
+    console.error(error.stack);
+  }
+}
 
 function asNonEmptyString(value: FormDataEntryValue | null) {
   if (typeof value !== "string") {
@@ -91,14 +104,31 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     if (error instanceof AnalysisRequestError) {
-      return NextResponse.json(error.body, { status: error.status });
+      logGenerateFailure(error.status, error.kind, error);
+      return NextResponse.json(
+        {
+          ...error.body,
+          error: toBusinessSafeAnalysisError(
+            typeof error.body.error === "string" ? error.body.error : error.message
+          ),
+          error_kind: error.kind
+        },
+        { status: error.status }
+      );
     }
 
     const message =
       error instanceof Error
-        ? error.message
+        ? toBusinessSafeAnalysisError(error.message)
         : "Impossible de generer la fiche projet.";
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    logGenerateFailure(500, "unexpected_error", error);
+    return NextResponse.json(
+      {
+        error: message,
+        error_kind: "unexpected_error"
+      },
+      { status: 500 }
+    );
   }
 }

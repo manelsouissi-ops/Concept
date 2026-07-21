@@ -1,7 +1,29 @@
 import { NextResponse } from "next/server";
 import { AnalysisRequestError, launchAnalysisForAppelOffres } from "@/lib/appels-offres/analysis.ts";
+import {
+  toBusinessSafeAnalysisError,
+  toErrorMessage
+} from "@/lib/appels-offres/user-errors.ts";
 
 export const runtime = "nodejs";
+
+function logAnalysisRouteFailure(
+  code: string,
+  status: number,
+  errorKind: string,
+  error: unknown
+) {
+  console.error("[appels-offres.analyse] request_failed", {
+    code,
+    status,
+    errorKind,
+    errorMessage: error instanceof Error ? error.message : String(error)
+  });
+
+  if (error instanceof Error && error.stack) {
+    console.error(error.stack);
+  }
+}
 
 function asTruthyFlag(value: FormDataEntryValue | null) {
   if (typeof value !== "string") {
@@ -42,11 +64,34 @@ export async function POST(
     );
   } catch (error) {
     if (error instanceof AnalysisRequestError) {
-      return NextResponse.json(error.body, { status: error.status });
+      logAnalysisRouteFailure(
+        (await params).code,
+        error.status,
+        error.kind,
+        error
+      );
+      return NextResponse.json(
+        {
+          ...error.body,
+          error: toBusinessSafeAnalysisError(toErrorMessage(error.body.error) || error.message),
+          error_kind: error.kind
+        },
+        { status: error.status }
+      );
     }
 
+    const { code } = await params;
     const message =
-      error instanceof Error ? error.message : "Impossible de lancer l'analyse.";
-    return NextResponse.json({ error: message }, { status: 500 });
+      error instanceof Error
+        ? toBusinessSafeAnalysisError(error.message)
+        : "Impossible de lancer l'analyse.";
+    logAnalysisRouteFailure(code, 500, "unexpected_error", error);
+    return NextResponse.json(
+      {
+        error: message,
+        error_kind: "unexpected_error"
+      },
+      { status: 500 }
+    );
   }
 }

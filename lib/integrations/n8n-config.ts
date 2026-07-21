@@ -38,6 +38,14 @@ function normalizeBaseUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+export function getN8nContractVersion() {
+  return process.env.N8N_CONTRACT_VERSION?.trim() || DEFAULT_N8N_CONTRACT_VERSION;
+}
+
+export function getMaxCdcUploadBytes() {
+  return readPositiveIntegerEnv("MAX_CDC_UPLOAD_BYTES", 50 * 1024 * 1024);
+}
+
 export function getN8nIntegrationConfig(): N8nIntegrationConfig {
   return {
     webhookUrl: requireNonEmptyEnv("N8N_WEBHOOK_URL"),
@@ -45,10 +53,9 @@ export function getN8nIntegrationConfig(): N8nIntegrationConfig {
     callbackToken: requireNonEmptyEnv("PLATFORM_CALLBACK_TOKEN"),
     callbackSecret: requireNonEmptyEnv("N8N_CALLBACK_SECRET"),
     platformPublicBaseUrl: normalizeBaseUrl(requireNonEmptyEnv("PLATFORM_PUBLIC_BASE_URL")),
-    contractVersion:
-      process.env.N8N_CONTRACT_VERSION?.trim() || DEFAULT_N8N_CONTRACT_VERSION,
+    contractVersion: getN8nContractVersion(),
     launchTimeoutMs: readPositiveIntegerEnv("N8N_LAUNCH_TIMEOUT_MS", 10_000),
-    maxCdcUploadBytes: readPositiveIntegerEnv("MAX_CDC_UPLOAD_BYTES", 50 * 1024 * 1024)
+    maxCdcUploadBytes: getMaxCdcUploadBytes()
   };
 }
 

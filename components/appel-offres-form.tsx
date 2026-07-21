@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useRef, useState, useTransition } from "react";
+import { FormEvent, useRef, useState } from "react";
+import {
+  suggestNewAppelOffresCode,
+  validateCreateAppelOffresDraft,
+  getPdfFileSelectionError
+} from "@/lib/appels-offres/create-form.ts";
 import type { AppelOffresDetail, AppelOffresInput } from "@/lib/appels-offres/types.ts";
+import { AiBadge } from "./ai-badge.tsx";
 import { EmptyState } from "./empty-state.tsx";
 import { UploadIcon } from "./app-icons.tsx";
 
@@ -13,9 +19,13 @@ type Props = {
   current?: AppelOffresDetail | null;
 };
 
-function createInitialFormState(initialValue?: AppelOffresInput) {
+type SubmitPhase = "idle" | "creating" | "launching";
+
+function createInitialFormState(mode: Props["mode"], initialValue?: AppelOffresInput) {
   return {
-    code: initialValue?.code ?? "",
+    code:
+      initialValue?.code ??
+      (mode === "create" ? suggestNewAppelOffresCode() : ""),
     title: initialValue?.title ?? "",
     reference: initialValue?.reference ?? "",
     buyer: initialValue?.buyer ?? "",
@@ -28,39 +38,84 @@ function createInitialFormState(initialValue?: AppelOffresInput) {
 }
 
 function formatFileSize(sizeBytes: number) {
-  return new Intl.NumberFormat("fr-FR").format(sizeBytes);
+  if (sizeBytes >= 1024 * 1024) {
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} Mo`;
+  }
+
+  if (sizeBytes >= 1024) {
+    return `${Math.round(sizeBytes / 1024)} Ko`;
+  }
+
+  return `${new Intl.NumberFormat("fr-FR").format(sizeBytes)} octets`;
+}
+
+function getSubmitLabel(mode: Props["mode"], submitPhase: SubmitPhase, isWorking: boolean) {
+  if (!isWorking) {
+    return mode === "edit"
+      ? "Enregistrer les modifications"
+      : "Generer la Fiche CDC";
+  }
+
+  if (submitPhase === "launching") {
+    return "Lancement de l'analyse...";
+  }
+
+  return mode === "edit" ? "Enregistrement..." : "Creation du dossier...";
 }
 
 export function AppelOffresForm({ mode, initialValue, current }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState(createInitialFormState(initialValue));
+  const [form, setForm] = useState(createInitialFormState(mode, initialValue));
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const launchPhaseTimerRef = useRef<number | null>(null);
 
   const isEdit = mode === "edit";
-  const completionItems = [
-    form.code.trim(),
-    form.title.trim(),
-    form.buyer.trim(),
-    form.country.trim(),
-    form.dueDate.trim(),
-    isEdit ? "done" : file?.name ?? ""
-  ];
-  const completionCount = completionItems.filter(Boolean).length;
-  const completionRatio = Math.round((completionCount / completionItems.length) * 100);
+  const isWorking = submitPhase !== "idle";
+  const createValidation = validateCreateAppelOffresDraft({
+    code: form.code,
+    file: file
+      ? {
+          name: file.name,
+          type: file.type,
+          size: file.size
+        }
+      : null
+  });
+  const selectedCodePreview = createValidation.normalizedCode || form.code.trim() || "...";
+
+  function clearLaunchPhaseTimer() {
+    if (launchPhaseTimerRef.current != null) {
+      window.clearTimeout(launchPhaseTimerRef.current);
+      launchPhaseTimerRef.current = null;
+    }
+  }
 
   function applyFile(nextFile: File | null) {
     if (!nextFile) {
       setFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       return;
     }
 
-    if (nextFile.type && nextFile.type !== "application/pdf") {
-      setError("Seuls les fichiers PDF sont acceptés pour le CDC.");
+    const fileError = getPdfFileSelectionError({
+      name: nextFile.name,
+      type: nextFile.type,
+      size: nextFile.size
+    });
+
+    if (fileError) {
+      setError(fileError);
+      setFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       return;
     }
 
@@ -70,25 +125,37 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isWorking) {
+      return;
+    }
+
     setError(null);
     setSuccess(null);
 
-    if (!form.title.trim()) {
-      setError("L'intitulé de l'appel d'offres est obligatoire.");
-      return;
+    if (isEdit) {
+      if (!form.title.trim()) {
+        setError("L'intitule de l'appel d'offres est obligatoire.");
+        return;
+      }
+    } else {
+      if (!createValidation.isCodeValid) {
+        setError("Le code interne est obligatoire.");
+        return;
+      }
+
+      if (!file) {
+        setError("Le CDC PDF est obligatoire.");
+        return;
+      }
+
+      if (createValidation.fileError) {
+        setError(createValidation.fileError);
+        return;
+      }
     }
 
-    if (!isEdit && !form.code.trim()) {
-      setError("Le code interne est obligatoire.");
-      return;
-    }
-
-    if (!isEdit && !file) {
-      setError("Le CDC PDF est obligatoire.");
-      return;
-    }
-
-    const targetCode = (isEdit ? current?.code ?? "" : form.code).trim();
+    const targetCode = (isEdit ? current?.code ?? "" : createValidation.normalizedCode).trim();
     if (!targetCode) {
       setError("Le code interne est obligatoire.");
       return;
@@ -96,19 +163,30 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
 
     const payload = new FormData();
     payload.append("code", targetCode);
-    payload.append("title", form.title.trim());
-    payload.append("reference", form.reference.trim());
-    payload.append("buyer", form.buyer.trim());
-    payload.append("country", form.country.trim());
-    payload.append("dueDate", form.dueDate.trim());
-    payload.append("notes", form.notes.trim());
-    payload.append("priorite", form.priorite);
-    payload.append("responsable_commercial", form.responsableCommercial.trim());
+
+    if (isEdit) {
+      payload.append("title", form.title.trim());
+      payload.append("reference", form.reference.trim());
+      payload.append("buyer", form.buyer.trim());
+      payload.append("country", form.country.trim());
+      payload.append("dueDate", form.dueDate.trim());
+      payload.append("notes", form.notes.trim());
+      payload.append("priorite", form.priorite);
+      payload.append("responsable_commercial", form.responsableCommercial.trim());
+    }
+
     if (file) {
       payload.append("file", file);
     }
 
-    startTransition(async () => {
+    setSubmitPhase("creating");
+    launchPhaseTimerRef.current = window.setTimeout(() => {
+      setSubmitPhase((currentPhase) =>
+        currentPhase === "creating" ? "launching" : currentPhase
+      );
+    }, 700);
+
+    try {
       const response = await fetch(
         isEdit ? `/api/appels-offres/${encodeURIComponent(targetCode)}` : "/api/appels-offres",
         {
@@ -117,7 +195,10 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
         }
       );
 
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as {
+        error?: string;
+        redirect_url?: string;
+      };
 
       if (!response.ok) {
         setError(body.error ?? "Enregistrement impossible.");
@@ -125,17 +206,29 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
       }
 
       if (!isEdit) {
-        router.push(`/appels-offres/${encodeURIComponent(targetCode)}`);
+        router.push(
+          body.redirect_url ??
+            `/appels-offres/${encodeURIComponent(targetCode)}?view=processing`
+        );
         return;
       }
 
-      setSuccess("Appel d'offres mis à jour.");
+      setSuccess("Appel d'offres mis a jour.");
       router.refresh();
-    });
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Enregistrement impossible."
+      );
+    } finally {
+      clearLaunchPhaseTimer();
+      setSubmitPhase("idle");
+    }
   }
 
   async function handleArchive() {
-    if (!current) {
+    if (!current || isWorking) {
       return;
     }
 
@@ -149,8 +242,9 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
 
     setError(null);
     setSuccess(null);
+    setSubmitPhase("creating");
 
-    startTransition(async () => {
+    try {
       const response = await fetch(`/api/appels-offres/${encodeURIComponent(current.code)}`, {
         method: "DELETE"
       });
@@ -162,285 +256,299 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
       }
 
       router.push("/appels-offres");
-    });
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Archivage impossible."
+      );
+    } finally {
+      setSubmitPhase("idle");
+    }
   }
 
   const selectedFile = file ? (
     <div className="upload-selected-file">
       <div>
         <strong>{file.name}</strong>
-        <span>{formatFileSize(file.size)} octets</span>
+        <span>{formatFileSize(file.size)}</span>
       </div>
-      <button
-        type="button"
-        className="button button-ghost button-small"
-        onClick={() => applyFile(null)}
-        disabled={isPending}
-      >
-        Retirer
-      </button>
+      <div className="upload-selected-actions">
+        <button
+          type="button"
+          className="button button-ghost button-small"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isWorking}
+        >
+          Remplacer
+        </button>
+        <button
+          type="button"
+          className="button button-ghost button-small"
+          onClick={() => applyFile(null)}
+          disabled={isWorking}
+        >
+          Retirer
+        </button>
+      </div>
     </div>
   ) : null;
 
-  return (
-    <form className={isEdit ? "grid" : "appel-form-layout"} onSubmit={handleSubmit}>
-      <div className="stack">
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>{isEdit ? "Informations du dossier" : "Informations générales"}</h3>
-              <p className="meta">
-                {isEdit
-                  ? "Modifiez les informations déjà supportées par la plateforme."
-                  : "Créez un nouvel appel d'offres à partir des informations actuellement disponibles."}
-              </p>
-            </div>
-          </div>
-
-          <div className="section-body stack">
-            <div className="form-grid">
-              <div className="field">
-                <label htmlFor="appel-code">Code interne</label>
-                <input
-                  id="appel-code"
-                  className="input mono"
-                  value={form.code}
-                  placeholder="INT-2026-045"
-                  disabled={isPending || isEdit}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      code: event.target.value
-                    }))
-                  }
-                />
-                <span className="hint">
-                  Le code pilote le dossier <span className="mono">data/{isEdit ? current?.code : form.code || "..."}</span>.
-                </span>
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-title">Intitulé de l'appel d'offres</label>
-                <input
-                  id="appel-title"
-                  className="input"
-                  value={form.title}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      title: event.target.value
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-buyer">Client</label>
-                <input
-                  id="appel-buyer"
-                  className="input"
-                  value={form.buyer}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      buyer: event.target.value
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-country">Pays</label>
-                <input
-                  id="appel-country"
-                  className="input"
-                  value={form.country}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      country: event.target.value
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-due-date">Date limite de remise</label>
-                <input
-                  id="appel-due-date"
-                  type="date"
-                  className="input"
-                  value={form.dueDate}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      dueDate: event.target.value
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-owner">Responsable commercial</label>
-                <input
-                  id="appel-owner"
-                  className="input"
-                  value={form.responsableCommercial}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      responsableCommercial: event.target.value
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-priority">Priorite</label>
-                <select
-                  id="appel-priority"
-                  className="select"
-                  value={form.priorite}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      priorite: event.target.value as AppelOffresInput["priorite"]
-                    }))
-                  }
-                >
-                  <option value="basse">Basse</option>
-                  <option value="normale">Normale</option>
-                  <option value="haute">Haute</option>
-                  <option value="critique">Critique</option>
-                </select>
-              </div>
-
-              <div className="field">
-                <label htmlFor="appel-reference">Description courte ou référence</label>
-                <input
-                  id="appel-reference"
-                  className="input"
-                  value={form.reference}
-                  placeholder="Référence interne, description courte ou contexte"
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      reference: event.target.value
-                    }))
-                  }
-                />
-                <span className="hint">
-                  Ce champ réutilise le champ de référence existant pour rester compatible avec l'API actuelle.
-                </span>
-              </div>
-
-              <div className="field field-span-full">
-                <label htmlFor="appel-notes">Notes internes</label>
-                <textarea
-                  id="appel-notes"
-                  className="textarea"
-                  value={form.notes}
-                  disabled={isPending}
-                  onChange={(event) =>
-                    setForm((currentForm) => ({
-                      ...currentForm,
-                      notes: event.target.value
-                    }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>Documents</h3>
-              <p className="meta">
-                {isEdit
-                  ? "Remplacez le CDC PDF si une nouvelle version du document doit être analysée."
-                  : "Importez le CDC PDF. Le support des annexes sera ajouté plus tard sans casser ce flux."}
-              </p>
-            </div>
-          </div>
-
-          <div className="section-body stack">
-            <div
-              className={dragActive ? "upload-dropzone active" : "upload-dropzone"}
-              onDragEnter={(event) => {
-                event.preventDefault();
-                setDragActive(true);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragActive(true);
-              }}
-              onDragLeave={(event) => {
-                event.preventDefault();
-                setDragActive(false);
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragActive(false);
-                applyFile(event.dataTransfer.files?.[0] ?? null);
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                id="appel-file"
-                type="file"
-                accept="application/pdf,.pdf"
-                className="sr-only"
-                disabled={isPending}
-                onChange={(event) => applyFile(event.target.files?.[0] ?? null)}
-              />
-              <div className="upload-dropzone-icon">
-                <UploadIcon className="upload-icon" />
-              </div>
-              <div className="upload-dropzone-copy">
-                <strong>{isEdit ? "Remplacer le CDC PDF" : "Importer le CDC PDF"}</strong>
-                <p>
-                  Glissez-déposez un fichier PDF ici ou
-                  <button
-                    type="button"
-                    className="inline-button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isPending}
-                  >
-                    parcourir vos fichiers
-                  </button>
-                  .
+  if (isEdit) {
+    return (
+      <form className="grid" onSubmit={handleSubmit}>
+        <div className="stack">
+          <section className="section-card">
+            <div className="section-header">
+              <div>
+                <h3>Informations du dossier</h3>
+                <p className="meta">
+                  Modifiez les informations deja supportees par la plateforme.
                 </p>
-                <span>Format accepté : PDF uniquement.</span>
               </div>
             </div>
 
-            {selectedFile}
+            <div className="section-body stack">
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="appel-code">Code interne</label>
+                  <input
+                    id="appel-code"
+                    className="input mono"
+                    value={form.code}
+                    placeholder="INT-2026-045"
+                    disabled
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        code: event.target.value
+                      }))
+                    }
+                  />
+                  <span className="hint">
+                    Le code pilote le dossier <span className="mono">data/{current?.code ?? "..."}</span>.
+                  </span>
+                </div>
 
-            <div className="placeholder-inline-card">
-              <strong>Annexes</strong>
-              <p>
-                L'import d'annexes sera ajouté dans une prochaine étape. Le flux actuel enregistre uniquement le CDC PDF.
-              </p>
+                <div className="field">
+                  <label htmlFor="appel-title">Intitule de l'appel d'offres</label>
+                  <input
+                    id="appel-title"
+                    className="input"
+                    value={form.title}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        title: event.target.value
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="appel-buyer">Client</label>
+                  <input
+                    id="appel-buyer"
+                    className="input"
+                    value={form.buyer}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        buyer: event.target.value
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="appel-country">Pays</label>
+                  <input
+                    id="appel-country"
+                    className="input"
+                    value={form.country}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        country: event.target.value
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="appel-due-date">Date limite de remise</label>
+                  <input
+                    id="appel-due-date"
+                    type="date"
+                    className="input"
+                    value={form.dueDate}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        dueDate: event.target.value
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="appel-owner">Responsable commercial</label>
+                  <input
+                    id="appel-owner"
+                    className="input"
+                    value={form.responsableCommercial}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        responsableCommercial: event.target.value
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="appel-priority">Priorite</label>
+                  <select
+                    id="appel-priority"
+                    className="select"
+                    value={form.priorite}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        priorite: event.target.value as AppelOffresInput["priorite"]
+                      }))
+                    }
+                  >
+                    <option value="basse">Basse</option>
+                    <option value="normale">Normale</option>
+                    <option value="haute">Haute</option>
+                    <option value="critique">Critique</option>
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="appel-reference">Description courte ou reference</label>
+                  <input
+                    id="appel-reference"
+                    className="input"
+                    value={form.reference}
+                    placeholder="Reference interne, description courte ou contexte"
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        reference: event.target.value
+                      }))
+                    }
+                  />
+                  <span className="hint">
+                    Ce champ reutilise le champ de reference existant pour rester compatible avec l'API actuelle.
+                  </span>
+                </div>
+
+                <div className="field field-span-full">
+                  <label htmlFor="appel-notes">Notes internes</label>
+                  <textarea
+                    id="appel-notes"
+                    className="textarea"
+                    value={form.notes}
+                    disabled={isWorking}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        notes: event.target.value
+                      }))
+                    }
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        {error ? <div className="callout warning">{error}</div> : null}
-        {success ? <div className="callout info">{success}</div> : null}
+          <section className="section-card">
+            <div className="section-header">
+              <div>
+                <h3>Documents</h3>
+                <p className="meta">
+                  Remplacez le CDC PDF si une nouvelle version du document doit etre analysee.
+                </p>
+              </div>
+            </div>
 
-        {isEdit ? (
+            <div className="section-body stack">
+              <div
+                className={dragActive ? "upload-dropzone active" : "upload-dropzone"}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                  applyFile(event.dataTransfer.files?.[0] ?? null);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  id="appel-file"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  disabled={isWorking}
+                  onChange={(event) => applyFile(event.target.files?.[0] ?? null)}
+                />
+                <div className="upload-dropzone-icon">
+                  <UploadIcon className="upload-icon" />
+                </div>
+                <div className="upload-dropzone-copy">
+                  <strong>Remplacer le CDC PDF</strong>
+                  <p>
+                    Glissez-deposez un fichier PDF ici ou
+                    <button
+                      type="button"
+                      className="inline-button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isWorking}
+                    >
+                      parcourir vos fichiers
+                    </button>
+                    .
+                  </p>
+                  <span>Format accepte : PDF uniquement.</span>
+                </div>
+              </div>
+
+              {selectedFile}
+
+              <div className="placeholder-inline-card">
+                <strong>Annexes</strong>
+                <p>
+                  L'import d'annexes sera ajoute dans une prochaine etape. Le flux actuel enregistre uniquement le CDC PDF.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {error ? <div className="callout warning">{error}</div> : null}
+          {success ? <div className="callout info">{success}</div> : null}
+
           <div className="actions">
-            <button className="button button-primary" type="submit" disabled={isPending}>
-              {isPending ? "Enregistrement..." : "Enregistrer les modifications"}
+            <button className="button button-primary" type="submit" disabled={isWorking}>
+              {getSubmitLabel(mode, submitPhase, isWorking)}
             </button>
             {current ? (
               <>
@@ -455,86 +563,161 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
                   className="button button-ghost"
                   type="button"
                   onClick={() => void handleArchive()}
-                  disabled={isPending}
+                  disabled={isWorking}
                 >
                   Archiver
                 </button>
               </>
             ) : null}
           </div>
-        ) : (
-          <div className="sticky-action-bar">
-            <Link href="/appels-offres" className="button button-ghost">
-              Annuler
-            </Link>
-            <button type="button" className="button button-secondary" disabled>
-              Enregistrer comme brouillon · bientôt disponible
-            </button>
-            <button className="button button-primary" type="submit" disabled={isPending}>
-              {isPending ? "Création..." : "Enregistrer et importer le CDC"}
-            </button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <form className="appel-form-layout minimal-create-layout" onSubmit={handleSubmit}>
+      <div className="stack">
+        <section className="section-card">
+          <div className="section-header">
+            <div>
+              <AiBadge label="Analyse IA" />
+              <h3>Import du CDC</h3>
+              <p className="meta">
+                Renseignez le minimum requis. Les informations metier seront extraites automatiquement depuis le document.
+              </p>
+            </div>
           </div>
-        )}
+
+          <div className="section-body stack">
+            <div className="field">
+              <label htmlFor="appel-code">Code interne</label>
+              <input
+                id="appel-code"
+                className="input mono"
+                value={form.code}
+                placeholder="AO-20260715-1234"
+                disabled={isWorking}
+                onChange={(event) => {
+                  setForm((currentForm) => ({
+                    ...currentForm,
+                    code: event.target.value
+                  }));
+                  setError(null);
+                }}
+              />
+              <span className="hint">
+                Ce code identifie le dossier et son espace de travail.
+                {" "}
+                <span className="mono">data/{selectedCodePreview}</span>
+              </span>
+            </div>
+
+            <div className="field">
+              <label htmlFor="appel-file">CDC PDF</label>
+              <div
+                className={dragActive ? "upload-dropzone active" : "upload-dropzone"}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                  applyFile(event.dataTransfer.files?.[0] ?? null);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  id="appel-file"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  disabled={isWorking}
+                  onChange={(event) => applyFile(event.target.files?.[0] ?? null)}
+                />
+                <div className="upload-dropzone-icon">
+                  <UploadIcon className="upload-icon" />
+                </div>
+                <div className="upload-dropzone-copy">
+                  <strong>Deposez le CDC ici</strong>
+                  <p>
+                    ou
+                    {" "}
+                    <button
+                      type="button"
+                      className="inline-button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isWorking}
+                    >
+                      cliquez pour selectionner un fichier PDF
+                    </button>
+                  </p>
+                  <span>Format accepte : PDF uniquement.</span>
+                </div>
+              </div>
+            </div>
+
+            {selectedFile ?? (
+              <EmptyState
+                compact
+                title="Aucun CDC selectionne"
+                description="Ajoutez un PDF pour creer le dossier et lancer automatiquement l'analyse."
+              />
+            )}
+          </div>
+        </section>
+
+        {error ? <div className="callout warning">{error}</div> : null}
+
+        <div className="sticky-action-bar">
+          <Link href="/appels-offres" className="button button-ghost">
+            Annuler
+          </Link>
+          <button
+            className="button button-ai"
+            type="submit"
+            disabled={!createValidation.canSubmit || isWorking}
+          >
+            {getSubmitLabel(mode, submitPhase, isWorking)}
+          </button>
+        </div>
       </div>
 
-      {!isEdit ? (
-        <aside className="form-summary-panel">
-          <section className="section-card">
-            <div className="section-header">
-              <div>
-                <h3>Résumé</h3>
-                <p className="meta">
-                  Suivez la complétion du formulaire avant la création du dossier.
-                </p>
-              </div>
+      <aside className="form-summary-panel">
+        <section className="section-card">
+          <div className="section-header">
+            <div>
+              <AiBadge label="Automatisation" />
+              <h3>Ce qui va se passer</h3>
+              <p className="meta">
+                La plateforme prepare le dossier, lance l'analyse et vous redirige immediatement vers le workspace.
+              </p>
             </div>
-            <div className="section-body stack">
-              <div className="progress-label-row">
-                <strong>Complétion</strong>
-                <span>{completionRatio} %</span>
-              </div>
-              <div className="progress-bar large">
-                <span style={{ width: `${completionRatio}%` }} />
-              </div>
+          </div>
+          <div className="section-body stack">
+            <ol className="workflow-preview-list">
+              <li>Le dossier d'appel d'offres est cree.</li>
+              <li>Le CDC est converti et analyse.</li>
+              <li>Les informations principales sont extraites automatiquement.</li>
+              <li>Une Fiche CDC est generee.</li>
+              <li>Le Commercial verifie, corrige et valide les informations.</li>
+            </ol>
 
-              <div className="summary-list">
-                <div className="summary-list-row">
-                  <span>Code interne</span>
-                  <strong>{form.code.trim() || "À renseigner"}</strong>
-                </div>
-                <div className="summary-list-row">
-                  <span>Client</span>
-                  <strong>{form.buyer.trim() || "À renseigner"}</strong>
-                </div>
-                <div className="summary-list-row">
-                  <span>Date limite</span>
-                  <strong>{form.dueDate.trim() || "À renseigner"}</strong>
-                </div>
-                <div className="summary-list-row">
-                  <span>Priorite</span>
-                  <strong>{form.priorite}</strong>
-                </div>
-                <div className="summary-list-row">
-                  <span>Responsable</span>
-                  <strong>{form.responsableCommercial.trim() || "A renseigner"}</strong>
-                </div>
-              </div>
-
-              {selectedFile ?? (
-                <EmptyState
-                  compact
-                  title="Aucun fichier sélectionné"
-                  description="Ajoutez le CDC PDF pour finaliser la création du dossier."
-                />
-              )}
-
-              <div className="callout info">
-                Après l'enregistrement, le dossier sera créé, le CDC sera stocké dans le répertoire existant, puis vous pourrez lancer l'analyse depuis le workspace.
-              </div>
+            <div className="callout ai">
+              L'analyse se lance en arriere-plan. Vous serez redirige vers le workspace des la creation du dossier.
             </div>
-          </section>
-        </aside>
-      ) : null}
+          </div>
+        </section>
+      </aside>
     </form>
   );
 }

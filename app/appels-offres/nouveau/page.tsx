@@ -5,9 +5,9 @@ export default function NouvelAppelOffresPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="Création"
+        eyebrow="Creation"
         title="Nouvel appel d'offres"
-        description="Créez le dossier, importez le CDC et préparez le workspace de suivi."
+        description="Importez le CDC. La plateforme se charge d'extraire les informations et de preparer la Fiche CDC."
       />
 
       <AppelOffresForm mode="create" />

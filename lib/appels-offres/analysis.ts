@@ -5,6 +5,7 @@ import {
   buildCallbackIdempotencyKey,
   generateCorrelationId,
   generateProcessingJobPublicId,
+  N8nContractValidationError,
   type N8nCallbackPayload,
   type N8nFailureCallback,
   type N8nLaunchAcceptance,
@@ -15,7 +16,10 @@ import {
 } from "@/lib/integrations/n8n-contract";
 import {
   buildCanonicalCallbackUrl,
-  getN8nIntegrationConfig
+  getMaxCdcUploadBytes,
+  getN8nContractVersion,
+  getN8nIntegrationConfig,
+  type N8nIntegrationConfig
 } from "@/lib/integrations/n8n-config";
 import {
   createContractProcessingJobByCode,
@@ -65,19 +69,191 @@ type CallbackResult = {
   body: Record<string, unknown>;
 };
 
+export type AnalysisRequestErrorKind =
+  | "validation_error"
+  | "database_error"
+  | "missing_environment_variable"
+  | "configuration_error"
+  | "n8n_connection_error"
+  | "n8n_webhook_not_found"
+  | "n8n_auth_error"
+  | "n8n_timeout"
+  | "n8n_unexpected_response";
+
 export class AnalysisRequestError extends Error {
   status: number;
   body: Record<string, unknown>;
+  kind: AnalysisRequestErrorKind;
 
-  constructor(status: number, message: string, body: Record<string, unknown> = {}) {
+  constructor(
+    status: number,
+    message: string,
+    body: Record<string, unknown> = {},
+    kind: AnalysisRequestErrorKind = "validation_error"
+  ) {
     super(message);
     this.name = "AnalysisRequestError";
     this.status = status;
+    this.kind = kind;
     this.body = {
       error: message,
+      error_kind: kind,
       ...body
     };
   }
+}
+
+function isEnvironmentConfigurationError(error: unknown): error is Error {
+  return error instanceof Error && error.message.startsWith("La variable d'environnement ");
+}
+
+function sanitizeUrlForLogs(rawUrl: string) {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return rawUrl.split("?")[0];
+  }
+}
+
+function summarizeResponseBody(bodyText: string) {
+  const trimmed = bodyText.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === "object") {
+      const first = parsed[0] as Record<string, unknown>;
+      const nestedError =
+        first.error && typeof first.error === "object"
+          ? (first.error as Record<string, unknown>)
+          : first;
+      return JSON.stringify({
+        code: nestedError.code ?? null,
+        status: nestedError.status ?? null,
+        message: nestedError.message ?? null
+      });
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const nestedError =
+        record.error && typeof record.error === "object"
+          ? (record.error as Record<string, unknown>)
+          : record;
+      return JSON.stringify({
+        code: nestedError.code ?? null,
+        status: nestedError.status ?? null,
+        message: nestedError.message ?? record.message ?? null
+      });
+    }
+  } catch {
+    // Fall through to plain-text summarization.
+  }
+
+  return trimmed.replace(/\s+/g, " ").slice(0, 240);
+}
+
+function logLaunchFailure(
+  event: string,
+  input: {
+    code: string;
+    processingJobId?: string;
+    correlationId?: string;
+    webhookUrl?: string;
+    webhookMode?: "production" | "test" | "unknown";
+    httpStatus?: number;
+    errorKind: AnalysisRequestErrorKind;
+    detail?: string;
+  },
+  error?: unknown
+) {
+  const payload = {
+    code: input.code,
+    processingJobId: input.processingJobId ?? null,
+    correlationId: input.correlationId ?? null,
+    webhookTarget: input.webhookUrl ? sanitizeUrlForLogs(input.webhookUrl) : null,
+    webhookMode: input.webhookMode ?? null,
+    httpStatus: input.httpStatus ?? null,
+    errorKind: input.errorKind,
+    detail: input.detail ?? null
+  };
+
+  console.error(`[analysis.launch] ${event}`, payload);
+  if (error instanceof Error && error.stack) {
+    console.error(error.stack);
+  }
+}
+
+function resolveWebhookMode(webhookUrl: string): "production" | "test" | "unknown" {
+  try {
+    const pathname = new URL(webhookUrl).pathname;
+    if (pathname.startsWith("/webhook-test/")) {
+      return "test";
+    }
+    if (pathname.startsWith("/webhook/")) {
+      return "production";
+    }
+  } catch {
+    return "unknown";
+  }
+
+  return "unknown";
+}
+
+function assertCanonicalWebhookUrl(webhookUrl: string) {
+  const mode = resolveWebhookMode(webhookUrl);
+  if (mode === "unknown") {
+    throw new AnalysisRequestError(
+      500,
+      "La variable d'environnement N8N_WEBHOOK_URL doit pointer vers l'URL complete du webhook n8n.",
+      {
+        detail: sanitizeUrlForLogs(webhookUrl)
+      },
+      "configuration_error"
+    );
+  }
+
+  return mode;
+}
+
+function readLaunchConfig(code: string) {
+  try {
+    const config = getN8nIntegrationConfig();
+    const webhookMode = assertCanonicalWebhookUrl(config.webhookUrl);
+    return { config, webhookMode };
+  } catch (error) {
+    if (error instanceof AnalysisRequestError) {
+      logLaunchFailure("configuration_invalid", {
+        code,
+        errorKind: error.kind,
+        detail: toStringSafe(error.body.detail)
+      }, error);
+      throw error;
+    }
+
+    if (isEnvironmentConfigurationError(error)) {
+      logLaunchFailure("environment_missing", {
+        code,
+        errorKind: "missing_environment_variable",
+        detail: error.message
+      }, error);
+      throw new AnalysisRequestError(
+        500,
+        error.message,
+        {},
+        "missing_environment_variable"
+      );
+    }
+
+    throw error;
+  }
+}
+
+function toStringSafe(value: unknown) {
+  return typeof value === "string" ? value : "";
 }
 
 function assertPdfFile(file: File, maxBytes: number) {
@@ -128,11 +304,13 @@ async function syncFicheIndexFromStorage(code: string, context: string) {
 }
 
 async function requestN8nLaunch(
+  config: N8nIntegrationConfig,
+  webhookMode: "production" | "test" | "unknown",
   payload: N8nLaunchRequest
 ): Promise<N8nLaunchAcceptance> {
-  const config = getN8nIntegrationConfig();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.launchTimeoutMs);
+  const webhookTarget = sanitizeUrlForLogs(config.webhookUrl);
 
   try {
     const response = await fetch(config.webhookUrl, {
@@ -149,10 +327,67 @@ async function requestN8nLaunch(
 
     if (response.status !== 202) {
       const bodyText = await response.text().catch(() => "");
+      const responseSummary = summarizeResponseBody(bodyText);
+
+      if (response.status === 404) {
+        logLaunchFailure("webhook_not_found", {
+          code: payload.code_interne,
+          processingJobId: payload.processing_job_id,
+          correlationId: payload.correlation_id,
+          webhookUrl: config.webhookUrl,
+          webhookMode,
+          httpStatus: response.status,
+          errorKind: "n8n_webhook_not_found",
+          detail: responseSummary
+        });
+        throw new AnalysisRequestError(
+          502,
+          "Le webhook n8n configure est introuvable.",
+          {
+            detail: responseSummary,
+            target: webhookTarget
+          },
+          "n8n_webhook_not_found"
+        );
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        logLaunchFailure("webhook_auth_rejected", {
+          code: payload.code_interne,
+          processingJobId: payload.processing_job_id,
+          correlationId: payload.correlation_id,
+          webhookUrl: config.webhookUrl,
+          webhookMode,
+          httpStatus: response.status,
+          errorKind: "n8n_auth_error",
+          detail: responseSummary
+        });
+        throw new AnalysisRequestError(
+          502,
+          "Le webhook n8n a refuse l'authentification du lancement.",
+          {
+            detail: responseSummary,
+            target: webhookTarget
+          },
+          "n8n_auth_error"
+        );
+      }
+
+      logLaunchFailure("webhook_unexpected_status", {
+        code: payload.code_interne,
+        processingJobId: payload.processing_job_id,
+        correlationId: payload.correlation_id,
+        webhookUrl: config.webhookUrl,
+        webhookMode,
+        httpStatus: response.status,
+        errorKind: "n8n_unexpected_response",
+        detail: responseSummary
+      });
       throw new AnalysisRequestError(
         502,
-        `Le webhook n8n a refuse le lancement (${response.status}).`,
-        bodyText ? { detail: bodyText.slice(0, 500) } : {}
+        `Le webhook n8n a renvoye une reponse inattendue (${response.status}).`,
+        responseSummary ? { detail: responseSummary, target: webhookTarget } : {},
+        "n8n_unexpected_response"
       );
     }
 
@@ -160,9 +395,23 @@ async function requestN8nLaunch(
     try {
       body = await response.json();
     } catch {
+      logLaunchFailure("acceptance_not_json", {
+        code: payload.code_interne,
+        processingJobId: payload.processing_job_id,
+        correlationId: payload.correlation_id,
+        webhookUrl: config.webhookUrl,
+        webhookMode,
+        httpStatus: response.status,
+        errorKind: "n8n_unexpected_response",
+        detail: "acceptance_response_not_json"
+      });
       throw new AnalysisRequestError(
         502,
-        "La reponse d'acceptation n8n n'est pas un JSON valide."
+        "La reponse d'acceptation n8n n'est pas un JSON valide.",
+        {
+          target: webhookTarget
+        },
+        "n8n_unexpected_response"
       );
     }
 
@@ -171,9 +420,23 @@ async function requestN8nLaunch(
       acceptance.processing_job_id !== payload.processing_job_id ||
       acceptance.correlation_id !== payload.correlation_id
     ) {
+      logLaunchFailure("acceptance_mismatch", {
+        code: payload.code_interne,
+        processingJobId: payload.processing_job_id,
+        correlationId: payload.correlation_id,
+        webhookUrl: config.webhookUrl,
+        webhookMode,
+        httpStatus: response.status,
+        errorKind: "n8n_unexpected_response",
+        detail: "processing_job_id_or_correlation_id_mismatch"
+      });
       throw new AnalysisRequestError(
         502,
-        "La reponse d'acceptation n8n ne correspond pas au job envoye."
+        "La reponse d'acceptation n8n ne correspond pas au job envoye.",
+        {
+          target: webhookTarget
+        },
+        "n8n_unexpected_response"
       );
     }
 
@@ -183,17 +446,65 @@ async function requestN8nLaunch(
       throw error;
     }
 
+    if (error instanceof N8nContractValidationError) {
+      logLaunchFailure("acceptance_contract_invalid", {
+        code: payload.code_interne,
+        processingJobId: payload.processing_job_id,
+        correlationId: payload.correlation_id,
+        webhookUrl: config.webhookUrl,
+        webhookMode,
+        httpStatus: 202,
+        errorKind: "n8n_unexpected_response",
+        detail: error.message
+      }, error);
+      throw new AnalysisRequestError(
+        502,
+        "La reponse d'acceptation n8n ne respecte pas le contrat attendu.",
+        {
+          target: webhookTarget,
+          detail: error.message
+        },
+        "n8n_unexpected_response"
+      );
+    }
+
     if (error instanceof Error && error.name === "AbortError") {
+      logLaunchFailure("timeout", {
+        code: payload.code_interne,
+        processingJobId: payload.processing_job_id,
+        correlationId: payload.correlation_id,
+        webhookUrl: config.webhookUrl,
+        webhookMode,
+        errorKind: "n8n_timeout",
+        detail: `timeout_ms=${config.launchTimeoutMs}`
+      }, error);
       throw new AnalysisRequestError(
         504,
-        "Le webhook n8n n'a pas confirme le lancement dans le delai autorise."
+        "Le webhook n8n n'a pas confirme le lancement dans le delai autorise.",
+        {
+          target: webhookTarget
+        },
+        "n8n_timeout"
       );
     }
 
     const message = error instanceof Error ? error.message : String(error);
+    logLaunchFailure("connection_failed", {
+      code: payload.code_interne,
+      processingJobId: payload.processing_job_id,
+      correlationId: payload.correlation_id,
+      webhookUrl: config.webhookUrl,
+      webhookMode,
+      errorKind: "n8n_connection_error",
+      detail: message
+    }, error);
     throw new AnalysisRequestError(
       502,
-      `Impossible de contacter le webhook n8n. Detail: ${message}`
+      `Impossible de contacter le webhook n8n. Detail: ${message}`,
+      {
+        target: webhookTarget
+      },
+      "n8n_connection_error"
     );
   } finally {
     clearTimeout(timeout);
@@ -340,7 +651,6 @@ function toContractAppelOffreId(id: number) {
 export async function launchAnalysisForAppelOffres(
   options: LaunchAnalysisOptions
 ): Promise<LaunchAnalysisResult> {
-  const config = getN8nIntegrationConfig();
   const code = options.code.trim();
 
   const appel = await getAppelOffresDetailByCode(code, { includeArchived: true });
@@ -353,7 +663,7 @@ export async function launchAnalysisForAppelOffres(
   }
 
   if (options.pdfFile) {
-    assertPdfFile(options.pdfFile, config.maxCdcUploadBytes);
+    assertPdfFile(options.pdfFile, getMaxCdcUploadBytes());
     await storeSourcePdf(code, options.pdfFile);
     await syncStoredDocumentsMetadata(code);
     await appendAuditLog(code, "appel_offres.cdc_uploaded", {
@@ -402,14 +712,13 @@ export async function launchAnalysisForAppelOffres(
   const latestJob = await getLatestProcessingJobByCode(code, "fiche_generation");
   const processingJobId = generateProcessingJobPublicId();
   const correlationId = generateCorrelationId();
-  const callbackUrl = buildCanonicalCallbackUrl(config.platformPublicBaseUrl);
-  const pdfPath = getPdfPathForLaunch(await getStoredPdfPath(code));
+  const contractVersion = getN8nContractVersion();
 
   const job = await createContractProcessingJobByCode(code, {
     publicId: processingJobId,
     jobType: "fiche_generation",
     status: "created",
-    contractVersion: config.contractVersion,
+    contractVersion,
     correlationId,
     retryOfJobId:
       latestJob && ["failed", "cancelled"].includes(latestJob.status)
@@ -432,26 +741,30 @@ export async function launchAnalysisForAppelOffres(
     processingJobId
   }).catch(() => undefined);
 
-  const launchPayload = {
-    contract_version: config.contractVersion,
-    processing_job_id: processingJobId,
-    appel_offre_id: toContractAppelOffreId(appel.id),
-    code_interne: code,
-    correlation_id: correlationId,
-    callback_url: callbackUrl,
-    pdf_path: pdfPath,
-    requested_at: new Date().toISOString()
-  } satisfies N8nLaunchRequest;
-
-  await updateProcessingJobByPublicId(processingJobId, {
-    status: "queued",
-    metadata: {
-      launchPayload
-    }
-  });
-
   try {
-    const acceptance = await requestN8nLaunch(launchPayload);
+    const { config, webhookMode } = readLaunchConfig(code);
+    const callbackUrl = buildCanonicalCallbackUrl(config.platformPublicBaseUrl);
+    const pdfPath = getPdfPathForLaunch(await getStoredPdfPath(code));
+    const launchPayload = {
+      contract_version: config.contractVersion,
+      processing_job_id: processingJobId,
+      appel_offre_id: toContractAppelOffreId(appel.id),
+      code_interne: code,
+      correlation_id: correlationId,
+      callback_url: callbackUrl,
+      pdf_path: pdfPath,
+      requested_at: new Date().toISOString()
+    } satisfies N8nLaunchRequest;
+
+    await updateProcessingJobByPublicId(processingJobId, {
+      status: "queued",
+      contractVersion: config.contractVersion,
+      metadata: {
+        launchPayload
+      }
+    });
+
+    const acceptance = await requestN8nLaunch(config, webhookMode, launchPayload);
     await updateProcessingJobByPublicId(processingJobId, {
       status: "running",
       executionId: acceptance.execution_id,
