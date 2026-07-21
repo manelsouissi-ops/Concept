@@ -6,6 +6,7 @@ import type {
 
 export type BadgeTone =
   | "neutral"
+  | "ai"
   | "info"
   | "success"
   | "warning"
@@ -76,7 +77,7 @@ const STATUS_TONES: Record<BusinessStatusKey, BadgeTone> = {
   brouillon: "neutral",
   cdc_importe: "info",
   en_attente_analyse: "warning",
-  analyse_en_cours: "info",
+  analyse_en_cours: "ai",
   fiche_a_valider: "warning",
   fiche_validee: "success",
   erreur: "danger",

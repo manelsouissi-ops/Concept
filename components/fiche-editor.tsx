@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { StatusBadge } from "@/components/status-badge.tsx";
+import { toBusinessSafeAnalysisError } from "@/lib/appels-offres/user-errors.ts";
 import {
   EVALUATION_FIELD_DEFINITIONS,
   EXTRACTION_FIELD_DEFINITIONS,
@@ -62,6 +64,14 @@ const EXTRACTION_GROUP_ORDER = [
   "Livrables & profils",
   "Site & contraintes"
 ] as const;
+
+const EXTRACTION_GROUP_TITLES: Record<(typeof EXTRACTION_GROUP_ORDER)[number], string> = {
+  Identification: "Informations generales",
+  Procedure: "Procedure et calendrier",
+  "Duree & volume": "Duree et volume",
+  "Livrables & profils": "Livrables et profils",
+  "Site & contraintes": "Contraintes et exigences"
+};
 
 const CONTROL_SECTION_CONFIG = [
   {
@@ -132,14 +142,38 @@ function cloneControl(control: ControleSection): ControleSection {
 function statusLabel(status: FicheResponse["status"]["status"]) {
   switch (status) {
     case "processing":
-      return "Traitement";
+      return "En cours de generation";
     case "validated":
       return "Validee";
     case "error":
-      return "Erreur";
+      return "Erreur de traitement";
     default:
-      return "Brouillon";
+      return "A verifier";
   }
+}
+
+function getFieldReviewState({
+  value,
+  initialValue,
+  ficheStatus
+}: {
+  value: string;
+  initialValue: string;
+  ficheStatus: FicheResponse["status"]["status"];
+}) {
+  if (ficheStatus === "validated") {
+    return { label: "Valide", tone: "success" as const };
+  }
+
+  if (!value.trim()) {
+    return { label: "Non renseigne", tone: "neutral" as const };
+  }
+
+  if (value !== initialValue) {
+    return { label: "Modifie", tone: "warning" as const };
+  }
+
+  return { label: "Genere", tone: "ai" as const };
 }
 
 function formatElapsed(processingStartedAt: string | null) {
@@ -292,6 +326,7 @@ export function FicheEditor({ code }: Props) {
   const [pdfFlashToken, setPdfFlashToken] = useState(0);
   const [elapsedLabel, setElapsedLabel] = useState<string | null>(null);
   const markdownLineRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const initialExtractionRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     let active = true;
@@ -325,6 +360,9 @@ export function FicheEditor({ code }: Props) {
         }
 
         setData(ficheBody);
+        initialExtractionRef.current = new Map(
+          ficheBody.extraction.map((field) => [field.key, field.value])
+        );
         setError(null);
         return;
       }
@@ -381,6 +419,9 @@ export function FicheEditor({ code }: Props) {
 
         if (ficheResponse.ok && !isErrorResponse(ficheBody)) {
           setData(ficheBody);
+          initialExtractionRef.current = new Map(
+            ficheBody.extraction.map((field) => [field.key, field.value])
+          );
         } else if (body.status !== "error") {
           setError("Impossible de charger cette fiche.");
         } else {
@@ -536,6 +577,9 @@ export function FicheEditor({ code }: Props) {
         if (method === "PUT") {
           const saved = await persistDraft(snapshot);
           setData(saved);
+          initialExtractionRef.current = new Map(
+            saved.extraction.map((field) => [field.key, field.value])
+          );
           setError(null);
           setSaveState("saved");
           return;
@@ -554,6 +598,9 @@ export function FicheEditor({ code }: Props) {
         }
 
         setData(body);
+        initialExtractionRef.current = new Map(
+          body.extraction.map((field) => [field.key, field.value])
+        );
         setError(null);
         setSaveState("validated");
       } catch (caughtError) {
@@ -562,6 +609,14 @@ export function FicheEditor({ code }: Props) {
         );
       }
     });
+  }
+
+  function handleValidate() {
+    if (!window.confirm("Confirmer la validation finale de la Fiche CDC ?")) {
+      return;
+    }
+
+    void persist("POST", `/api/fiche/${encodeURIComponent(code)}/validate`);
   }
 
   async function retryGeneration() {
@@ -658,9 +713,24 @@ export function FicheEditor({ code }: Props) {
           </div>
 
           <div className="callout warning">
-            {statusData.errorReason ?? "Le pipeline a echoue."}
-            {statusData.errorStage ? " Des details techniques sont disponibles pour l'administration." : ""}
+            L'analyse n'a pas pu etre terminee.
+            <div>
+              {toBusinessSafeAnalysisError(
+                statusData.errorReason ??
+                  "Le dossier et le CDC ont ete conserves. Vous pouvez relancer le traitement."
+              )}
+            </div>
           </div>
+
+          {statusData.errorStage || statusData.n8nExecutionId ? (
+            <details className="technical-details">
+              <summary className="markdown-summary">Details techniques (administration)</summary>
+              <div className="technical-details-grid">
+                <span>Etape : {statusData.errorStage ?? "Non disponible"}</span>
+                <span>Execution ID : {statusData.n8nExecutionId ?? "Non disponible"}</span>
+              </div>
+            </details>
+          ) : null}
 
           <div className="actions">
             <button
@@ -721,9 +791,9 @@ export function FicheEditor({ code }: Props) {
         <section className="section-card">
           <div className="section-header">
             <div>
-              <h3>Markdown source</h3>
+              <h3>Sources de verification</h3>
               <p className="meta">
-                Affiche le contenu reel de <span className="mono">cdc.md</span> enregistre sur disque.
+                Markdown source et PDF du CDC utilises pour justifier les informations generees.
               </p>
             </div>
           </div>
@@ -783,15 +853,17 @@ export function FicheEditor({ code }: Props) {
 
         {isLocked ? (
           <div className="callout warning">
-            Cette fiche n'est editable que lorsqu'elle est en brouillon.
-            Vous pouvez toujours la consulter, mais les champs restent verrouilles dans cet etat.
+            Cette Fiche CDC n'est modifiable que lorsqu'elle est en statut A verifier.
+            Vous pouvez toujours la consulter, mais les champs sont desormais verrouilles.
           </div>
         ) : null}
 
         {data.status.status === "error" ? (
           <div className="callout warning">
-            {data.status.errorReason ?? "Le pipeline a echoue."}
-            {data.status.errorStage ? " Des details techniques sont disponibles pour l'administration." : ""}
+            {toBusinessSafeAnalysisError(
+              data.status.errorReason ??
+                "L'analyse n'a pas pu etre terminee. Vous pouvez relancer le traitement."
+            )}
             <div className="actions">
               <button
                 className="button button-primary"
@@ -816,21 +888,42 @@ export function FicheEditor({ code }: Props) {
         <section className="section-card">
           <div className="section-header">
             <div>
-              <h3>Extraction</h3>
-              <p className="meta">Chaque champ affiche sa source pour faciliter la confiance.</p>
+              <h3>Informations extraites</h3>
+              <p className="meta">
+                Chaque champ affiche son etat et sa source pour faciliter la relecture commerciale.
+              </p>
             </div>
           </div>
           <div className="section-body">
             {data.extraction.length ? (
               groupedExtraction.map(({ group, fields }) => (
                 <div className="stack" key={group}>
-                  <div className="subsection-title">{group}</div>
+                  <div className="subsection-title">{EXTRACTION_GROUP_TITLES[group]}</div>
                   {fields.map(({ field, index, definition }) => (
-                    <div className="field-row" key={definition.key}>
+                    <article className="fiche-review-field" key={definition.key}>
                       <div className="field-topline">
                         <label htmlFor={`extraction-${definition.key}`} className="mono">
                           {definition.label}
                         </label>
+                        <StatusBadge
+                          label={
+                            getFieldReviewState({
+                              value: field?.value ?? "",
+                              initialValue: initialExtractionRef.current.get(definition.key) ?? "",
+                              ficheStatus: data.status.status
+                            }).label
+                          }
+                          tone={
+                            getFieldReviewState({
+                              value: field?.value ?? "",
+                              initialValue: initialExtractionRef.current.get(definition.key) ?? "",
+                              ficheStatus: data.status.status
+                            }).tone
+                          }
+                        />
+                      </div>
+
+                      <div className="fiche-review-field-actions">
                         {field?.source ? (
                           <>
                             <button
@@ -839,7 +932,7 @@ export function FicheEditor({ code }: Props) {
                               title={field.source}
                               onClick={() => handleSourceJump(field)}
                             >
-                              Source: {field.source}
+                              Source : {field.source}
                             </button>
                             {sourceFeedbackKey === field.key && sourceFeedbackMessage ? (
                               <span className="meta source-feedback">{sourceFeedbackMessage}</span>
@@ -847,18 +940,24 @@ export function FicheEditor({ code }: Props) {
                           </>
                         ) : (
                           <span className="badge" title="Aucune source fournie">
-                            Source absente
+                            Aucune source fournie
                           </span>
                         )}
                       </div>
+
+                      {!field?.value.trim() ? (
+                        <div className="empty-inline-note">Aucune information detectee</div>
+                      ) : null}
+
                       <textarea
                         id={`extraction-${definition.key}`}
                         className="textarea"
                         value={field?.value ?? ""}
                         onChange={(event) => updateExtraction(index, event.target.value)}
                         disabled={isLocked || isPending}
+                        placeholder="Ajouter une valeur"
                       />
-                    </div>
+                    </article>
                   ))}
                 </div>
               ))
@@ -982,13 +1081,13 @@ export function FicheEditor({ code }: Props) {
           >
             {isPending ? "Sauvegarde..." : "Enregistrer"}
           </button>
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => persist("POST", `/api/fiche/${encodeURIComponent(code)}/validate`)}
-            disabled={!canValidate}
-          >
-            {isPending ? "Validation..." : "Valider la Fiche CDC"}
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={handleValidate}
+                disabled={!canValidate}
+              >
+                {isPending ? "Validation..." : "Valider la Fiche CDC"}
           </button>
         </div>
 

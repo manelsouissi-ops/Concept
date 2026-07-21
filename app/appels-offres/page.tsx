@@ -8,8 +8,17 @@ import {
   listAppelsOffres
 } from "@/lib/appels-offres/repository.ts";
 
-export default async function AppelsOffresPage() {
+export default async function AppelsOffresPage({
+  searchParams
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   try {
+    const resolvedSearchParams = searchParams ? await searchParams : undefined;
+    const statusValue = resolvedSearchParams?.status;
+    const sortValue = resolvedSearchParams?.sort;
+    const initialStatusFilter = typeof statusValue === "string" ? statusValue : "all";
+    const initialSortBy = typeof sortValue === "string" ? sortValue : "updated";
     const records = await listAppelsOffres({ archived: "all" });
     const details = (
       await Promise.all(
@@ -31,7 +40,11 @@ export default async function AppelsOffresPage() {
           }
         />
 
-        <AppelsOffresListView items={summaries} />
+        <AppelsOffresListView
+          items={summaries}
+          initialStatusFilter={initialStatusFilter}
+          initialSortBy={initialSortBy}
+        />
       </div>
     );
   } catch (error) {

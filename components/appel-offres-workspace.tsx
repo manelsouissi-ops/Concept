@@ -1,38 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { ActivityFeed } from "@/components/activity-feed.tsx";
+import { AiBadge } from "@/components/ai-badge";
 import { AppelOffresAnalysisPanel } from "@/components/appel-offres-analysis-panel";
 import { AppelOffresForm } from "@/components/appel-offres-form";
 import { EmptyState } from "@/components/empty-state.tsx";
-import { PlaceholderPanel } from "@/components/placeholder-panel.tsx";
-import { StatusBadge } from "@/components/status-badge.tsx";
+import { ProcessingTimeline } from "@/components/processing-timeline.tsx";
+import { WorkspaceHeader } from "@/components/workspace-header.tsx";
+import { WorkspaceTabs } from "@/components/workspace-tabs.tsx";
+import { buildAppelOffresSummary } from "@/lib/appels-offres/presentation.ts";
 import {
-  buildAppelOffresSummary,
-  buildProgressStepper,
-  getDocumentLabel
-} from "@/lib/appels-offres/presentation.ts";
+  buildProcessingTimeline,
+  buildWorkspaceActions,
+  buildWorkspaceActivityFeed,
+  buildWorkspaceFailureSummary,
+  buildWorkspaceIdentity,
+  type WorkspaceAction,
+  type WorkspaceTabKey
+} from "@/lib/appels-offres/workspace.ts";
 import type { AppelOffresDetail } from "@/lib/appels-offres/types.ts";
 import { FicheEditor } from "./fiche-editor.tsx";
 
-type WorkspaceTab =
-  | "overview"
-  | "documents"
-  | "processing"
-  | "fiche"
-  | "fci"
-  | "knowledge"
-  | "history";
+type WorkspaceFlash = "created-processing" | "launch-failed" | "analysis-started";
 
-const tabs: Array<{ key: WorkspaceTab; label: string }> = [
+const tabs: Array<{ key: WorkspaceTabKey; label: string; countKey?: "documents" | "history" }> = [
   { key: "overview", label: "Vue d'ensemble" },
-  { key: "documents", label: "Documents" },
+  { key: "documents", label: "Documents", countKey: "documents" },
   { key: "processing", label: "Traitement" },
   { key: "fiche", label: "Fiche CDC" },
-  { key: "fci", label: "FCI" },
-  { key: "knowledge", label: "Connaissances" },
-  { key: "history", label: "Historique" }
+  { key: "history", label: "Historique", countKey: "history" }
 ];
 
 function formatDateTime(value: string | null) {
@@ -45,7 +44,7 @@ function formatDateTime(value: string | null) {
 
 function formatDate(value: string | null) {
   if (!value) {
-    return "Non renseignée";
+    return "Non renseignee";
   }
 
   return new Date(value).toLocaleDateString("fr-FR");
@@ -70,16 +69,87 @@ function formatDuration(startedAt: string | null, finishedAt: string | null) {
   return `${minutes} min ${String(seconds).padStart(2, "0")} s`;
 }
 
-export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
-  const summary = buildAppelOffresSummary(appel);
-  const steps = buildProgressStepper(appel);
-  const latestJob = appel.processingJobs[0] ?? null;
+function getFlashContent(flash: WorkspaceFlash | undefined) {
+  switch (flash) {
+    case "created-processing":
+      return {
+        tone: "info" as const,
+        message: "Le dossier a ete cree. L'analyse du CDC est en cours."
+      };
+    case "launch-failed":
+      return {
+        tone: "warning" as const,
+        message:
+          "Le dossier a ete cree, mais le lancement de l'analyse a echoue. Vous pouvez relancer le traitement ci-dessous."
+      };
+    case "analysis-started":
+      return {
+        tone: "info" as const,
+        message: "L'analyse du CDC est en cours."
+      };
+    default:
+      return null;
+  }
+}
 
-  async function handleArchiveToggle() {
+function toViewParam(tab: WorkspaceTabKey) {
+  return tab === "fiche" ? "fiche-cdc" : tab;
+}
+
+export function AppelOffresWorkspace({
+  appel,
+  initialTab = "overview",
+  flash
+}: {
+  appel: AppelOffresDetail;
+  initialTab?: WorkspaceTabKey;
+  flash?: WorkspaceFlash;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<WorkspaceTabKey>(initialTab);
+  const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const summary = buildAppelOffresSummary(appel);
+  const identity = buildWorkspaceIdentity(appel);
+  const timeline = buildProcessingTimeline(appel);
+  const activity = buildWorkspaceActivityFeed(appel);
+  const failureSummary = buildWorkspaceFailureSummary(appel);
+  const flashContent = getFlashContent(flash);
+  const latestJob = appel.processingJobs[0] ?? null;
+  const actions = buildWorkspaceActions(appel);
+
+  const tabConfigs = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        count:
+          tab.countKey === "documents"
+            ? appel.documents.length
+            : tab.countKey === "history"
+              ? activity.length
+              : undefined
+      })),
+    [activity.length, appel.documents.length]
+  );
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  function updateView(nextTab: WorkspaceTabKey) {
+    setActiveTab(nextTab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", toViewParam(nextTab));
+    params.delete("flash");
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  async function handleArchiveToggle(archived: boolean) {
     const response = await fetch(
-      summary.isArchived
+      archived
         ? `/api/appels-offres/${encodeURIComponent(appel.code)}/unarchive`
         : `/api/appels-offres/${encodeURIComponent(appel.code)}/archive`,
       {
@@ -92,119 +162,117 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
     }
   }
 
+  async function handleLaunchAnalysis() {
+    setWorkspaceMessage(null);
+
+    startTransition(async () => {
+      const response = await fetch(`/api/appels-offres/${encodeURIComponent(appel.code)}/analyse`, {
+        method: "POST",
+        body: new FormData()
+      });
+
+      const body = (await response.json()) as {
+        error?: string;
+        requiresConfirmation?: boolean;
+      };
+
+      if (response.ok) {
+        updateView("processing");
+        router.refresh();
+        return;
+      }
+
+      if (response.status === 409 && body.requiresConfirmation) {
+        updateView("processing");
+        setWorkspaceMessage(
+          body.error ??
+            "La relance doit etre confirmee depuis la section Traitement."
+        );
+        return;
+      }
+
+      updateView("processing");
+      setWorkspaceMessage(body.error ?? "Le lancement de l'analyse a echoue.");
+    });
+  }
+
+  function handleAction(action: WorkspaceAction) {
+    switch (action.kind) {
+      case "launch-analysis":
+        void handleLaunchAnalysis();
+        break;
+      case "open-fiche":
+      case "validate-fiche":
+        updateView("fiche");
+        break;
+      case "download-cdc":
+        window.open(`/api/appels-offres/${encodeURIComponent(appel.code)}/pdf`, "_blank", "noopener,noreferrer");
+        break;
+      case "edit-overview":
+        updateView("overview");
+        break;
+      case "archive":
+        void handleArchiveToggle(false);
+        break;
+      case "unarchive":
+        void handleArchiveToggle(true);
+        break;
+    }
+  }
+
   return (
     <div className="stack">
-      <section className="workspace-header-card">
-        <div className="workspace-header-topline">
-          <div>
-            <div className="workspace-code mono">{appel.code}</div>
-            <h2>{appel.title}</h2>
-          </div>
-          <StatusBadge label={summary.statusLabel} tone={summary.statusTone} />
-        </div>
-
-        <div className="workspace-header-actions">
-          <button
-            type="button"
-            className="button button-ghost button-small"
-            onClick={() => setActiveTab("overview")}
-          >
-            Modifier
-          </button>
-          <button
-            type="button"
-            className="button button-primary button-small"
-            onClick={() => setActiveTab("processing")}
-          >
-            {summary.statusKey === "erreur" ? "Relancer l'analyse" : "Lancer l'analyse"}
-          </button>
-          <button
-            type="button"
-            className="button button-secondary button-small"
-            onClick={() => setActiveTab("history")}
-          >
-            Plus
-          </button>
-          <button
-            type="button"
-            className="button button-ghost button-small"
-            onClick={() => void handleArchiveToggle()}
-          >
-            {summary.isArchived ? "Desarchiver" : "Archiver"}
-          </button>
-        </div>
-
-        <div className="workspace-header-grid">
-          <div className="workspace-header-meta">
-            <span>Client : {summary.client}</span>
-            <span>Pays : {summary.country}</span>
-            <span>Priorite : {summary.priorityLabel}</span>
-            <span>Responsable : {summary.ownerLabel}</span>
-            <span>Date limite : {formatDate(appel.dueDate)}</span>
-            <span>Derniere mise a jour : {formatDateTime(appel.updatedAt)}</span>
-            <span>
-              Archive : {summary.isArchived ? `Oui (${formatDateTime(summary.archivedAt)})` : "Non"}
-            </span>
-          </div>
-
-          <div className="workspace-header-progress">
-            <div className="progress-label-row">
-              <strong>Progression globale</strong>
-              <span>{summary.progressLabel}</span>
-            </div>
-            <div className="progress-bar large">
-              <span style={{ width: `${summary.progressValue}%` }} />
-            </div>
-            <p>{summary.currentStep}</p>
-          </div>
-        </div>
-      </section>
+      <WorkspaceHeader
+        code={appel.code}
+        identity={identity}
+        statusLabel={summary.statusLabel}
+        statusTone={summary.statusTone}
+        businessStatusDescription={summary.statusDescription}
+        lastUpdatedLabel={formatDateTime(appel.updatedAt)}
+        deadlineLabel={formatDate(appel.dueDate)}
+        primaryAction={actions.primary}
+        secondaryActions={actions.secondary}
+        onAction={handleAction}
+      />
 
       <section className="tabs-card">
-        <div className="tabs-list" role="tablist" aria-label="Sections du workspace">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              className={activeTab === tab.key ? "tab-button active" : "tab-button"}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {flashContent ? (
+          <div className={flashContent.tone === "warning" ? "callout warning" : "callout info"}>
+            {flashContent.message}
+          </div>
+        ) : null}
+        {workspaceMessage ? <div className="callout warning">{workspaceMessage}</div> : null}
+
+        <WorkspaceTabs tabs={tabConfigs} activeKey={activeTab} onSelect={(key) => updateView(key as WorkspaceTabKey)} />
 
         <div className="tabs-panel">
           {activeTab === "overview" ? (
             <div className="stack">
               <div className="responsive-card-grid">
                 <article className="workspace-card">
-                  <span className="card-kicker">Statut courant</span>
-                  <h3>{summary.statusLabel}</h3>
-                  <p className="workspace-card-description">{summary.statusDescription}</p>
+                  <span className="card-kicker">Projet</span>
+                  <h3>{identity.displayTitle}</h3>
+                  <p className="workspace-card-description">
+                    {identity.clientLabel} · {identity.countryLabel}
+                  </p>
                 </article>
                 <article className="workspace-card">
                   <span className="card-kicker">Action suivante</span>
                   <h3>{summary.nextAction}</h3>
-                  <p className="workspace-card-description">
-                    Étape actuelle : {summary.currentStep}
-                  </p>
+                  <p className="workspace-card-description">{summary.currentStep}</p>
                 </article>
                 <article className="workspace-card">
-                  <span className="card-kicker">Documents</span>
-                  <h3>{summary.documentsCount} document(s)</h3>
+                  <span className="card-kicker">Pilotage</span>
+                  <h3>{summary.ownerLabel}</h3>
                   <p className="workspace-card-description">
-                    CDC PDF {summary.hasSourcePdf ? "présent" : "absent"} · Fiche structurée{" "}
-                    {summary.hasStructuredFiche ? "présente" : "absente"}
+                    Date limite : {formatDate(appel.dueDate)} · Priorite {summary.priorityLabel}
                   </p>
                 </article>
                 <article className="workspace-card">
                   <span className="card-kicker">Fiche CDC</span>
                   <h3>{summary.ficheStatusLabel}</h3>
                   <p className="workspace-card-description">
-                    Dernier traitement : {summary.latestJobLabel ?? "Aucun"}
+                    Derniere mise a jour {formatDateTime(appel.updatedAt)}
                   </p>
                 </article>
               </div>
@@ -212,40 +280,89 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
               <section className="section-card">
                 <div className="section-header">
                   <div>
-                    <h3>Étapes du processus</h3>
+                    <h3>Documents cles</h3>
                     <p className="meta">
-                      Visualisation métier de l'avancement du dossier.
+                      Les artefacts reels disponibles a cette etape du projet.
                     </p>
                   </div>
                 </div>
                 <div className="section-body">
-                  <ol className="stepper-list">
-                    {steps.map((step) => (
-                      <li
-                        key={step.key}
-                        className={[
-                          "stepper-item",
-                          step.completed ? "completed" : "",
-                          step.current ? "current" : "",
-                          step.disabled ? "disabled" : ""
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                      >
-                        <span className="stepper-bullet" />
-                        <span>{step.label}</span>
-                      </li>
-                    ))}
-                  </ol>
+                  {appel.documents.length ? (
+                    <div className="responsive-card-grid">
+                      {appel.documents.slice(0, 3).map((document) => (
+                        <article key={document.id} className="document-artifact-card">
+                          <span className="card-kicker">
+                            {document.kind === "source_pdf"
+                              ? "Document original"
+                              : document.kind === "status_json"
+                                ? "Trace de traitement"
+                                : "Artefact genere"}
+                          </span>
+                          <h3>{document.fileName}</h3>
+                          <p className="workspace-card-description">
+                            {formatBytes(document.sizeBytes)} octets · {formatDateTime(document.createdAt)}
+                          </p>
+                          <div className="workspace-card-actions">
+                            {document.kind === "source_pdf" ? (
+                              <Link
+                                href={`/api/appels-offres/${encodeURIComponent(appel.code)}/pdf`}
+                                className="button button-secondary button-small"
+                                target="_blank"
+                              >
+                                Ouvrir
+                              </Link>
+                            ) : null}
+                            {document.kind === "fiche_xml" ? (
+                              <button
+                                type="button"
+                                className="button button-secondary button-small"
+                                onClick={() => updateView("fiche")}
+                              >
+                                Voir la Fiche CDC
+                              </button>
+                            ) : null}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      compact
+                      title="Aucun document disponible"
+                      description="Le workspace affichera le CDC et les artefacts generes des qu'ils seront disponibles."
+                    />
+                  )}
                 </div>
               </section>
 
               <section className="section-card">
                 <div className="section-header">
                   <div>
-                    <h3>Informations du dossier</h3>
+                    <h3>Activite recente</h3>
                     <p className="meta">
-                      Mise à jour directe des métadonnées déjà supportées par la plateforme.
+                      Les derniers evenements utiles au suivi commercial du dossier.
+                    </p>
+                  </div>
+                </div>
+                <div className="section-body">
+                  {activity.length ? (
+                    <ActivityFeed items={activity.slice(0, 5)} />
+                  ) : (
+                    <EmptyState
+                      compact
+                      title="Aucune activite recente"
+                      description="Les prochains evenements apparaitront ici des que le dossier evoluera."
+                    />
+                  )}
+                </div>
+              </section>
+
+              <section className="section-card">
+                <div className="section-header">
+                  <div>
+                    <h3>Informations du projet</h3>
+                    <p className="meta">
+                      Mise a jour directe des metadonnees deja supportees par la plateforme.
                     </p>
                   </div>
                 </div>
@@ -267,38 +384,6 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                   />
                 </div>
               </section>
-
-              <section className="section-card">
-                <div className="section-header">
-                  <div>
-                    <h3>Activité récente</h3>
-                    <p className="meta">
-                      Derniers événements réellement enregistrés pour cet appel d'offres.
-                    </p>
-                  </div>
-                </div>
-                <div className="section-body">
-                  {appel.auditLogs.length ? (
-                    <div className="timeline-list">
-                      {appel.auditLogs.slice(0, 5).map((entry) => (
-                        <article key={entry.id} className="timeline-item">
-                          <div className="timeline-dot" />
-                          <div className="timeline-content">
-                            <strong>{entry.action}</strong>
-                            <span>{formatDateTime(entry.createdAt)}</span>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <EmptyState
-                      compact
-                      title="Aucune activité récente"
-                      description="Les prochains événements apparaîtront ici dès que le dossier évoluera."
-                    />
-                  )}
-                </div>
-              </section>
             </div>
           ) : null}
 
@@ -309,49 +394,48 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                   <div>
                     <h3>Documents disponibles</h3>
                     <p className="meta">
-                      Tous les artefacts actuellement connus pour cet appel d'offres.
+                      Documents originaux et artefacts reels de traitement relies a cet appel d'offres.
                     </p>
                   </div>
                 </div>
                 <div className="section-body">
                   {appel.documents.length ? (
-                    <div className="document-table">
+                    <div className="document-grid">
                       {appel.documents.map((document) => (
-                        <article key={document.id} className="document-entry">
-                          <div className="document-entry-copy">
-                            <strong>{getDocumentLabel(document.kind)}</strong>
-                            <span>{document.fileName}</span>
-                            <small>
-                              {formatBytes(document.sizeBytes)} octets · ajouté le{" "}
-                              {formatDateTime(document.createdAt)}
-                            </small>
+                        <article key={document.id} className="document-artifact-card">
+                          <span className="card-kicker">
+                            {document.kind === "source_pdf"
+                              ? "Original"
+                              : document.kind === "status_json"
+                                ? "Suivi de traitement"
+                                : "Genere automatiquement"}
+                          </span>
+                          <h3>{document.fileName}</h3>
+                          <div className="document-artifact-meta">
+                            <span>Type : {document.kind}</span>
+                            <span>Taille : {formatBytes(document.sizeBytes)} octets</span>
+                            <span>Disponible depuis : {formatDateTime(document.createdAt)}</span>
+                            <span>Disponibilite : Active</span>
                           </div>
-                          <div className="document-entry-actions">
+                          <div className="workspace-card-actions">
                             {document.kind === "source_pdf" ? (
                               <Link
                                 href={`/api/appels-offres/${encodeURIComponent(appel.code)}/pdf`}
                                 className="button button-secondary button-small"
                                 target="_blank"
                               >
-                                Prévisualiser
+                                Ouvrir le CDC
                               </Link>
                             ) : null}
                             {document.kind === "fiche_xml" ? (
                               <button
                                 type="button"
                                 className="button button-secondary button-small"
-                                onClick={() => setActiveTab("fiche")}
+                                onClick={() => updateView("fiche")}
                               >
                                 Ouvrir la Fiche CDC
                               </button>
                             ) : null}
-                            <button
-                              type="button"
-                              className="button button-ghost button-small"
-                              onClick={() => setActiveTab("overview")}
-                            >
-                              Remplacer
-                            </button>
                           </div>
                         </article>
                       ))}
@@ -359,23 +443,12 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                   ) : (
                     <EmptyState
                       compact
-                      title="Aucun document indexé"
-                      description="Importez un CDC pour créer le premier ensemble documentaire de cet appel d'offres."
+                      title="Aucun document indexe"
+                      description="Importez un CDC pour creer le premier ensemble documentaire de cet appel d'offres."
                     />
                   )}
                 </div>
               </section>
-
-              <div className="responsive-card-grid">
-                <PlaceholderPanel
-                  title="Annexes"
-                  description="Le support des annexes sera ajouté dès que le backend de stockage documentaire sera disponible."
-                />
-                <PlaceholderPanel
-                  title="FCI futures"
-                  description="Les documents FCI apparaîtront ici après validation de la Fiche CDC."
-                />
-              </div>
             </div>
           ) : null}
 
@@ -384,13 +457,34 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
               <section className="section-card">
                 <div className="section-header">
                   <div>
-                    <h3>État du traitement</h3>
+                    <h3>Traitement du dossier</h3>
                     <p className="meta">
-                      Vue métier du traitement, sans exposer les détails techniques du pipeline.
+                      Timeline metier basee sur les jobs de traitement, les artefacts et les evenements reels.
                     </p>
                   </div>
                 </div>
                 <div className="section-body stack">
+                  {summary.statusKey === "analyse_en_cours" ? (
+                    <div className="callout ai">
+                      <AiBadge label="Analyse IA" />
+                      <strong>Analyse en cours</strong>
+                      <div>Le workflow traite actuellement le CDC et preparera la Fiche CDC des que le resultat sera disponible.</div>
+                    </div>
+                  ) : null}
+
+                  {failureSummary ? (
+                    <div className="callout warning">
+                      <strong>L'analyse n'a pas pu etre terminee.</strong>
+                      <div>{failureSummary.message}</div>
+                      <div>
+                        Etape en echec : {failureSummary.stageLabel}
+                        {failureSummary.failedAt ? ` · ${formatDateTime(failureSummary.failedAt)}` : ""}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <ProcessingTimeline steps={timeline} />
+
                   <div className="responsive-card-grid">
                     <article className="workspace-card">
                       <span className="card-kicker">Statut</span>
@@ -398,29 +492,40 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                       <p className="workspace-card-description">{summary.currentStep}</p>
                     </article>
                     <article className="workspace-card">
-                      <span className="card-kicker">Démarrage</span>
+                      <span className="card-kicker">Demarrage</span>
                       <h3>{formatDateTime(latestJob?.startedAt ?? null)}</h3>
                       <p className="workspace-card-description">
                         Fin : {formatDateTime(latestJob?.finishedAt ?? null)}
                       </p>
                     </article>
                     <article className="workspace-card">
-                      <span className="card-kicker">Durée</span>
-                      <h3>
-                        {formatDuration(latestJob?.startedAt ?? null, latestJob?.finishedAt ?? null)}
-                      </h3>
+                      <span className="card-kicker">Duree</span>
+                      <h3>{formatDuration(latestJob?.startedAt ?? null, latestJob?.finishedAt ?? null)}</h3>
                       <p className="workspace-card-description">
-                        Étape métier : {summary.currentStep}
+                        Prochaine action : {summary.nextAction}
                       </p>
                     </article>
                     <article className="workspace-card">
-                      <span className="card-kicker">Erreur</span>
-                      <h3>{latestJob?.errorMessage ? "Attention requise" : "Aucune erreur"}</h3>
+                      <span className="card-kicker">Relance</span>
+                      <h3>{failureSummary?.retryAvailable ? "Disponible" : "Non necessaire"}</h3>
                       <p className="workspace-card-description">
-                        {latestJob?.errorMessage ?? "Le dernier traitement ne signale pas d'anomalie."}
+                        Utilise l'endpoint canonique de relance deja en place.
                       </p>
                     </article>
                   </div>
+
+                  {latestJob ? (
+                    <details className="technical-details">
+                      <summary className="markdown-summary">Details techniques (administration)</summary>
+                      <div className="technical-details-grid">
+                        <span>Execution ID : {latestJob.executionId ?? "Non disponible"}</span>
+                        <span>Correlation ID : {latestJob.correlationId ?? "Non disponible"}</span>
+                        <span>Contract version : {latestJob.contractVersion ?? "Non disponible"}</span>
+                        <span>Etape d'erreur : {latestJob.errorStage ?? "Aucune"}</span>
+                        <span>Code erreur : {latestJob.errorCode ?? "Aucun"}</span>
+                      </div>
+                    </details>
+                  ) : null}
 
                   <AppelOffresAnalysisPanel
                     code={appel.code}
@@ -428,15 +533,6 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                     ficheStatus={appel.ficheStatus?.status ?? null}
                     hasFicheXml={appel.artifacts.hasFicheXml}
                   />
-
-                  <div className="actions">
-                    <button type="button" className="button button-ghost" disabled>
-                      Annuler · non supporté
-                    </button>
-                    <button type="button" className="button button-secondary" disabled>
-                      Voir les détails techniques · admin
-                    </button>
-                  </div>
                 </div>
               </section>
             </div>
@@ -448,30 +544,26 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                 <section className="section-card">
                   <div className="section-header">
                     <div>
-                      <h3>Fiche CDC</h3>
+                      <h3>Revue de la Fiche CDC</h3>
                       <p className="meta">
-                        La relecture commerciale reste identique, intégrée dans le nouveau shell.
+                        Revoyez, corrigez et validez les informations generees avant la suite du processus.
                       </p>
                     </div>
                   </div>
                   <div className="section-body stack">
                     <div className="responsive-card-grid">
                       <article className="workspace-card">
-                        <span className="card-kicker">Statut</span>
+                        <span className="card-kicker">Etat</span>
                         <h3>{summary.ficheStatusLabel}</h3>
                         <p className="workspace-card-description">
-                          Dernière mise à jour du dossier {formatDateTime(appel.updatedAt)}
+                          Derniere mise a jour {formatDateTime(appel.updatedAt)}
                         </p>
                       </article>
                       <article className="workspace-card">
                         <span className="card-kicker">Validation</span>
-                        <h3>
-                          {appel.ficheStatus?.status === "validated"
-                            ? "Validée"
-                            : "En attente"}
-                        </h3>
+                        <h3>{appel.ficheStatus?.status === "validated" ? "Validee" : "A verifier"}</h3>
                         <p className="workspace-card-description">
-                          Le commercial valide uniquement la Fiche CDC.
+                          Une fois validee, la fiche servira de base a la future phase FCI.
                         </p>
                       </article>
                     </div>
@@ -482,64 +574,18 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
             ) : (
               <EmptyState
                 title="Fiche CDC indisponible"
-                description="Lancez d'abord l'analyse du CDC pour générer la Fiche CDC à relire."
+                description="Lancez d'abord l'analyse du CDC pour generer la Fiche CDC a relire."
                 action={
                   <button
                     type="button"
                     className="button button-primary"
-                    onClick={() => setActiveTab("processing")}
+                    onClick={() => updateView("processing")}
                   >
                     Aller au traitement
                   </button>
                 }
               />
             )
-          ) : null}
-
-          {activeTab === "fci" ? (
-            <div className="responsive-card-grid">
-              <PlaceholderPanel
-                title="FCI Commerciale"
-                description="Disponible après validation de la Fiche CDC."
-              />
-              <PlaceholderPanel
-                title="FCI Financière"
-                description="Disponible après validation de la Fiche CDC."
-              />
-              <PlaceholderPanel
-                title="FCI Technique / Opérations"
-                description="Disponible après validation de la Fiche CDC."
-              />
-              <PlaceholderPanel
-                title="FCI Stratégique"
-                description="Disponible après validation de la Fiche CDC."
-              />
-              <PlaceholderPanel
-                title="FCI Retour d'expérience"
-                description="Disponible après validation de la Fiche CDC."
-              />
-            </div>
-          ) : null}
-
-          {activeTab === "knowledge" ? (
-            <div className="responsive-card-grid">
-              <PlaceholderPanel
-                title="Projets similaires"
-                description="Aucun rapprochement n'est encore disponible pour ce dossier."
-              />
-              <PlaceholderPanel
-                title="CDC historiques"
-                description="La consultation croisée des CDC historiques sera ajoutée plus tard."
-              />
-              <PlaceholderPanel
-                title="Compétences et logiciels"
-                description="Les suggestions de compétences, logiciels et profils seront proposées dans une prochaine étape."
-              />
-              <PlaceholderPanel
-                title="Partenaires suggérés"
-                description="Les recommandations de partenaires apparaîtront ici lorsque le module sera connecté."
-              />
-            </div>
           ) : null}
 
           {activeTab === "history" ? (
@@ -549,40 +595,18 @@ export function AppelOffresWorkspace({ appel }: { appel: AppelOffresDetail }) {
                   <div>
                     <h3>Historique du dossier</h3>
                     <p className="meta">
-                      Événements applicatifs et traces de traitement réellement disponibles.
+                      Activite utile au suivi du projet, sans bruit technique inutile.
                     </p>
                   </div>
                 </div>
                 <div className="section-body">
-                  {appel.auditLogs.length || appel.processingJobs.length ? (
-                    <div className="timeline-list">
-                      {appel.auditLogs.map((entry) => (
-                        <article key={`audit-${entry.id}`} className="timeline-item">
-                          <div className="timeline-dot" />
-                          <div className="timeline-content">
-                            <strong>{entry.action}</strong>
-                            <span>{formatDateTime(entry.createdAt)}</span>
-                          </div>
-                        </article>
-                      ))}
-                      {appel.processingJobs.map((job) => (
-                        <article key={`job-${job.id}`} className="timeline-item">
-                          <div className="timeline-dot secondary" />
-                          <div className="timeline-content">
-                            <strong>{job.jobType}</strong>
-                            <span>
-                              {formatDateTime(job.startedAt)}
-                              {job.finishedAt ? ` · ${formatDateTime(job.finishedAt)}` : ""}
-                            </span>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
+                  {activity.length ? (
+                    <ActivityFeed items={activity} />
                   ) : (
                     <EmptyState
                       compact
                       title="Historique indisponible"
-                      description="Les événements s'afficheront ici à mesure que l'appel d'offres évoluera."
+                      description="Les evenements s'afficheront ici a mesure que l'appel d'offres evoluera."
                     />
                   )}
                 </div>

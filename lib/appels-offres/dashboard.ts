@@ -1,5 +1,6 @@
 import { buildAppelOffresSummary, isNearDeadline } from "./presentation.ts";
 import { listAppelOffresDetails } from "./repository.ts";
+import { buildWorkspaceActivityFeed } from "./workspace.ts";
 
 function compareRecent(left: { updatedAt: string }, right: { updatedAt: string }) {
   return right.updatedAt.localeCompare(left.updatedAt);
@@ -23,14 +24,15 @@ export async function getDashboardData() {
 
   const recentActivity = details
     .flatMap((detail) =>
-      detail.auditLogs.map((entry) => ({
-        id: `audit-${detail.code}-${entry.id}`,
+      buildWorkspaceActivityFeed(detail).map((entry) => ({
+        id: entry.id,
         code: detail.code,
         title: detail.title,
-        action: entry.action,
+        label: entry.label,
         actor: entry.actor,
         createdAt: entry.createdAt,
-        details: entry.details
+        description: entry.description,
+        tone: entry.tone
       }))
     )
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))

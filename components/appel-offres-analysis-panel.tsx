@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
+import { AiBadge } from "@/components/ai-badge";
 import type { FicheStatus } from "@/lib/types";
 
 type Props = {
@@ -49,7 +50,7 @@ export function AppelOffresAnalysisPanel({
     }
 
     startTransition(async () => {
-      const response = await fetch("/api/generate", {
+      const response = await fetch(`/api/appels-offres/${encodeURIComponent(code)}/analyse`, {
         method: "POST",
         body: payload
       });
@@ -76,7 +77,9 @@ export function AppelOffresAnalysisPanel({
       }
 
       const nextCode = body.code_interne ?? body.code ?? code;
-      router.push(`/fiche/${encodeURIComponent(nextCode)}`);
+      router.push(
+        `/appels-offres/${encodeURIComponent(nextCode)}?view=processing&flash=analysis-started`
+      );
     });
   }
 
@@ -108,8 +111,9 @@ export function AppelOffresAnalysisPanel({
       </div>
 
       {ficheStatus === "processing" ? (
-        <div className="callout info">
-          Une analyse est deja en cours pour cet appel d&apos;offres. Ouvrez la fiche pour suivre son statut.
+        <div className="callout ai">
+          <AiBadge label="Analyse IA" />
+          Une analyse est deja en cours pour cet appel d&apos;offres. Suivez son avancement depuis ce workspace.
         </div>
       ) : null}
 
@@ -132,7 +136,7 @@ export function AppelOffresAnalysisPanel({
 
       <div className="actions">
         <button
-          className="button button-primary"
+          className="button button-ai"
           type="submit"
           disabled={isPending || ficheStatus === "processing"}
         >

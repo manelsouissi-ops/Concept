@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import type { AppelOffresSummaryView } from "@/lib/appels-offres/presentation.ts";
+import { isPlaceholderProjectTitle } from "@/lib/appels-offres/workspace.ts";
 import { EmptyState } from "./empty-state.tsx";
 import { MoreHorizontalIcon, UploadIcon } from "./app-icons.tsx";
 import { StatusBadge } from "./status-badge.tsx";
@@ -21,17 +22,21 @@ function formatDate(value: string | null) {
 }
 
 export function AppelsOffresListView({
-  items
+  items,
+  initialStatusFilter = "all",
+  initialSortBy = "updated"
 }: {
   items: AppelOffresSummaryView[];
+  initialStatusFilter?: string;
+  initialSortBy?: string;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
   const [clientFilter, setClientFilter] = useState("all");
   const [countryFilter, setCountryFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("updated");
+  const [sortBy, setSortBy] = useState(initialSortBy);
   const [showArchived, setShowArchived] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
   const [isPending, startTransition] = useTransition();
@@ -303,17 +308,25 @@ export function AppelsOffresListView({
                     <th>Responsable commercial</th>
                     <th>Date limite</th>
                     <th>Dernière mise à jour</th>
-                    <th>Progression</th>
+                    <th>Etape courante</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredItems.map((item) => (
                     <tr key={item.code}>
-                      <td className="mono">{item.code}</td>
+                      <td>
+                        <span className="mono table-code" title={item.code}>
+                          {item.code}
+                        </span>
+                      </td>
                       <td>
                         <div className="table-primary-cell">
-                          <strong>{item.title}</strong>
+                          <strong title={item.title}>
+                            {isPlaceholderProjectTitle(item.title, item.code)
+                              ? "Intitule en attente d'extraction"
+                              : item.title}
+                          </strong>
                           <span>{item.reference}</span>
                         </div>
                       </td>
@@ -324,16 +337,22 @@ export function AppelsOffresListView({
                       </td>
                       <td>{item.priorityLabel}</td>
                       <td>{item.ownerLabel}</td>
-                      <td>{formatDate(item.dueDate)}</td>
-                      <td>{formatDateTime(item.updatedAt)}</td>
                       <td>
-                        <div className="progress-cell">
-                          <div className="progress-bar">
-                            <span style={{ width: `${item.progressValue}%` }} />
-                          </div>
-                          <small>{item.progressLabel}</small>
+                        <div className={item.isOverdue ? "deadline-cell overdue" : item.daysUntilDeadline != null && item.daysUntilDeadline <= 14 ? "deadline-cell near" : "deadline-cell"}>
+                          <strong>{formatDate(item.dueDate)}</strong>
+                          {item.daysUntilDeadline != null ? (
+                            <span>
+                              {item.daysUntilDeadline < 0
+                                ? `Depassee de ${Math.abs(item.daysUntilDeadline)} j`
+                                : item.daysUntilDeadline === 0
+                                  ? "Echeance aujourd'hui"
+                                  : `J-${item.daysUntilDeadline}`}
+                            </span>
+                          ) : null}
                         </div>
                       </td>
+                      <td>{formatDateTime(item.updatedAt)}</td>
+                      <td>{item.currentStep}</td>
                       <td>
                         <div className="table-actions">
                           <Link href={`/appels-offres/${encodeURIComponent(item.code)}`} className="button button-ghost button-small">
@@ -380,8 +399,12 @@ export function AppelsOffresListView({
               <article key={item.code} className="workspace-card">
                 <div className="workspace-card-topline">
                   <div>
-                    <span className="card-kicker mono">{item.code}</span>
-                    <h3>{item.title}</h3>
+                    <span className="card-kicker mono" title={item.code}>{item.code}</span>
+                    <h3 title={item.title}>
+                      {isPlaceholderProjectTitle(item.title, item.code)
+                        ? "Intitule en attente d'extraction"
+                        : item.title}
+                    </h3>
                   </div>
                   <StatusBadge label={item.statusLabel} tone={item.statusTone} />
                 </div>
@@ -392,12 +415,7 @@ export function AppelsOffresListView({
                   <span>Date limite {formatDate(item.dueDate)}</span>
                 </div>
                 <p className="workspace-card-description">{item.statusDescription}</p>
-                <div className="progress-cell">
-                  <div className="progress-bar">
-                    <span style={{ width: `${item.progressValue}%` }} />
-                  </div>
-                  <small>{item.currentStep}</small>
-                </div>
+                <p className="workspace-card-description">{item.currentStep}</p>
                 <div className="workspace-card-actions">
                   <Link href={`/appels-offres/${encodeURIComponent(item.code)}`} className="button button-primary button-small">
                     Ouvrir
