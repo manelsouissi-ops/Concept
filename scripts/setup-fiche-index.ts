@@ -3,6 +3,7 @@ import {
   closeAppelsOffresPool,
   ensureAppelsOffresSchema
 } from "../lib/appels-offres/repository.ts";
+import { closeFciPool, ensureFciSchema } from "../lib/appels-offres/fci/repository.ts";
 import { closeFicheIndexPool, ensureFicheIndexSchema } from "../lib/db.ts";
 
 async function main() {
@@ -10,7 +11,8 @@ async function main() {
   loadEnvConfig(process.cwd());
   await ensureFicheIndexSchema();
   await ensureAppelsOffresSchema();
-  console.log("Fiche and Appels d'offres schemas are ready.");
+  await ensureFciSchema();
+  console.log("Fiche, Appels d'offres and FCI schemas are ready.");
 }
 
 main()
@@ -19,6 +21,7 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
+    await closeFciPool();
     await closeAppelsOffresPool();
     await closeFicheIndexPool();
   });

@@ -1,0 +1,412 @@
+{
+  "contract_version": "1.0",
+  "module_code": "C",
+  "module_type": "operations",
+  "generated_at": null,
+  "source_fiche": {
+    "code_interne": "AO-20260727-0945",
+    "version": "validated:2026-07-27T09:55:00.000Z",
+    "hash": "fiche-sample-sha256",
+    "status": "validated",
+    "validated_at": "2026-07-27T09:55:00.000Z"
+  },
+  "summary": {
+    "status": "partial",
+    "completion_percentage": 61,
+    "human_inputs_required": 8,
+    "warnings": [
+      "Le CDC décrit les besoins mais pas la disponibilité interne réelle.",
+      "La répartition du groupement reste à confirmer."
+    ]
+  },
+  "data": {
+    "disponibilite_des_experts_cles": [
+      {
+        "poste_ou_expert": {
+          "value": "Chef de mission",
+          "source_type": "fiche_cdc",
+          "confidence": "high",
+          "requires_human_input": false,
+          "justification": "Le profil clé est explicitement cité dans la fiche source.",
+          "source_references": [
+            {
+              "section": "Livrables & profils",
+              "field": "profils_cles",
+              "excerpt": "Chef de mission"
+            }
+          ]
+        },
+        "volume_travail_demande_par_le_cdc": {
+          "value": null,
+          "source_type": "unavailable",
+          "confidence": "none",
+          "requires_human_input": false,
+          "justification": "Le volume détaillé par expert n'est pas explicité.",
+          "source_references": []
+        },
+        "volume_travail_reel_previsionnel": {
+          "value": "À estimer sur la base des 24 mois et de la supervision multisite",
+          "source_type": "ai_inference",
+          "confidence": "low",
+          "requires_human_input": false,
+          "justification": "Le CDC donne la durée globale mais pas le plan de charge détaillé.",
+          "source_references": [
+            {
+              "section": "Duree & volume",
+              "field": "duree_totale",
+              "excerpt": "24 mois"
+            }
+          ]
+        },
+        "suppleant": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Le suppléant éventuel relève de l'organisation interne.",
+          "source_references": []
+        },
+        "volume_travail_previsionnel_suppleant": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Impossible à renseigner sans arbitrage interne.",
+          "source_references": []
+        },
+        "probabilite_disponibilite_experts": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "La disponibilité réelle des experts ne figure pas dans le CDC.",
+          "source_references": []
+        },
+        "action_requise": {
+          "value": "Vérifier disponibilité interne et besoin éventuel de renfort.",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "La mission longue et multisite justifie une vérification interne structurée.",
+          "source_references": [
+            {
+              "section": "Duree & volume",
+              "field": "duree_totale",
+              "excerpt": "24 mois"
+            },
+            {
+              "section": "Site & contraintes",
+              "field": "nombre_sites",
+              "excerpt": "12"
+            }
+          ]
+        }
+      }
+    ],
+    "disponibilite_des_experts_non_cles": [
+      {
+        "poste_ou_expert": {
+          "value": "Appui environnement/HSE",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "Les exigences ES et HSE indiquent un besoin probable d'appui non clé.",
+          "source_references": [
+            {
+              "section": "Site & contraintes",
+              "field": "exigences_es",
+              "excerpt": "Plan ESMP et suivi HSE"
+            }
+          ]
+        },
+        "volume_travail_reel_previsionnel": {
+          "value": "À estimer",
+          "source_type": "ai_inference",
+          "confidence": "low",
+          "requires_human_input": false,
+          "justification": "Le besoin est probable mais non quantifié par le CDC.",
+          "source_references": [
+            {
+              "section": "Site & contraintes",
+              "field": "exigences_es",
+              "excerpt": "Plan ESMP et suivi HSE"
+            }
+          ]
+        },
+        "probabilite_disponibilite_experts": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Cette disponibilité doit être validée côté opérations.",
+          "source_references": []
+        },
+        "action_requise": {
+          "value": "Confirmer capacité interne ou sourcing externe ciblé.",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "Le risque de charge complémentaire est plausible.",
+          "source_references": [
+            {
+              "section": "Site & contraintes",
+              "field": "exigences_es",
+              "excerpt": "Plan ESMP et suivi HSE"
+            }
+          ]
+        }
+      }
+    ],
+    "capacite_absorption_globale": [
+      {
+        "designation_du_moyen": {
+          "value": "Véhicules terrain",
+          "source_type": "fiche_cdc",
+          "confidence": "high",
+          "requires_human_input": false,
+          "justification": "Le besoin matériel terrain est visible dans la fiche source.",
+          "source_references": [
+            {
+              "section": "Site & contraintes",
+              "field": "moyens_materiels",
+              "excerpt": "Véhicules"
+            }
+          ]
+        },
+        "quantite_requise": {
+          "value": "À calibrer selon le phasage multisite",
+          "source_type": "ai_inference",
+          "confidence": "low",
+          "requires_human_input": false,
+          "justification": "La quantité n'est pas donnée, seul le besoin général est visible.",
+          "source_references": [
+            {
+              "section": "Site & contraintes",
+              "field": "nombre_sites",
+              "excerpt": "12"
+            }
+          ]
+        },
+        "quantite_disponible": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "La capacité matérielle interne doit être confirmée.",
+          "source_references": []
+        },
+        "membre_du_groupement_qui_lapporte": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Le contributeur n'est pas connu sans arbitrage interne ou groupement.",
+          "source_references": []
+        },
+        "disponible_au_demarrage": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "La disponibilité au démarrage n'est pas démontrable par le CDC.",
+          "source_references": []
+        },
+        "ecart": {
+          "value": "Inconnu tant que la disponibilité interne n'est pas confirmée",
+          "source_type": "ai_inference",
+          "confidence": "low",
+          "requires_human_input": false,
+          "justification": "L'écart dépend de deux données absentes : quantité requise finale et disponibilité réelle.",
+          "source_references": []
+        }
+      }
+    ],
+    "repartition_des_composantes_techniques": [
+      {
+        "composante_ou_tache": {
+          "value": "Supervision multisite et reporting",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "La composante découle des livrables et du caractère multisite de la mission.",
+          "source_references": [
+            {
+              "section": "Livrables & profils",
+              "field": "livrables_principaux",
+              "excerpt": "Rapports mensuels"
+            }
+          ]
+        },
+        "membre_responsable": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Le partage entre membres du groupement n'est pas documenté dans la Fiche CDC.",
+          "source_references": []
+        },
+        "experts_affectes": {
+          "value": "Chef de mission, hydraulicien, électromécanicien",
+          "source_type": "fiche_cdc",
+          "confidence": "high",
+          "requires_human_input": false,
+          "justification": "Les profils clés sont identifiés dans la fiche.",
+          "source_references": [
+            {
+              "section": "Livrables & profils",
+              "field": "profils_cles",
+              "excerpt": "Chef de mission, hydraulicien, électromécanicien"
+            }
+          ]
+        },
+        "effort_estime_client_vs_concept": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Le CDC ne fournit pas la comparaison d'effort demandée par le template FCI.",
+          "source_references": []
+        },
+        "commentaire_ou_risque": {
+          "value": "Le pilotage multisite augmente le risque de dispersion des efforts.",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "Inférence prudente à partir du nombre de sites et du périmètre pluridisciplinaire.",
+          "source_references": [
+            {
+              "section": "Site & contraintes",
+              "field": "nombre_sites",
+              "excerpt": "12"
+            }
+          ]
+        }
+      }
+    ],
+    "risques_coordination_mitigation": {
+      "partenaires_non_encore_eprouves": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le CDC ne donne aucune information sur des partenaires déjà éprouvés.",
+        "source_references": []
+      },
+      "frequence_reunions_coordination": {
+        "value": "Hebdomadaire au démarrage puis à ajuster",
+        "source_type": "ai_inference",
+        "confidence": "low",
+        "requires_human_input": false,
+        "justification": "Proposition prudente au regard d'un pilotage multisite.",
+        "source_references": [
+          {
+            "section": "Site & contraintes",
+            "field": "nombre_sites",
+            "excerpt": "12"
+          }
+        ]
+      },
+      "risque_penalites_internes_groupement": {
+        "value": null,
+        "source_type": "unavailable",
+        "confidence": "none",
+        "requires_human_input": false,
+        "justification": "Aucune clause de groupement interne n'est disponible.",
+        "source_references": []
+      },
+      "controle_qualite_livrables_partenaires": {
+        "value": "À formaliser dans l'organisation projet",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Le reporting et les livrables multiples impliquent un dispositif qualité formalisé.",
+        "source_references": [
+          {
+            "section": "Livrables & profils",
+            "field": "livrables_principaux",
+            "excerpt": "Rapports mensuels, rapport de démarrage, rapport final"
+          }
+        ]
+      },
+      "risques_vis_a_vis_partenaires": {
+        "value": "Dépendances de coordination si un partenaire local est requis.",
+        "source_type": "ai_inference",
+        "confidence": "low",
+        "requires_human_input": false,
+        "justification": "Le risque n'est qu'hypothétique à ce stade.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "aVerifier",
+            "excerpt": "Existence d'un groupement local imposé"
+          }
+        ]
+      },
+      "risques_vis_a_vis_consultants_externes": {
+        "value": "Risque de mobilisation tardive si certains renforts doivent être sourcés.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Inférence prudente si les disponibilités internes sont insuffisantes.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "incoherences",
+            "excerpt": "Le volume hommes-mois n'est pas décliné par profil."
+          }
+        ]
+      }
+    },
+    "synthese_operations": {
+      "niveau_complexite_operationnelle": {
+        "value": "Élevé",
+        "source_type": "ai_inference",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "La mission combine durée longue, multisite, plusieurs disciplines et exigences HSE.",
+        "source_references": [
+          {
+            "section": "Duree & volume",
+            "field": "duree_totale",
+            "excerpt": "24 mois"
+          },
+          {
+            "section": "Site & contraintes",
+            "field": "nombre_sites",
+            "excerpt": "12"
+          }
+        ]
+      },
+      "points_blocage_operations": {
+        "value": [
+          "Disponibilité réelle des experts clés",
+          "Répartition du groupement",
+          "Capacité logistique terrain au démarrage"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "Ces sujets correspondent aux principales données non confirmées du template C.",
+        "source_references": []
+      },
+      "informations_internes_requises": {
+        "value": [
+          "Disponibilité des experts et suppléants",
+          "Capacité matérielle terrain",
+          "Rôles des partenaires ou membres du groupement"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "La fiche FCI opérations demande explicitement ces arbitrages internes.",
+        "source_references": []
+      }
+    }
+  },
+  "ai_notes": [
+    "Le module C peut préremplir les besoins, mais pas confirmer la capacité réelle de mobilisation."
+  ],
+  "validation_warnings": [
+    "Les estimations de charge restent indicatives tant que le volume par profil n'est pas ventilé."
+  ]
+}

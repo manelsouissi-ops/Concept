@@ -1,0 +1,345 @@
+{
+  "contract_version": "1.0",
+  "module_code": "A",
+  "module_type": "commercial",
+  "generated_at": null,
+  "source_fiche": {
+    "code_interne": "AO-20260727-0945",
+    "version": "validated:2026-07-27T09:55:00.000Z",
+    "hash": "fiche-sample-sha256",
+    "status": "validated",
+    "validated_at": "2026-07-27T09:55:00.000Z"
+  },
+  "summary": {
+    "status": "partial",
+    "completion_percentage": 58,
+    "human_inputs_required": 6,
+    "warnings": [
+      "Les concurrents ne sont pas explicitement identifiés dans la Fiche CDC.",
+      "Les validations internes commerciales restent à compléter."
+    ]
+  },
+  "data": {
+    "identification_opportunite": {
+      "reference_interne_code_dossier": {
+        "value": "AO-20260727-0945",
+        "source_type": "fiche_cdc",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "Le code interne est fourni dans les métadonnées de la fiche source.",
+        "source_references": [
+          {
+            "section": "source_fiche",
+            "field": "code_interne",
+            "excerpt": "AO-20260727-0945"
+          }
+        ]
+      },
+      "intitule_offre": {
+        "value": "Mission de supervision et d'assistance technique pour un programme d'alimentation en eau potable",
+        "source_type": "fiche_cdc",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "L'intitulé de la mission est explicitement extrait du CDC.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "intitule_mission",
+            "excerpt": "Mission de supervision et d'assistance technique..."
+          }
+        ]
+      },
+      "date_depot": {
+        "value": "2026-08-12",
+        "source_type": "fiche_cdc",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "La date limite de dépôt figure dans la procédure.",
+        "source_references": [
+          {
+            "section": "Procedure",
+            "field": "date_limite_depot",
+            "excerpt": "2026-08-12"
+          }
+        ]
+      },
+      "prepare_par": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le nom du préparateur est une information interne à renseigner par l'équipe commerciale.",
+        "source_references": []
+      },
+      "valide_par": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le valideur commercial n'est pas déductible du CDC.",
+        "source_references": []
+      }
+    },
+    "concurrents_premiere_lecture": [
+      {
+        "nom_du_concurrent": {
+          "value": null,
+          "source_type": "unavailable",
+          "confidence": "none",
+          "requires_human_input": false,
+          "justification": "Aucun concurrent n'est nommé dans la Fiche CDC fournie.",
+          "source_references": []
+        },
+        "pays": {
+          "value": null,
+          "source_type": "unavailable",
+          "confidence": "none",
+          "requires_human_input": false,
+          "justification": "Le pays des concurrents n'est pas documenté.",
+          "source_references": []
+        },
+        "points_forts_connus": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "Cette connaissance relève de la veille commerciale interne.",
+          "source_references": []
+        },
+        "historique_avec_le_client": {
+          "value": null,
+          "source_type": "internal_required",
+          "confidence": "none",
+          "requires_human_input": true,
+          "justification": "L'historique avec le client doit venir des données commerciales internes.",
+          "source_references": []
+        },
+        "avantage_principal_pour_ce_cdc": {
+          "value": null,
+          "source_type": "unavailable",
+          "confidence": "none",
+          "requires_human_input": false,
+          "justification": "Sans identification d'un concurrent, aucun avantage spécifique ne peut être établi honnêtement.",
+          "source_references": []
+        },
+        "risque_qu_il_represente": {
+          "value": "Une concurrence potentiellement forte est probable compte tenu d'un financement Banque mondiale et d'une sélection qualité/coût.",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "Il s'agit d'une inférence prudente à partir du mode de sélection et du bailleur.",
+          "source_references": [
+            {
+              "section": "Procedure",
+              "field": "methode_selection",
+              "excerpt": "Sélection fondée sur la qualité et le coût"
+            },
+            {
+              "section": "Identification",
+              "field": "source_financement",
+              "excerpt": "Banque mondiale"
+            }
+          ]
+        }
+      }
+    ],
+    "positionnement_offre": {
+      "notre_avantage_differentiel_principal": {
+        "value": "La combinaison supervision multi-sites et assistance technique peut valoriser une offre intégrée pluridisciplinaire.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "C'est une lecture commerciale prudente fondée sur la complexité et la nature de la mission.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "nature_prestation",
+            "excerpt": "Supervision de travaux et assistance technique"
+          },
+          {
+            "section": "Livrables & profils",
+            "field": "disciplines_techniques",
+            "excerpt": "Hydraulique, génie civil, électromécanique, environnement"
+          }
+        ]
+      },
+      "notre_vulnerabilite_principale": {
+        "value": "Le délai de préparation et la coordination multisite peuvent peser sur la compétitivité de l'offre.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Inférence prudente basée sur le calendrier et les contraintes terrain.",
+        "source_references": [
+          {
+            "section": "Procedure",
+            "field": "date_limite_depot",
+            "excerpt": "2026-08-12"
+          },
+          {
+            "section": "Site & contraintes",
+            "field": "contraintes_site",
+            "excerpt": "Accès saison des pluies, coordination multi-sites"
+          }
+        ]
+      },
+      "niveau_de_prix_cible_estime": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le positionnement prix interne ne peut pas être déduit du CDC.",
+        "source_references": []
+      }
+    },
+    "points_logistiques_internes": {
+      "delai_de_transit_necessaire": {
+        "value": "À anticiper avant démarrage compte tenu des 12 sites et des contraintes d'accès saisonnier.",
+        "source_type": "ai_inference",
+        "confidence": "low",
+        "requires_human_input": false,
+        "justification": "Le CDC signale des contraintes terrain, sans préciser un délai logistique chiffré.",
+        "source_references": [
+          {
+            "section": "Site & contraintes",
+            "field": "contraintes_site",
+            "excerpt": "Accès saison des pluies"
+          }
+        ]
+      },
+      "responsable_depot": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le responsable du dépôt est une donnée d'organisation interne.",
+        "source_references": []
+      },
+      "representation_locale_existante": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "La présence locale existante doit être confirmée en interne.",
+        "source_references": []
+      },
+      "autres_contraintes_internes": {
+        "value": "Coordination logistique entre plusieurs sites et suivi HSE.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Inférence prudente à partir du périmètre d'intervention et des exigences ES.",
+        "source_references": [
+          {
+            "section": "Site & contraintes",
+            "field": "nombre_sites",
+            "excerpt": "12"
+          },
+          {
+            "section": "Site & contraintes",
+            "field": "exigences_es",
+            "excerpt": "Plan ESMP et suivi HSE"
+          }
+        ]
+      }
+    },
+    "synthese_commerciale": {
+      "attractivite_commerciale": {
+        "value": "Attractive sous réserve d'une validation rapide des ressources internes et du montage commercial.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "La mission semble structurante mais exigeante en coordination.",
+        "source_references": [
+          {
+            "section": "Duree & volume",
+            "field": "duree_totale",
+            "excerpt": "24 mois"
+          },
+          {
+            "section": "Livrables & profils",
+            "field": "nombre_profils_experts",
+            "excerpt": "8"
+          }
+        ]
+      },
+      "intensite_concurrentielle": {
+        "value": "Probablement élevée",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Le financement international et la méthode qualité/coût rendent la consultation compétitive.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "source_financement",
+            "excerpt": "Banque mondiale"
+          },
+          {
+            "section": "Procedure",
+            "field": "methode_selection",
+            "excerpt": "Sélection fondée sur la qualité et le coût"
+          }
+        ]
+      },
+      "besoins_groupement_probables": {
+        "value": [
+          "Partenaire local pour présence terrain ou exigences contextuelles",
+          "Coordination renforcée sur les volets environnement et supervision multisite"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "low",
+        "requires_human_input": false,
+        "justification": "Le CDC suggère un dispositif terrain étendu, sans imposer explicitement un groupement.",
+        "source_references": [
+          {
+            "section": "Site & contraintes",
+            "field": "zone_execution",
+            "excerpt": "Région Centre et Hauts-Bassins"
+          }
+        ]
+      },
+      "risques_client": {
+        "value": [
+          "Délais de remise serrés",
+          "Attente probable de coordination multisite et de reporting strict"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Ces risques sont inférés à partir du calendrier et des livrables attendus.",
+        "source_references": [
+          {
+            "section": "Procedure",
+            "field": "date_limite_depot",
+            "excerpt": "2026-08-12"
+          },
+          {
+            "section": "Livrables & profils",
+            "field": "livrables_principaux",
+            "excerpt": "Rapports mensuels, rapport de démarrage, rapport final"
+          }
+        ]
+      },
+      "recommandation_revue_commerciale": {
+        "value": "Poursuivre la revue commerciale avec validation rapide du positionnement prix et des responsabilités internes.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "La consultation paraît sérieuse mais plusieurs éléments internes restent à confirmer.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "aVerifier",
+            "excerpt": "Existence d'un groupement local imposé"
+          }
+        ]
+      }
+    }
+  },
+  "ai_notes": [
+    "Le tableau concurrents reste principalement à compléter par la veille commerciale interne."
+  ],
+  "validation_warnings": [
+    "Le template Word demande des informations internes non présentes dans la Fiche CDC."
+  ]
+}

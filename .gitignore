@@ -13,6 +13,18 @@ node_modules
 __pycache__/
 *.py[cod]
 
+# Local Python environments
+marker-v2-test/
+.venv/
+venv/
+env/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
 # Local tooling
 .claude/
 
@@ -27,6 +39,21 @@ tsconfig.tsbuildinfo
 
 data/*
 !data/.gitkeep
+!data/imports/
+!data/imports/private/
+!data/imports/private/README.md
+!data/imports/private/referentiels/
+!data/imports/private/referentiels/.gitkeep
+!data/imports/private/exemples-analyse/
+!data/imports/private/exemples-analyse/.gitkeep
+
+# Confidential company import files
+data/imports/private/**
+!data/imports/private/README.md
+!data/imports/private/referentiels/
+!data/imports/private/referentiels/.gitkeep
+!data/imports/private/exemples-analyse/
+!data/imports/private/exemples-analyse/.gitkeep
 
 # Callback and workflow captures
 callback-captures/

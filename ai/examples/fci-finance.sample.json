@@ -1,0 +1,228 @@
+{
+  "contract_version": "1.0",
+  "module_code": "B",
+  "module_type": "finance",
+  "generated_at": null,
+  "source_fiche": {
+    "code_interne": "AO-20260727-0945",
+    "version": "validated:2026-07-27T09:55:00.000Z",
+    "hash": "fiche-sample-sha256",
+    "status": "validated",
+    "validated_at": "2026-07-27T09:55:00.000Z"
+  },
+  "summary": {
+    "status": "partial",
+    "completion_percentage": 52,
+    "human_inputs_required": 4,
+    "warnings": [
+      "Les paramètres internes de marge et charges ne figurent pas dans le CDC.",
+      "Les garanties exactes restent à confirmer."
+    ]
+  },
+  "data": {
+    "elements_financiers_internes": {
+      "budget_estime_du_marche": {
+        "value": null,
+        "source_type": "unavailable",
+        "confidence": "none",
+        "requires_human_input": false,
+        "justification": "Le budget du marché n'est pas explicitement visible dans la Fiche CDC sample.",
+        "source_references": []
+      },
+      "taux_de_change_applique_et_source": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le taux de change interne et sa source relèvent de la direction financière.",
+        "source_references": []
+      },
+      "coefficient_de_charges_de_structure": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Le coefficient de charges de structure est une donnée interne CONCEPT.",
+        "source_references": []
+      },
+      "marge_cible_visee": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "La marge cible ne peut pas être déduite du CDC.",
+        "source_references": []
+      }
+    },
+    "cash_flow_par_jalon": [
+      {
+        "jalon_livrable": {
+          "value": "Rapport de démarrage",
+          "source_type": "fiche_cdc",
+          "confidence": "high",
+          "requires_human_input": false,
+          "justification": "Le livrable est listé dans la fiche source.",
+          "source_references": [
+            {
+              "section": "Livrables & profils",
+              "field": "livrables_principaux",
+              "excerpt": "Rapport de démarrage"
+            }
+          ]
+        },
+        "pourcentage_montant": {
+          "value": null,
+          "source_type": "unavailable",
+          "confidence": "none",
+          "requires_human_input": false,
+          "justification": "Le pourcentage associé au jalon n'est pas détaillé dans la Fiche CDC sample.",
+          "source_references": []
+        },
+        "delai_paiement_estime": {
+          "value": "À confirmer contractuellement",
+          "source_type": "ai_inference",
+          "confidence": "low",
+          "requires_human_input": false,
+          "justification": "Le CDC ne fournit pas le délai de paiement; seule une prudence de revue est possible.",
+          "source_references": [
+            {
+              "section": "Controle",
+              "field": "champsNonTrouves",
+              "excerpt": "Modalités détaillées de paiement"
+            }
+          ]
+        },
+        "risque_cash_flow": {
+          "value": "Moyen à élevé si les paiements sont tardifs en phase de démarrage.",
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "Inférence prudente car les avances et délais ne sont pas explicités.",
+          "source_references": [
+            {
+              "section": "Controle",
+              "field": "aVerifier",
+              "excerpt": "Délais de règlement réels"
+            }
+          ]
+        }
+      }
+    ],
+    "calculs_financiers": [
+      {
+        "label": "Indice simple de pression de trésorerie",
+        "formula": "Nombre de jalons documentés sans pourcentage de paiement explicite / nombre de jalons documentés",
+        "inputs": [
+          {
+            "label": "jalons_documentes",
+            "value": 1,
+            "unit": "jalon",
+            "source_references": [
+              {
+                "section": "Livrables & profils",
+                "field": "livrables_principaux",
+                "excerpt": "Rapport de démarrage"
+              }
+            ]
+          },
+          {
+            "label": "jalons_avec_modalites_financieres_explicites",
+            "value": 0,
+            "unit": "jalon",
+            "source_references": [
+              {
+                "section": "Controle",
+                "field": "champsNonTrouves",
+                "excerpt": "Modalités détaillées de paiement"
+              }
+            ]
+          }
+        ],
+        "result": {
+          "value": 1,
+          "source_type": "ai_inference",
+          "confidence": "medium",
+          "requires_human_input": false,
+          "justification": "Le seul jalon documenté ne comporte pas d'information de paiement explicite.",
+          "source_references": [
+            {
+              "section": "Controle",
+              "field": "champsNonTrouves",
+              "excerpt": "Modalités détaillées de paiement"
+            }
+          ]
+        },
+        "justification": "Ce calcul ne mesure pas un cash-flow réel, mais un signal simple de manque de visibilité financière.",
+        "source_references": [
+          {
+            "section": "Livrables & profils",
+            "field": "livrables_principaux",
+            "excerpt": "Rapport de démarrage"
+          }
+        ]
+      }
+    ],
+    "synthese_financiere": {
+      "pression_tresorerie_preliminaire": {
+        "value": "À surveiller",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Le manque de visibilité sur les paiements et cautions invite à une revue financière prudente.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "champsNonTrouves",
+            "excerpt": "Modalités détaillées de paiement"
+          }
+        ]
+      },
+      "exposition_garanties": {
+        "value": "Non documentée dans la fiche source",
+        "source_type": "unavailable",
+        "confidence": "none",
+        "requires_human_input": false,
+        "justification": "Les cautions exactes ne sont pas présentes dans la Fiche CDC sample.",
+        "source_references": []
+      },
+      "commentaires_financiers_generaux": {
+        "value": "La revue financière doit surtout confirmer modalités de paiement, garanties et hypothèses internes de marge.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Synthèse prudente des zones non couvertes par le CDC.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "champsNonTrouves",
+            "excerpt": "Cautions exactes"
+          }
+        ]
+      },
+      "points_de_revue_financiere": {
+        "value": [
+          "Confirmer les garanties applicables",
+          "Valider les délais de règlement attendus",
+          "Renseigner marge cible et charges de structure internes"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "Ces points découlent directement des lacunes identifiées dans la fiche.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "champsNonTrouves",
+            "excerpt": "Modalités détaillées de paiement"
+          }
+        ]
+      }
+    }
+  },
+  "ai_notes": [
+    "Le module finance reste structurellement incomplet tant que les paramètres internes et les garanties exactes ne sont pas confirmés."
+  ],
+  "validation_warnings": [
+    "Ne pas interpréter le calcul de pression comme un indicateur financier réel de rentabilité."
+  ]
+}

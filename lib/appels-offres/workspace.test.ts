@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildWorkspaceActivityFeed,
   buildProcessingTimeline,
   buildWorkspaceActions,
   buildWorkspaceIdentity,
@@ -59,12 +60,12 @@ test("buildWorkspaceIdentity exposes a pending extraction title and safe fallbac
   );
 
   assert.equal(identity.displayTitle, "Intitule en attente d'extraction");
-  assert.equal(identity.clientLabel, "A extraire");
-  assert.equal(identity.countryLabel, "A extraire");
+  assert.equal(identity.clientLabel, "En attente d'extraction");
+  assert.equal(identity.countryLabel, "En attente d'extraction");
   assert.equal(identity.responsibleLabel, "Non renseigne");
 });
 
-test("buildProcessingTimeline marks launch failure on the launch stage", () => {
+test("buildProcessingTimeline exposes four business stages and maps webhook failures to Analyse IA", () => {
   const timeline = buildProcessingTimeline(
     buildDetail({
       artifacts: {
@@ -113,11 +114,21 @@ test("buildProcessingTimeline marks launch failure on the launch stage", () => {
     })
   );
 
-  const launchStep = timeline.find((step) => step.key === "analysis_requested");
-  assert.equal(launchStep?.state, "failed");
+  assert.deepEqual(
+    timeline.map((step) => step.label),
+    [
+      "Dossier cree",
+      "Document recu",
+      "Analyse IA",
+      "Fiche CDC prete pour revision"
+    ]
+  );
+
+  const analysisStep = timeline.find((step) => step.key === "analysis_ai");
+  assert.equal(analysisStep?.state, "failed");
 });
 
-test("buildWorkspaceActions hides relaunch when a processing job is already active", () => {
+test("buildWorkspaceActions hides fake running CTAs while a processing job is active", () => {
   const actions = buildWorkspaceActions(
     buildDetail({
       artifacts: {
@@ -162,5 +173,115 @@ test("buildWorkspaceActions hides relaunch when a processing job is already acti
     })
   );
 
-  assert.notEqual(actions.primary?.kind, "launch-analysis");
+  assert.equal(actions.primary, null);
+  assert.equal(
+    actions.secondary.some((action) => action.label === "Reviser la Fiche CDC"),
+    false
+  );
+});
+
+test("buildWorkspaceActivityFeed keeps only business events, standardizes labels, and orders equal timestamps deterministically", () => {
+  const activity = buildWorkspaceActivityFeed(
+    buildDetail({
+      auditLogs: [
+        {
+          id: 1,
+          appelOffresId: 1,
+          action: "appel_offres.create.requested",
+          details: { hasSourcePdf: true },
+          actor: "system",
+          createdAt: "2026-07-15T08:00:00.000Z"
+        },
+        {
+          id: 2,
+          appelOffresId: 1,
+          action: "appel_offres.created",
+          details: null,
+          actor: "system",
+          createdAt: "2026-07-15T08:00:00.000Z"
+        },
+        {
+          id: 3,
+          appelOffresId: 1,
+          action: "appel_offres.cdc_uploaded",
+          details: { fileName: "cdc-initial.pdf" },
+          actor: "system",
+          createdAt: "2026-07-15T08:00:00.000Z"
+        },
+        {
+          id: 4,
+          appelOffresId: 1,
+          action: "appel_offres.business_status_changed",
+          details: { nextStatus: "analyse_en_cours" },
+          actor: "system",
+          createdAt: "2026-07-15T08:01:10.000Z"
+        },
+        {
+          id: 5,
+          appelOffresId: 1,
+          action: "analysis_requested",
+          details: null,
+          actor: "system",
+          createdAt: "2026-07-15T08:00:00.000Z"
+        },
+        {
+          id: 10,
+          appelOffresId: 1,
+          action: "analysis_completed",
+          details: null,
+          actor: "system",
+          createdAt: "2026-07-15T08:02:00.000Z"
+        },
+        {
+          id: 6,
+          appelOffresId: 1,
+          action: "analysis_failed",
+          details: { error: "Workflow configuration error." },
+          actor: "system",
+          createdAt: "2026-07-15T08:03:00.000Z"
+        },
+        {
+          id: 7,
+          appelOffresId: 1,
+          action: "appel_offres.updated",
+          details: { replacedSourcePdf: true },
+          actor: "Bob Durand",
+          createdAt: "2026-07-15T08:04:00.000Z"
+        },
+        {
+          id: 8,
+          appelOffresId: 1,
+          action: "appel_offres.cdc_uploaded",
+          details: { fileName: "cdc-remplacement.pdf" },
+          actor: "Bob Durand",
+          createdAt: "2026-07-15T08:04:02.000Z"
+        },
+        {
+          id: 9,
+          appelOffresId: 1,
+          action: "fiche_cdc.validated",
+          details: null,
+          actor: "Bob Durand",
+          createdAt: "2026-07-15T08:05:00.000Z"
+        }
+      ]
+    })
+  );
+
+  assert.deepEqual(
+    activity.map((item) => item.label),
+    [
+      "Fiche CDC validee",
+      "CDC remplace",
+      "Dossier a verifier",
+      "Analyse terminee",
+      "Dossier cree",
+      "CDC recu",
+      "Traitement du CDC demarre",
+    ]
+  );
+  assert.equal(activity.some((item) => item.label === "Statut modifie"), false);
+  assert.equal(activity.some((item) => item.label === "Informations du dossier modifiees"), false);
+  assert.equal(activity[1]?.description, "Fichier : cdc-remplacement.pdf");
+  assert.equal(activity[5]?.description, "Fichier : cdc-initial.pdf");
 });

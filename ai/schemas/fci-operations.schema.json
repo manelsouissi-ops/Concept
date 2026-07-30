@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://concept.local/ai/schemas/fci-operations.schema.json",
+  "title": "CONCEPT FCI Operations Module Contract",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/module_envelope_base"
+    }
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "module_code": {
+      "const": "C"
+    },
+    "module_type": {
+      "const": "operations"
+    },
+    "generated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "source_fiche": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/source_fiche"
+    },
+    "summary": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/summary"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "disponibilite_des_experts_cles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "poste_ou_expert": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "volume_travail_demande_par_le_cdc": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "volume_travail_reel_previsionnel": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "suppleant": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "volume_travail_previsionnel_suppleant": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "probabilite_disponibilite_experts": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "action_requise": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              }
+            },
+            "required": [
+              "poste_ou_expert",
+              "volume_travail_demande_par_le_cdc",
+              "volume_travail_reel_previsionnel",
+              "suppleant",
+              "volume_travail_previsionnel_suppleant",
+              "probabilite_disponibilite_experts",
+              "action_requise"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "disponibilite_des_experts_non_cles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "poste_ou_expert": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "volume_travail_reel_previsionnel": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "probabilite_disponibilite_experts": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "action_requise": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              }
+            },
+            "required": [
+              "poste_ou_expert",
+              "volume_travail_reel_previsionnel",
+              "probabilite_disponibilite_experts",
+              "action_requise"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "capacite_absorption_globale": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "designation_du_moyen": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "quantite_requise": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "quantite_disponible": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "membre_du_groupement_qui_lapporte": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "disponible_au_demarrage": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "ecart": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              }
+            },
+            "required": [
+              "designation_du_moyen",
+              "quantite_requise",
+              "quantite_disponible",
+              "membre_du_groupement_qui_lapporte",
+              "disponible_au_demarrage",
+              "ecart"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "repartition_des_composantes_techniques": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "composante_ou_tache": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "membre_responsable": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "experts_affectes": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "effort_estime_client_vs_concept": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "commentaire_ou_risque": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              }
+            },
+            "required": [
+              "composante_ou_tache",
+              "membre_responsable",
+              "experts_affectes",
+              "effort_estime_client_vs_concept",
+              "commentaire_ou_risque"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "risques_coordination_mitigation": {
+          "type": "object",
+          "properties": {
+            "partenaires_non_encore_eprouves": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "frequence_reunions_coordination": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "risque_penalites_internes_groupement": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "controle_qualite_livrables_partenaires": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "risques_vis_a_vis_partenaires": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "risques_vis_a_vis_consultants_externes": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "partenaires_non_encore_eprouves",
+            "frequence_reunions_coordination",
+            "risque_penalites_internes_groupement",
+            "controle_qualite_livrables_partenaires",
+            "risques_vis_a_vis_partenaires",
+            "risques_vis_a_vis_consultants_externes"
+          ],
+          "additionalProperties": false
+        },
+        "synthese_operations": {
+          "type": "object",
+          "properties": {
+            "niveau_complexite_operationnelle": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "points_blocage_operations": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            },
+            "informations_internes_requises": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            }
+          },
+          "required": [
+            "niveau_complexite_operationnelle",
+            "points_blocage_operations",
+            "informations_internes_requises"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "disponibilite_des_experts_cles",
+        "disponibilite_des_experts_non_cles",
+        "capacite_absorption_globale",
+        "repartition_des_composantes_techniques",
+        "risques_coordination_mitigation",
+        "synthese_operations"
+      ],
+      "additionalProperties": false
+    },
+    "ai_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "contract_version",
+    "module_code",
+    "module_type",
+    "generated_at",
+    "source_fiche",
+    "summary",
+    "data",
+    "ai_notes",
+    "validation_warnings"
+  ],
+  "additionalProperties": false
+}

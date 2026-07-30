@@ -6,14 +6,10 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import {
   BellIcon,
-  ChartIcon,
   DashboardIcon,
   DatabaseIcon,
-  FileTextIcon,
   FolderIcon,
   LibraryIcon,
-  PlusSquareIcon,
-  SearchIcon,
   SettingsIcon,
   UserCircleIcon
 } from "./app-icons.tsx";
@@ -28,36 +24,26 @@ type NavigationItem = {
 
 const primaryNavigation: NavigationItem[] = [
   { label: "Tableau de bord", href: "/dashboard", icon: <DashboardIcon className="nav-icon" /> },
-  { label: "Appels d'offres", href: "/appels-offres", icon: <FolderIcon className="nav-icon" /> },
-  {
-    label: "Nouvel appel d'offres",
-    href: "/appels-offres/nouveau",
-    icon: <PlusSquareIcon className="nav-icon" />
-  },
-  { label: "Fiches CDC", icon: <FileTextIcon className="nav-icon" />, disabled: true },
-  { label: "FCI", icon: <LibraryIcon className="nav-icon" />, disabled: true },
+  { label: "Appels d'offres", href: "/appels-offres", icon: <FolderIcon className="nav-icon" /> }
+];
+
+const upcomingNavigation: NavigationItem[] = [
   {
     label: "Base de connaissances",
     icon: <DatabaseIcon className="nav-icon" />,
     disabled: true
-  },
+  }
+];
+
+const administrationNavigation: NavigationItem[] = [
   { label: "Referentiels", icon: <LibraryIcon className="nav-icon" />, disabled: true },
-  { label: "Statistiques", icon: <ChartIcon className="nav-icon" />, disabled: true }
-];
-
-const referentialsNavigation = [
-  "Employes",
-  "Competences",
-  "Logiciels",
-  "Clients",
-  "Partenaires",
-  "Concurrents"
-];
-
-const utilityNavigation: NavigationItem[] = [
-  { label: "Notifications", icon: <BellIcon className="nav-icon" />, disabled: true },
-  { label: "Administration", icon: <SettingsIcon className="nav-icon" />, disabled: true },
-  { label: "Parametres", icon: <SettingsIcon className="nav-icon" />, disabled: true }
+  { label: "Employes", icon: <LibraryIcon className="nav-icon" />, disabled: true },
+  { label: "Competences", icon: <LibraryIcon className="nav-icon" />, disabled: true },
+  {
+    label: "Logiciels",
+    href: "/administration/logiciels",
+    icon: <LibraryIcon className="nav-icon" />
+  }
 ];
 
 function getRouteMeta(pathname: string) {
@@ -83,6 +69,50 @@ function getRouteMeta(pathname: string) {
     return {
       title: "Nouvel appel d'offres",
       breadcrumbs: ["Appels d'offres", "Creation"]
+    };
+  }
+
+  if (pathname === "/administration/logiciels") {
+    return {
+      title: "Logiciels",
+      breadcrumbs: ["Administration", "Logiciels"]
+    };
+  }
+
+  if (pathname === "/administration/logiciels/nouveau") {
+    return {
+      title: "Ajouter un logiciel",
+      breadcrumbs: ["Administration", "Logiciels", "Nouveau"]
+    };
+  }
+
+  if (pathname === "/administration/logiciels/importer") {
+    return {
+      title: "Importer le catalogue",
+      breadcrumbs: ["Administration", "Logiciels", "Import"]
+    };
+  }
+
+  if (pathname.startsWith("/administration/logiciels/")) {
+    const segments = pathname.split("/").filter(Boolean);
+    const logicielId = decodeURIComponent(segments[2] ?? "");
+    const lastSegment = segments[3] ?? "";
+
+    return {
+      title: lastSegment === "modifier" ? `Modifier le logiciel ${logicielId}` : `Logiciel ${logicielId}`,
+      breadcrumbs:
+        lastSegment === "modifier"
+          ? ["Administration", "Logiciels", logicielId, "Modification"]
+          : ["Administration", "Logiciels", logicielId]
+    };
+  }
+
+  if (pathname.startsWith("/appels-offres/") && pathname.includes("/analyse/logiciels")) {
+    const segments = pathname.split("/").filter(Boolean);
+    const code = decodeURIComponent(segments[1] ?? "");
+    return {
+      title: "Analyse des logiciels",
+      breadcrumbs: ["Appels d'offres", code, "Analyse", "Logiciels"]
     };
   }
 
@@ -152,10 +182,53 @@ function SidebarItem({
   );
 }
 
+function SidebarDisclosure({
+  label,
+  icon,
+  items,
+  currentPath,
+  defaultOpen = true,
+  onNavigate
+}: {
+  label: string;
+  icon: ReactNode;
+  items: NavigationItem[];
+  currentPath: string;
+  defaultOpen?: boolean;
+  onNavigate?: () => void;
+}) {
+  const hasActiveItem = items.some((item) =>
+    item.href ? currentPath === item.href || currentPath.startsWith(`${item.href}/`) : false
+  );
+
+  return (
+    <details
+      className={hasActiveItem ? "sidebar-disclosure active" : "sidebar-disclosure"}
+      open={defaultOpen || hasActiveItem}
+    >
+      <summary className="sidebar-disclosure-trigger">
+        {icon}
+        <span className="sidebar-link-text">{label}</span>
+      </summary>
+      <div className="sidebar-disclosure-list">
+        {items.map((item) => (
+          <SidebarItem
+            key={item.label}
+            item={item}
+            currentPath={currentPath}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const routeMeta = getRouteMeta(pathname);
+  const showTopContext = routeMeta.breadcrumbs.length > 1;
 
   return (
     <div className="app-shell">
@@ -175,31 +248,35 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <section className="sidebar-section">
-          <div className="sidebar-section-title">Referentiels</div>
-          <div className="sidebar-submenu">
-            {referentialsNavigation.map((label) => (
-              <span key={label} className="sidebar-subitem" aria-disabled="true">
-                {label}
-                <small>Bientot</small>
-              </span>
+        <SidebarDisclosure
+          label="Administration"
+          icon={<SettingsIcon className="nav-icon" />}
+          items={administrationNavigation}
+          currentPath={pathname}
+          onNavigate={() => setSidebarOpen(false)}
+        />
+
+        <div className="sidebar-upcoming-group">
+          <span className="sidebar-upcoming-heading">Prochainement</span>
+          <nav className="sidebar-group" aria-label="Fonctionnalites a venir">
+            {upcomingNavigation.map((item) => (
+              <SidebarItem
+                key={item.label}
+                item={item}
+                currentPath={pathname}
+                onNavigate={() => setSidebarOpen(false)}
+              />
             ))}
-          </div>
-        </section>
+          </nav>
+        </div>
 
         <div className="sidebar-spacer" />
 
-        <section className="sidebar-group" aria-label="Navigation secondaire">
-          {utilityNavigation.map((item) => (
-            <SidebarItem key={item.label} item={item} currentPath={pathname} />
-          ))}
-        </section>
-
         <div className="sidebar-user">
-          <span className="sidebar-user-avatar">LL</span>
+          <span className="sidebar-user-avatar">BD</span>
           <div className="sidebar-user-copy">
-            <strong>Commercial Emp</strong>
-            <span>Espace collaborateur</span>
+            <strong>Bob Durand</strong>
+            <span>Commercial</span>
           </div>
         </div>
       </aside>
@@ -227,38 +304,35 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span />
             </button>
 
-            <div className="topbar-copy">
-              <div className="breadcrumb">
-                {routeMeta.breadcrumbs.map((item, index) => (
-                  <span key={`${item}-${index}`} className="breadcrumb-item">
-                    {item}
-                  </span>
-                ))}
+            {showTopContext ? (
+              <div className="topbar-copy">
+                <div className="breadcrumb">
+                  {routeMeta.breadcrumbs.map((item, index) => (
+                    <span key={`${item}-${index}`} className="breadcrumb-item">
+                      {item}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <strong>{routeMeta.title}</strong>
-            </div>
+            ) : null}
           </div>
 
           <div className="app-topbar-right">
-            <label className="topbar-search" aria-label="Recherche globale">
-              <SearchIcon className="topbar-search-icon" />
-              <input
-                className="topbar-search-input"
-                value=""
-                readOnly
-                aria-label="Recherche globale bientot disponible"
-                placeholder="Recherche globale · Bientot disponible"
-              />
-            </label>
-
-            <button type="button" className="topbar-icon-button" aria-label="Notifications">
+            <span
+              className="topbar-icon-button topbar-icon-button-disabled"
+              aria-disabled="true"
+              title="Notifications bientôt disponibles"
+            >
               <BellIcon className="topbar-action-icon" />
-            </button>
+            </span>
 
-            <button type="button" className="topbar-user-button" aria-label="Profil utilisateur">
+            <div className="topbar-user-display" aria-label="Identite utilisateur">
               <UserCircleIcon className="topbar-action-icon" />
-              <span>Commercial</span>
-            </button>
+              <div className="topbar-user-copy">
+                <strong>Bob Durand</strong>
+                <span>Commercial</span>
+              </div>
+            </div>
 
             {routeMeta.actionHref && routeMeta.actionLabel ? (
               <Link href={routeMeta.actionHref} className="button button-primary topbar-cta">

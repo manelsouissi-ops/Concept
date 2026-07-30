@@ -49,28 +49,40 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         Handler.counter += 1
         parsed = urlparse(self.path)
-        if parsed.path != "/result/test-job-001":
-            self._write_json(404, {"error": "not_found"})
-            return
-
         mode = load_mode()
-        if mode == "completed":
+
+        if parsed.path == "/status/test-job-001":
+            if mode == "completed":
+                self._write_json(200, {"status": "completed"})
+                return
             self._write_json(
                 200,
                 {
-                    "status": "completed",
-                    "markdown": "# Safe test\n\nThis is a controlled local test markdown payload.",
+                    "status": "failed",
+                    "error": "Controlled local Marker stub failure.",
                 },
             )
             return
 
-        self._write_json(
-            200,
-            {
-                "status": "failed",
-                "error": "Controlled local Marker stub failure.",
-            },
-        )
+        if parsed.path == "/result/test-job-001":
+            if mode == "completed":
+                self._write_json(
+                    200,
+                    {
+                        "markdown": "# Safe test\n\nThis is a controlled local test markdown payload.",
+                    },
+                )
+                return
+
+            self._write_json(
+                200,
+                {
+                    "error": "Controlled local Marker stub failure.",
+                },
+            )
+            return
+
+        self._write_json(404, {"error": "not_found"})
 
     def log_message(self, format, *args):
         return

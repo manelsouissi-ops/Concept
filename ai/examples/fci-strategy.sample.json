@@ -1,0 +1,235 @@
+{
+  "contract_version": "1.0",
+  "module_code": "D",
+  "module_type": "strategy",
+  "generated_at": null,
+  "source_fiche": {
+    "code_interne": "AO-20260727-0945",
+    "version": "validated:2026-07-27T09:55:00.000Z",
+    "hash": "fiche-sample-sha256",
+    "status": "validated",
+    "validated_at": "2026-07-27T09:55:00.000Z"
+  },
+  "summary": {
+    "status": "partial",
+    "completion_percentage": 55,
+    "human_inputs_required": 3,
+    "warnings": [
+      "L'alignement stratégique interne n'est pas connu à partir du seul CDC."
+    ]
+  },
+  "data": {
+    "contexte_programme_valeur_strategique": {
+      "inscription_dans_un_programme_pluriannuel": {
+        "value": "Oui, le projet semble rattaché à un programme pluriannuel.",
+        "source_type": "fiche_cdc",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "Le projet est explicitement rattaché à un programme AEP 2026-2030.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "projet_rattachement",
+            "excerpt": "Programme AEP Urbain 2026-2030"
+          }
+        ]
+      },
+      "valeur_estimee_des_futurs_lots": {
+        "value": null,
+        "source_type": "unavailable",
+        "confidence": "none",
+        "requires_human_input": false,
+        "justification": "Aucune valeur des futurs lots n'est fournie dans la fiche source.",
+        "source_references": []
+      },
+      "positionnement_geographique_vise": {
+        "value": "Burkina Faso",
+        "source_type": "fiche_cdc",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "Le pays d'exécution est explicitement identifié.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "pays",
+            "excerpt": "Burkina Faso"
+          }
+        ]
+      },
+      "valeur_comme_reference": {
+        "value": "Potentiellement forte pour une référence multisite en hydraulique urbaine.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "La taille et la nature du programme suggèrent une valeur de référence potentielle.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "nature_prestation",
+            "excerpt": "Supervision de travaux et assistance technique"
+          }
+        ]
+      }
+    },
+    "enjeux_reputationnels": {
+      "risque_en_cas_de_sous_performance": {
+        "value": "Élevé",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Mission visible, multisite et financée par un bailleur international.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "source_financement",
+            "excerpt": "Banque mondiale"
+          }
+        ]
+      },
+      "risque_en_cas_de_perte": {
+        "value": "Perte d'une opportunité de référence intéressante sur le marché de l'eau.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Le programme semble structurant pour le secteur ciblé.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "secteur",
+            "excerpt": "Hydraulique urbaine"
+          }
+        ]
+      },
+      "valeur_de_test_ou_apprentissage": {
+        "value": "Oui, pour consolider une organisation de supervision multisite sous bailleur international.",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "La mission peut servir de cadre d'apprentissage opérationnel et méthodologique.",
+        "source_references": [
+          {
+            "section": "Site & contraintes",
+            "field": "outils_methodes",
+            "excerpt": "Planification MS Project, SIG, reporting numérique"
+          }
+        ]
+      }
+    },
+    "decision_strategique_preliminaire": {
+      "importance_strategique_globale": {
+        "value": "Importante",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Le caractère programme, la durée et le bailleur donnent à cette opportunité un poids stratégique probable.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "projet_rattachement",
+            "excerpt": "Programme AEP Urbain 2026-2030"
+          }
+        ]
+      },
+      "marche_prioritaire_pour_la_direction": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "La priorisation réelle du marché par la direction n'est pas déductible du CDC.",
+        "source_references": []
+      },
+      "commentaires_strategiques_de_la_direction_generale": {
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "Les commentaires de la direction générale nécessitent une saisie humaine.",
+        "source_references": []
+      }
+    },
+    "synthese_direction": {
+      "statut_revue_preliminaire": {
+        "value": "conditional_review",
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Le dossier paraît intéressant mais plusieurs confirmations internes restent nécessaires.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "aVerifier",
+            "excerpt": "Existence d'un groupement local imposé"
+          }
+        ]
+      },
+      "opportunites_majeures": {
+        "value": [
+          "Référence multisite en hydraulique urbaine",
+          "Visibilité possible auprès d'un bailleur international"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Ces opportunités sont déduites des caractéristiques du programme et du bailleur.",
+        "source_references": [
+          {
+            "section": "Identification",
+            "field": "source_financement",
+            "excerpt": "Banque mondiale"
+          }
+        ]
+      },
+      "menaces_majeures": {
+        "value": [
+          "Complexité d'exécution multisite",
+          "Concurrence potentiellement forte"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Les menaces proviennent des contraintes opérationnelles et du contexte de sélection.",
+        "source_references": [
+          {
+            "section": "Site & contraintes",
+            "field": "nombre_sites",
+            "excerpt": "12"
+          }
+        ]
+      },
+      "questions_pour_la_direction": {
+        "value": [
+          "Cette opportunité est-elle prioritaire dans le plan commercial Afrique de l'Ouest ?",
+          "Quel niveau de risque réputationnel est acceptable sur ce type de programme ?"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "medium",
+        "requires_human_input": false,
+        "justification": "Ces questions sont proposées par l'IA pour cadrer la revue de direction, sans prétendre refléter une décision interne existante.",
+        "source_references": []
+      },
+      "blocages_non_resolus": {
+        "value": [
+          "Priorité stratégique interne non confirmée",
+          "Montage groupement à confirmer"
+        ],
+        "source_type": "ai_inference",
+        "confidence": "high",
+        "requires_human_input": false,
+        "justification": "Les blocages sont directement liés aux informations internes manquantes.",
+        "source_references": [
+          {
+            "section": "Controle",
+            "field": "aVerifier",
+            "excerpt": "Existence d'un groupement local imposé"
+          }
+        ]
+      }
+    }
+  },
+  "ai_notes": [
+    "Le statut `conditional_review` n'est pas une décision Go / No-Go, seulement un signal de revue managériale."
+  ],
+  "validation_warnings": [
+    "La synthèse stratégique reste partielle tant que la direction n'a pas exprimé ses priorités."
+  ]
+}

@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://concept.local/ai/schemas/fci-commercial.schema.json",
+  "title": "CONCEPT FCI Commercial Module Contract",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/module_envelope_base"
+    }
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "module_code": {
+      "const": "A"
+    },
+    "module_type": {
+      "const": "commercial"
+    },
+    "generated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "source_fiche": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/source_fiche"
+    },
+    "summary": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/summary"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "identification_opportunite": {
+          "type": "object",
+          "properties": {
+            "reference_interne_code_dossier": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "intitule_offre": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "date_depot": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "prepare_par": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "valide_par": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "reference_interne_code_dossier",
+            "intitule_offre",
+            "date_depot",
+            "prepare_par",
+            "valide_par"
+          ],
+          "additionalProperties": false
+        },
+        "concurrents_premiere_lecture": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "nom_du_concurrent": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "pays": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "points_forts_connus": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "historique_avec_le_client": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "avantage_principal_pour_ce_cdc": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "risque_qu_il_represente": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              }
+            },
+            "required": [
+              "nom_du_concurrent",
+              "pays",
+              "points_forts_connus",
+              "historique_avec_le_client",
+              "avantage_principal_pour_ce_cdc",
+              "risque_qu_il_represente"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "positionnement_offre": {
+          "type": "object",
+          "properties": {
+            "notre_avantage_differentiel_principal": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "notre_vulnerabilite_principale": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "niveau_de_prix_cible_estime": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "notre_avantage_differentiel_principal",
+            "notre_vulnerabilite_principale",
+            "niveau_de_prix_cible_estime"
+          ],
+          "additionalProperties": false
+        },
+        "points_logistiques_internes": {
+          "type": "object",
+          "properties": {
+            "delai_de_transit_necessaire": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "responsable_depot": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "representation_locale_existante": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "autres_contraintes_internes": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "delai_de_transit_necessaire",
+            "responsable_depot",
+            "representation_locale_existante",
+            "autres_contraintes_internes"
+          ],
+          "additionalProperties": false
+        },
+        "synthese_commerciale": {
+          "type": "object",
+          "properties": {
+            "attractivite_commerciale": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "intensite_concurrentielle": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "besoins_groupement_probables": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            },
+            "risques_client": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            },
+            "recommandation_revue_commerciale": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "attractivite_commerciale",
+            "intensite_concurrentielle",
+            "besoins_groupement_probables",
+            "risques_client",
+            "recommandation_revue_commerciale"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "identification_opportunite",
+        "concurrents_premiere_lecture",
+        "positionnement_offre",
+        "points_logistiques_internes",
+        "synthese_commerciale"
+      ],
+      "additionalProperties": false
+    },
+    "ai_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "contract_version",
+    "module_code",
+    "module_type",
+    "generated_at",
+    "source_fiche",
+    "summary",
+    "data",
+    "ai_notes",
+    "validation_warnings"
+  ],
+  "additionalProperties": false
+}

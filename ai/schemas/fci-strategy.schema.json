@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://concept.local/ai/schemas/fci-strategy.schema.json",
+  "title": "CONCEPT FCI Strategy Module Contract",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/module_envelope_base"
+    }
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "module_code": {
+      "const": "D"
+    },
+    "module_type": {
+      "const": "strategy"
+    },
+    "generated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "source_fiche": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/source_fiche"
+    },
+    "summary": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/summary"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "contexte_programme_valeur_strategique": {
+          "type": "object",
+          "properties": {
+            "inscription_dans_un_programme_pluriannuel": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "valeur_estimee_des_futurs_lots": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "positionnement_geographique_vise": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "valeur_comme_reference": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "inscription_dans_un_programme_pluriannuel",
+            "valeur_estimee_des_futurs_lots",
+            "positionnement_geographique_vise",
+            "valeur_comme_reference"
+          ],
+          "additionalProperties": false
+        },
+        "enjeux_reputationnels": {
+          "type": "object",
+          "properties": {
+            "risque_en_cas_de_sous_performance": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "risque_en_cas_de_perte": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "valeur_de_test_ou_apprentissage": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "risque_en_cas_de_sous_performance",
+            "risque_en_cas_de_perte",
+            "valeur_de_test_ou_apprentissage"
+          ],
+          "additionalProperties": false
+        },
+        "decision_strategique_preliminaire": {
+          "type": "object",
+          "properties": {
+            "importance_strategique_globale": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "marche_prioritaire_pour_la_direction": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "commentaires_strategiques_de_la_direction_generale": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "importance_strategique_globale",
+            "marche_prioritaire_pour_la_direction",
+            "commentaires_strategiques_de_la_direction_generale"
+          ],
+          "additionalProperties": false
+        },
+        "synthese_direction": {
+          "type": "object",
+          "properties": {
+            "statut_revue_preliminaire": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_preliminary_review_status"
+            },
+            "opportunites_majeures": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            },
+            "menaces_majeures": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            },
+            "questions_pour_la_direction": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            },
+            "blocages_non_resolus": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            }
+          },
+          "required": [
+            "statut_revue_preliminaire",
+            "opportunites_majeures",
+            "menaces_majeures",
+            "questions_pour_la_direction",
+            "blocages_non_resolus"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "contexte_programme_valeur_strategique",
+        "enjeux_reputationnels",
+        "decision_strategique_preliminaire",
+        "synthese_direction"
+      ],
+      "additionalProperties": false
+    },
+    "ai_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "contract_version",
+    "module_code",
+    "module_type",
+    "generated_at",
+    "source_fiche",
+    "summary",
+    "data",
+    "ai_notes",
+    "validation_warnings"
+  ],
+  "additionalProperties": false
+}

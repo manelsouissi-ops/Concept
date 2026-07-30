@@ -1,15 +1,12 @@
 import { AppelOffresForm } from "@/components/appel-offres-form.tsx";
-import { PageHeader } from "@/components/page-header.tsx";
 
 export default function NouvelAppelOffresPage() {
   return (
-    <div className="page-stack">
-      <PageHeader
-        eyebrow="Creation"
-        title="Nouvel appel d'offres"
-        description="Importez le CDC. La plateforme se charge d'extraire les informations et de preparer la Fiche CDC."
-      />
-
+    <div className="page-stack appel-offres-create-page">
+      <section className="appel-offres-create-intro">
+        <h1>Nouvel appel d'offres</h1>
+        <p>Importez votre CDC PDF pour creer le dossier.</p>
+      </section>
       <AppelOffresForm mode="create" />
     </div>
   );

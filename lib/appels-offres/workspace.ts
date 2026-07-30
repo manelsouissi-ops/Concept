@@ -1,7 +1,13 @@
 import type { AppelOffresDetail, AuditLogRecord, DocumentRecord, ProcessingJobRecord } from "./types.ts";
 import { toBusinessSafeAnalysisError } from "./user-errors.ts";
 
-export type WorkspaceTabKey = "overview" | "documents" | "processing" | "fiche" | "history";
+export type WorkspaceTabKey =
+  | "overview"
+  | "processing"
+  | "fiche"
+  | "fci"
+  | "documents"
+  | "history";
 
 export type WorkspaceIdentity = {
   displayTitle: string;
@@ -25,8 +31,22 @@ export type WorkspaceTimelineStep = {
 
 export type WorkspaceActivityTone = "default" | "success" | "warning" | "danger" | "ai";
 
+export type WorkspaceActivityKind =
+  | "created"
+  | "cdc_received"
+  | "cdc_replaced"
+  | "analysis_started"
+  | "analysis_completed"
+  | "analysis_failed"
+  | "fiche_generated"
+  | "fiche_modified"
+  | "fiche_validated"
+  | "archived"
+  | "reopened";
+
 export type WorkspaceActivityItem = {
   id: string;
+  kind: WorkspaceActivityKind;
   label: string;
   description: string | null;
   actor: string | null;
@@ -34,8 +54,13 @@ export type WorkspaceActivityItem = {
   tone: WorkspaceActivityTone;
 };
 
+type WorkspaceActivityDraft = WorkspaceActivityItem & {
+  dedupeKey: string;
+};
+
 export type WorkspaceActionKind =
   | "launch-analysis"
+  | "open-processing"
   | "open-fiche"
   | "validate-fiche"
   | "download-cdc"
@@ -47,6 +72,7 @@ export type WorkspaceAction = {
   kind: WorkspaceActionKind;
   label: string;
   tone: "primary" | "ai" | "secondary" | "ghost";
+  disabled?: boolean;
 };
 
 export type WorkspaceActions = {
@@ -58,14 +84,20 @@ export type WorkspaceFailureSummary = {
   stageLabel: string;
   message: string;
   failedAt: string | null;
+  failedStep: number | null;
+  reason: string | null;
+  recommendation: string | null;
   technicalDetails: string | null;
   retryAvailable: boolean;
 };
 
 const HIDDEN_AUDIT_ACTIONS = new Set([
+  "appel_offres.create.failed",
+  "appel_offres.status_changed",
   "callback_received",
   "duplicate_callback_ignored",
-  "late_callback_ignored"
+  "late_callback_ignored",
+  "n8n_launch_accepted"
 ]);
 
 function normalizeComparable(value: string) {
@@ -78,16 +110,6 @@ function capitalize(value: string) {
 
 function isNonEmpty(value: string | null | undefined) {
   return Boolean(value?.trim());
-}
-
-function hasExtractionStarted(appel: AppelOffresDetail) {
-  return (
-    appel.artifacts.hasSourcePdf ||
-    appel.processingJobs.length > 0 ||
-    appel.ficheStatus?.status === "processing" ||
-    appel.ficheStatus?.status === "draft" ||
-    appel.ficheStatus?.status === "validated"
-  );
 }
 
 function getLatestProcessingJob(appel: AppelOffresDetail) {
@@ -110,150 +132,251 @@ function isFailedJob(job: ProcessingJobRecord | null) {
   return Boolean(job && job.status === "failed");
 }
 
+function hasReviewableFiche(appel: AppelOffresDetail) {
+  return (
+    appel.artifacts.hasFicheXml ||
+    appel.ficheStatus?.status === "draft" ||
+    appel.ficheStatus?.status === "validated"
+  );
+}
+
 function mapFailureStageToTimelineLabel(job: ProcessingJobRecord | null) {
   switch (job?.errorStage) {
+    case "upload":
+      return "Document recu";
     case "webhook":
-      return "Analyse lancee";
+      return "Analyse IA";
     case "xml":
     case "callback":
-      return "Fiche CDC generee";
+      return "Fiche CDC prete pour revision";
     default:
       return "Analyse IA";
   }
 }
 
-function mapAuditAction(entry: AuditLogRecord): WorkspaceActivityItem | null {
+function mapFailureStageToStep(stageLabel: string) {
+  switch (stageLabel) {
+    case "Document recu":
+      return 2;
+    case "Analyse IA":
+      return 3;
+    case "Fiche CDC prete pour revision":
+      return 4;
+    default:
+      return null;
+  }
+}
+
+function trimTrailingPeriod(value: string) {
+  return value.trim().replace(/[.]+$/g, "");
+}
+
+function buildFailureReason(job: ProcessingJobRecord): string | null {
+  const safeMessage = job.errorMessage ? toBusinessSafeAnalysisError(job.errorMessage) : null;
+
+  switch (job.errorCode) {
+    case "N8N_EXECUTION_CANCELLED":
+      return "execution n8n annulee";
+    case "SOURCE_PDF_READ_FAILED":
+      return "lecture du CDC impossible";
+    case "WORKFLOW_CONFIGURATION_ERROR":
+      return "configuration du workflow incomplete";
+    case "N8N_LAUNCH_FAILED":
+      return safeMessage ? trimTrailingPeriod(safeMessage) : "echec du lancement de l'analyse";
+    default:
+      return safeMessage ? trimTrailingPeriod(safeMessage) : null;
+  }
+}
+
+function buildAnalysisFailureDescription() {
+  return "La generation de la Fiche CDC n'a pas pu etre terminee.";
+}
+
+function formatFileDescription(fileName: string | null | undefined) {
+  return typeof fileName === "string" && fileName.trim() ? `Fichier : ${fileName}` : null;
+}
+
+function mapAuditAction(
+  entry: AuditLogRecord,
+  options?: {
+    isReplacement?: boolean;
+  }
+): WorkspaceActivityDraft | null {
   if (HIDDEN_AUDIT_ACTIONS.has(entry.action)) {
     return null;
   }
 
   switch (entry.action) {
-    case "appel_offres.create.requested":
     case "appel_offres.created":
       return {
         id: `audit-${entry.id}`,
+        kind: "created",
         label: "Dossier cree",
         description: null,
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "default"
+        tone: "default",
+        dedupeKey: "dossier-cree"
       };
     case "appel_offres.updated":
-      return {
-        id: `audit-${entry.id}`,
-        label: "Informations du dossier modifiees",
-        description: Array.isArray(entry.details?.changedFields)
-          ? `${entry.details.changedFields.length} champ(s) mis a jour`
-          : null,
-        actor: entry.actor,
-        createdAt: entry.createdAt,
-        tone: "default"
-      };
+    case "appel_offres.business_status_changed":
+    case "appel_offres.create.requested":
+      return null;
     case "appel_offres.cdc_uploaded":
       return {
         id: `audit-${entry.id}`,
-        label: "CDC importe",
-        description:
-          typeof entry.details?.fileName === "string" ? entry.details.fileName : null,
+        kind: options?.isReplacement ? "cdc_replaced" : "cdc_received",
+        label: options?.isReplacement ? "CDC remplace" : "CDC recu",
+        description: formatFileDescription(
+          typeof entry.details?.fileName === "string" ? entry.details.fileName : null
+        ),
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "default"
+        tone: "default",
+        dedupeKey: options?.isReplacement ? "cdc-remplace" : "cdc-importe"
       };
     case "analysis_requested":
       return {
         id: `audit-${entry.id}`,
-        label: "Analyse demandee",
+        kind: "analysis_started",
+        label: "Traitement du CDC demarre",
         description: null,
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "ai"
-      };
-    case "n8n_launch_accepted":
-      return {
-        id: `audit-${entry.id}`,
-        label: "Analyse lancee",
-        description: null,
-        actor: entry.actor,
-        createdAt: entry.createdAt,
-        tone: "ai"
+        tone: "ai",
+        dedupeKey: "analyse-lancee"
       };
     case "analysis_completed":
       return {
         id: `audit-${entry.id}`,
+        kind: "analysis_completed",
         label: "Analyse terminee",
         description: null,
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "success"
+        tone: "ai",
+        dedupeKey: "analyse-terminee"
       };
     case "fiche_cdc_generated":
       return {
         id: `audit-${entry.id}`,
-        label: "Fiche CDC generee",
+        kind: "fiche_generated",
+        label: "Fiche CDC prete a valider",
         description: null,
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "success"
+        tone: "ai",
+        dedupeKey: "fiche-generee"
       };
     case "fiche_cdc.saved":
       return {
         id: `audit-${entry.id}`,
-        label: "Fiche CDC enregistree",
-        description: null,
+        kind: "fiche_modified",
+        label: "Fiche CDC modifiee",
+        description: "Mise a jour apres relecture commerciale.",
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "default"
+        tone: "default",
+        dedupeKey: "fiche-modifiee"
       };
     case "fiche_cdc.validated":
       return {
         id: `audit-${entry.id}`,
+        kind: "fiche_validated",
         label: "Fiche CDC validee",
-        description: null,
+        description: "Validation effectuee par le commercial.",
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "success"
+        tone: "success",
+        dedupeKey: "fiche-validee"
       };
     case "analysis_failed":
     case "n8n_launch_failed":
       return {
         id: `audit-${entry.id}`,
-        label: "Analyse en echec",
-        description:
-          typeof entry.details?.error === "string"
-            ? toBusinessSafeAnalysisError(entry.details.error)
-            : null,
+        kind: "analysis_failed",
+        label: "Dossier a verifier",
+        description: buildAnalysisFailureDescription(),
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "danger"
+        tone: "warning",
+        dedupeKey: "analyse-interrompue"
       };
     case "appel_offres.archived":
       return {
         id: `audit-${entry.id}`,
+        kind: "archived",
         label: "Dossier archive",
         description: null,
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "warning"
+        tone: "default",
+        dedupeKey: "dossier-archive"
       };
     case "appel_offres.unarchived":
       return {
         id: `audit-${entry.id}`,
+        kind: "reopened",
         label: "Dossier reactive",
-        description: null,
+        description: "Le dossier est de nouveau actif.",
         actor: entry.actor,
         createdAt: entry.createdAt,
-        tone: "success"
+        tone: "success",
+        dedupeKey: "dossier-reactive"
       };
     default:
-      return {
-        id: `audit-${entry.id}`,
-        label: entry.action,
-        description: null,
-        actor: entry.actor,
-        createdAt: entry.createdAt,
-        tone: "default"
-      };
+      return null;
   }
+}
+
+function dedupeWorkspaceActivity(items: WorkspaceActivityDraft[]): WorkspaceActivityItem[] {
+  const seen = new Set<string>();
+
+  return items
+    .filter((item) => {
+      const minuteBucket = item.createdAt.slice(0, 16);
+      const descriptionKey = item.description ? normalizeComparable(item.description) : "";
+      const dedupeKey = `${item.dedupeKey}:${minuteBucket}:${descriptionKey}`;
+
+      if (seen.has(dedupeKey)) {
+        return false;
+      }
+
+      seen.add(dedupeKey);
+      return true;
+    })
+    .map(({ dedupeKey: _dedupeKey, ...item }) => item);
+}
+
+const WORKSPACE_ACTIVITY_ORDER: Record<WorkspaceActivityKind, number> = {
+  created: 1,
+  cdc_received: 2,
+  cdc_replaced: 2,
+  analysis_started: 3,
+  analysis_completed: 4,
+  fiche_generated: 5,
+  fiche_modified: 6,
+  fiche_validated: 7,
+  analysis_failed: 8,
+  archived: 9,
+  reopened: 10
+};
+
+function compareWorkspaceActivity(left: WorkspaceActivityDraft, right: WorkspaceActivityDraft) {
+  const chronology = right.createdAt.localeCompare(left.createdAt);
+  if (chronology !== 0) {
+    return chronology;
+  }
+
+  const orderDelta = WORKSPACE_ACTIVITY_ORDER[left.kind] - WORKSPACE_ACTIVITY_ORDER[right.kind];
+  if (orderDelta !== 0) {
+    return orderDelta;
+  }
+
+  const leftAuditId = Number(left.id.replace("audit-", ""));
+  const rightAuditId = Number(right.id.replace("audit-", ""));
+
+  return leftAuditId - rightAuditId;
 }
 
 export function isPlaceholderProjectTitle(title: string, code: string) {
@@ -264,23 +387,13 @@ export function isPlaceholderProjectTitle(title: string, code: string) {
 }
 
 export function buildWorkspaceIdentity(appel: AppelOffresDetail): WorkspaceIdentity {
-  const extractionStarted = hasExtractionStarted(appel);
-
   return {
     displayTitle: isPlaceholderProjectTitle(appel.title, appel.code)
       ? "Intitule en attente d'extraction"
       : appel.title,
     isTitlePendingExtraction: isPlaceholderProjectTitle(appel.title, appel.code),
-    clientLabel: isNonEmpty(appel.buyer)
-      ? appel.buyer
-      : extractionStarted
-        ? "A extraire"
-        : "Non renseigne",
-    countryLabel: isNonEmpty(appel.country)
-      ? appel.country
-      : extractionStarted
-        ? "A extraire"
-        : "Non renseigne",
+    clientLabel: isNonEmpty(appel.buyer) ? appel.buyer : "En attente d'extraction",
+    countryLabel: isNonEmpty(appel.country) ? appel.country : "En attente d'extraction",
     dueDateLabel: appel.dueDate ? appel.dueDate : "Non renseignee",
     responsibleLabel: isNonEmpty(appel.responsableCommercial)
       ? appel.responsableCommercial
@@ -291,7 +404,8 @@ export function buildWorkspaceIdentity(appel: AppelOffresDetail): WorkspaceIdent
 
 export function buildWorkspaceActions(appel: AppelOffresDetail): WorkspaceActions {
   const latestJob = getLatestProcessingJob(appel);
-  const hasFiche = appel.artifacts.hasFicheXml || Boolean(appel.ficheStatus);
+  const hasFiche = hasReviewableFiche(appel);
+  const ficheValidated = appel.ficheStatus?.status === "validated";
   const canLaunchAnalysis =
     appel.archivedAt == null &&
     appel.artifacts.hasSourcePdf &&
@@ -303,7 +417,7 @@ export function buildWorkspaceActions(appel: AppelOffresDetail): WorkspaceAction
   if (hasFiche) {
     secondary.push({
       kind: "open-fiche",
-      label: "Ouvrir la Fiche CDC",
+      label: ficheValidated ? "Consulter la Fiche CDC" : "Reviser la Fiche CDC",
       tone: "secondary"
     });
   }
@@ -326,7 +440,7 @@ export function buildWorkspaceActions(appel: AppelOffresDetail): WorkspaceAction
 
   secondary.push({
     kind: "edit-overview",
-    label: "Modifier les informations",
+    label: "Modifier la Fiche CDC",
     tone: "secondary"
   });
 
@@ -347,11 +461,22 @@ export function buildWorkspaceActions(appel: AppelOffresDetail): WorkspaceAction
     };
   }
 
+  if (isActiveProcessingJob(latestJob)) {
+    const activeSecondary = secondary.filter((action) =>
+      ["download-cdc", "edit-overview", "archive"].includes(action.kind)
+    );
+
+    return {
+      primary: null,
+      secondary: activeSecondary
+    };
+  }
+
   if (canLaunchAnalysis && (latestJob?.status === "failed" || appel.ficheStatus?.status === "error")) {
     return {
       primary: {
         kind: "launch-analysis",
-        label: "Relancer l'analyse",
+        label: "Reessayer",
         tone: "ai"
       },
       secondary
@@ -373,7 +498,7 @@ export function buildWorkspaceActions(appel: AppelOffresDetail): WorkspaceAction
     return {
       primary: {
         kind: "open-fiche",
-        label: "Ouvrir la Fiche CDC",
+        label: ficheValidated ? "Consulter la Fiche CDC" : "Reviser la Fiche CDC",
         tone: "primary"
       },
       secondary
@@ -383,7 +508,7 @@ export function buildWorkspaceActions(appel: AppelOffresDetail): WorkspaceAction
   return {
     primary: {
       kind: "edit-overview",
-      label: "Modifier les informations",
+      label: "Modifier la Fiche CDC",
       tone: "secondary"
     },
     secondary
@@ -396,6 +521,11 @@ export function buildProcessingTimeline(appel: AppelOffresDetail): WorkspaceTime
   const ficheXml = getDocument(appel, "fiche_xml");
   const analysisRequested = findAuditLog(appel, "analysis_requested", "n8n_launch_accepted");
   const ficheGenerated = findAuditLog(appel, "fiche_cdc_generated", "analysis_completed");
+  const ficheReady = hasReviewableFiche(appel);
+  const analysisActive =
+    isActiveProcessingJob(latestJob) || appel.ficheStatus?.status === "processing";
+  const analysisFailed =
+    isFailedJob(latestJob) || appel.ficheStatus?.status === "error";
   const failedTimelineLabel = mapFailureStageToTimelineLabel(latestJob);
 
   const steps: WorkspaceTimelineStep[] = [
@@ -408,97 +538,65 @@ export function buildProcessingTimeline(appel: AppelOffresDetail): WorkspaceTime
     },
     {
       key: "cdc_received",
-      label: "CDC recu",
-      state: sourcePdf ? "complete" : "waiting",
-      timestamp: sourcePdf?.createdAt ?? null,
-      detail: sourcePdf ? sourcePdf.fileName : "En attente d'import"
-    },
-    {
-      key: "pdf_stored",
-      label: "PDF enregistre",
-      state: sourcePdf ? "complete" : "waiting",
-      timestamp: sourcePdf?.createdAt ?? null,
-      detail: sourcePdf ? "Document disponible dans le workspace" : "En attente"
-    },
-    {
-      key: "analysis_requested",
-      label: "Analyse lancee",
+      label: "Document recu",
       state:
-        latestJob == null
-          ? "waiting"
-          : isFailedJob(latestJob) && failedTimelineLabel === "Analyse lancee"
+        sourcePdf != null
+          ? "complete"
+          : latestJob?.errorStage === "upload"
             ? "failed"
-            : isActiveProcessingJob(latestJob)
+            : "waiting",
+      timestamp: sourcePdf?.createdAt ?? null,
+      detail: sourcePdf ? sourcePdf.fileName : "En attente du CDC PDF"
+    },
+    {
+      key: "analysis_ai",
+      label: "Analyse IA",
+      state:
+        ficheReady || latestJob?.status === "completed"
+          ? "complete"
+          : analysisFailed && failedTimelineLabel === "Analyse IA"
+            ? "failed"
+            : analysisActive
               ? "active"
-              : "complete",
+              : "waiting",
       timestamp:
         latestJob?.launchAcceptedAt ??
         latestJob?.startedAt ??
         analysisRequested?.createdAt ??
         null,
       detail:
-        latestJob == null
-          ? "En attente"
-          : latestJob.executionId
-            ? "Traitement accepte par n8n"
-            : "Demande transmise"
+        ficheReady || latestJob?.status === "completed"
+          ? "Analyse terminee"
+          : analysisFailed && failedTimelineLabel === "Analyse IA"
+            ? "L'analyse n'a pas pu aboutir"
+            : analysisActive
+              ? "Extraction et generation en cours"
+              : sourcePdf
+                ? "Prete a etre lancee"
+                : "En attente du document"
     },
     {
-      key: "analysis_ai",
-      label: "Analyse IA",
+      key: "fiche_ready",
+      label: "Fiche CDC prete pour revision",
       state:
-        latestJob == null
-          ? "waiting"
-          : isFailedJob(latestJob) && failedTimelineLabel === "Analyse IA"
-            ? "failed"
-            : isActiveProcessingJob(latestJob)
-              ? "active"
-              : "complete",
-      timestamp: latestJob?.startedAt ?? null,
-      detail:
-        latestJob == null
-          ? "En attente"
-          : latestJob.status === "completed"
-            ? "Analyse terminee"
-            : latestJob.status === "failed"
-              ? "Traitement interrompu"
-              : "En cours"
-    },
-    {
-      key: "fiche_generated",
-      label: "Fiche CDC generee",
-      state:
-        ficheXml != null
+        ficheReady
           ? "complete"
-          : isFailedJob(latestJob) && failedTimelineLabel === "Fiche CDC generee"
+          : analysisFailed && failedTimelineLabel === "Fiche CDC prete pour revision"
             ? "failed"
-            : isActiveProcessingJob(latestJob)
-              ? "waiting"
-              : "waiting",
-      timestamp: ficheXml?.createdAt ?? ficheGenerated?.createdAt ?? null,
-      detail: ficheXml ? "XML et artefacts disponibles" : "En attente"
-    },
-    {
-      key: "result_available",
-      label: "Resultat disponible",
-      state:
-        appel.ficheStatus?.status === "draft" || appel.ficheStatus?.status === "validated"
-          ? "complete"
-          : latestJob?.status === "failed"
-            ? "failed"
-            : isActiveProcessingJob(latestJob)
-              ? "waiting"
-              : "waiting",
+            : "waiting",
       timestamp:
         ficheXml?.createdAt ??
+        ficheGenerated?.createdAt ??
         latestJob?.finishedAt ??
         null,
       detail:
-        appel.ficheStatus?.status === "validated"
+        appel.ficheStatus?.status === "draft" || appel.ficheStatus?.status === "validated"
           ? "Fiche CDC validee"
-          : appel.ficheStatus?.status === "draft"
-            ? "Fiche CDC a verifier"
-            : "En attente"
+          : ficheReady
+            ? "Prete pour relecture commerciale"
+            : analysisFailed && failedTimelineLabel === "Fiche CDC prete pour revision"
+              ? "La fiche n'a pas pu etre preparee"
+              : "En attente de l'analyse IA"
     }
   ];
 
@@ -506,10 +604,35 @@ export function buildProcessingTimeline(appel: AppelOffresDetail): WorkspaceTime
 }
 
 export function buildWorkspaceActivityFeed(appel: AppelOffresDetail) {
-  return appel.auditLogs
-    .map(mapAuditAction)
-    .filter((item): item is WorkspaceActivityItem => item !== null)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const orderedCdcUploads = appel.auditLogs
+    .filter((entry) => entry.action === "appel_offres.cdc_uploaded")
+    .slice()
+    .sort((left, right) => {
+      const chronology = left.createdAt.localeCompare(right.createdAt);
+      if (chronology !== 0) {
+        return chronology;
+      }
+
+      return left.id - right.id;
+    });
+
+  const firstCdcUploadId = orderedCdcUploads[0]?.id ?? null;
+
+  const activity = appel.auditLogs
+    .map((entry) => {
+      if (entry.action === "appel_offres.cdc_uploaded") {
+        const mapped = mapAuditAction(entry, {
+          isReplacement: entry.id !== firstCdcUploadId
+        });
+        return mapped;
+      }
+
+      return mapAuditAction(entry);
+    })
+    .filter((item): item is WorkspaceActivityDraft => item !== null)
+    .sort(compareWorkspaceActivity);
+
+  return dedupeWorkspaceActivity(activity);
 }
 
 export function buildWorkspaceFailureSummary(appel: AppelOffresDetail): WorkspaceFailureSummary | null {
@@ -518,11 +641,21 @@ export function buildWorkspaceFailureSummary(appel: AppelOffresDetail): Workspac
     return null;
   }
 
+  const stageLabel = mapFailureStageToTimelineLabel(latestJob);
+  const reason = buildFailureReason(latestJob);
+
   return {
-    stageLabel: mapFailureStageToTimelineLabel(latestJob),
+    stageLabel,
     message:
-      "L'analyse n'a pas pu etre terminee. Le dossier et le CDC ont ete conserves. Vous pouvez relancer le traitement.",
+      stageLabel === "Document recu"
+        ? "Le CDC n'a pas pu etre prepare pour l'analyse."
+        : stageLabel === "Fiche CDC prete pour revision"
+          ? "L'analyse IA s'est arretee avant la mise a disposition de la Fiche CDC."
+          : "L'analyse IA a ete interrompue avant la generation de la Fiche CDC.",
     failedAt: latestJob.finishedAt ?? latestJob.callbackReceivedAt ?? latestJob.startedAt,
+    failedStep: mapFailureStageToStep(stageLabel),
+    reason,
+    recommendation: !isActiveProcessingJob(latestJob) ? "Relancer l'analyse." : null,
     technicalDetails: latestJob.errorMessage
       ? toBusinessSafeAnalysisError(latestJob.errorMessage) === latestJob.errorMessage
         ? latestJob.errorMessage

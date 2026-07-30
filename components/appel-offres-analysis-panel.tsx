@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
-import { AiBadge } from "@/components/ai-badge";
 import type { FicheStatus } from "@/lib/types";
 
 type Props = {
@@ -11,25 +10,35 @@ type Props = {
   hasSourcePdf: boolean;
   ficheStatus: FicheStatus | null;
   hasFicheXml: boolean;
+  isRetryState: boolean;
 };
 
 export function AppelOffresAnalysisPanel({
   code,
   hasSourcePdf,
   ficheStatus,
-  hasFicheXml
+  hasFicheXml,
+  isRetryState
 }: Props) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
+  const [showReplaceInput, setShowReplaceInput] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const launchLabel = file
-    ? "Importer le CDC et lancer l'analyse"
-    : hasSourcePdf
-      ? "Lancer l'analyse"
-      : "Importer le CDC et lancer l'analyse";
+  const launchLabel =
+    ficheStatus === "processing"
+      ? "Analyse en cours"
+      : file && hasSourcePdf
+        ? "Remplacer le CDC et relancer"
+        : file
+          ? "Importer le CDC et lancer l'analyse"
+          : isRetryState
+            ? "Relancer l'analyse"
+            : hasSourcePdf
+              ? "Lancer l'analyse"
+              : "Importer le CDC et lancer l'analyse";
 
   async function submit(forceRegenerate = false) {
     setError(null);
@@ -77,8 +86,9 @@ export function AppelOffresAnalysisPanel({
       }
 
       const nextCode = body.code_interne ?? body.code ?? code;
+      setShowReplaceInput(false);
       router.push(
-        `/appels-offres/${encodeURIComponent(nextCode)}?view=processing&flash=analysis-started`
+        `/appels-offres/${encodeURIComponent(nextCode)}?view=fci&flash=analysis-started`
       );
     });
   }
@@ -89,31 +99,42 @@ export function AppelOffresAnalysisPanel({
   }
 
   return (
-    <form className="grid" onSubmit={handleSubmit}>
-      <div className="field">
-        <label htmlFor="cdc-import">Importer le CDC</label>
-        <input
-          id="cdc-import"
-          type="file"
-          accept="application/pdf,.pdf"
-          className="input"
-          disabled={isPending || ficheStatus === "processing"}
-          onChange={(event) => {
-            setFile(event.target.files?.[0] ?? null);
-            setConfirmationMessage(null);
-          }}
-        />
-        <span className="hint">
-          {hasSourcePdf
-            ? "Vous pouvez reutiliser le PDF deja enregistre ou en importer un nouveau avant l'analyse."
-            : "Aucun CDC PDF n'est encore attache a cet appel d'offres."}
-        </span>
-      </div>
+    <form className="grid workspace-analysis-panel" onSubmit={handleSubmit}>
+      {hasSourcePdf && ficheStatus !== "processing" ? (
+        <div className="workspace-analysis-inline-actions">
+          <span className="hint">Le CDC actuel reste disponible dans l&apos;onglet Documents.</span>
+          <button
+            type="button"
+            className="button button-ghost button-small"
+            onClick={() => setShowReplaceInput((current) => !current)}
+            disabled={isPending}
+          >
+            {showReplaceInput ? "Annuler le remplacement" : "Remplacer le CDC"}
+          </button>
+        </div>
+      ) : null}
 
-      {ficheStatus === "processing" ? (
-        <div className="callout ai">
-          <AiBadge label="Analyse IA" />
-          Une analyse est deja en cours pour cet appel d&apos;offres. Suivez son avancement depuis ce workspace.
+      {!hasSourcePdf || showReplaceInput ? (
+        <div className="field">
+          <label htmlFor="cdc-import">
+            {hasSourcePdf ? "Remplacer le CDC" : "Importer le CDC"}
+          </label>
+          <input
+            id="cdc-import"
+            type="file"
+            accept="application/pdf,.pdf"
+            className="input"
+            disabled={isPending || ficheStatus === "processing"}
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setConfirmationMessage(null);
+            }}
+          />
+          <span className="hint">
+            {hasSourcePdf
+              ? "Le nouveau PDF sera utilise pour la prochaine analyse."
+              : "Aucun CDC PDF n'est encore attache a cet appel d'offres."}
+          </span>
         </div>
       ) : null}
 
@@ -135,13 +156,11 @@ export function AppelOffresAnalysisPanel({
       ) : null}
 
       <div className="actions">
-        <button
-          className="button button-ai"
-          type="submit"
-          disabled={isPending || ficheStatus === "processing"}
-        >
-          {isPending ? "Analyse en cours..." : launchLabel}
-        </button>
+        {ficheStatus !== "processing" ? (
+          <button className="button button-ai" type="submit" disabled={isPending}>
+            {isPending ? "Analyse en cours..." : launchLabel}
+          </button>
+        ) : null}
         {hasFicheXml ? (
           <Link className="button button-secondary" href={`/fiche/${encodeURIComponent(code)}`}>
             Ouvrir la Fiche CDC

@@ -13,7 +13,7 @@ export function StatCard({
   icon: ReactNode;
   label: string;
   value: string | number;
-  description: string;
+  description?: string;
   href?: string;
   actionLabel?: string;
   tone?: "default" | "success" | "ai" | "warning" | "danger";
@@ -25,7 +25,7 @@ export function StatCard({
         <span className="stat-card-label">{label}</span>
       </div>
       <strong className="stat-card-value">{value}</strong>
-      <p className="stat-card-description">{description}</p>
+      {description ? <p className="stat-card-description">{description}</p> : null}
       {href && actionLabel ? <span className="stat-card-action">{actionLabel}</span> : null}
     </>
   );

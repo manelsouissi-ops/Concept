@@ -14,8 +14,40 @@ OUTPUT_DIR = TMP_DIR / "callback-captures"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SIGN_OUTPUT_DIR = TMP_DIR / "callback-sign-requests"
 SIGN_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-CALLBACK_SECRET = os.environ.get("N8N_CALLBACK_SECRET", "replace-with-hmac-secret")
-CALLBACK_TOKEN = os.environ.get("PLATFORM_CALLBACK_TOKEN", "replace-with-callback-bearer-token")
+ENV_FILE = REPO_ROOT / ".env.local"
+
+
+def load_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+
+    return values
+
+
+FILE_ENV = load_env_file(ENV_FILE)
+CALLBACK_SECRET = str(
+    FILE_ENV.get("FCI_CALLBACK_HMAC_SECRET")
+    or os.environ.get("FCI_CALLBACK_HMAC_SECRET")
+    or FILE_ENV.get("N8N_CALLBACK_SECRET")
+    or os.environ.get("N8N_CALLBACK_SECRET")
+    or "replace-with-hmac-secret"
+).strip()
+CALLBACK_TOKEN = str(
+    FILE_ENV.get("FCI_CALLBACK_BEARER_TOKEN")
+    or os.environ.get("FCI_CALLBACK_BEARER_TOKEN")
+    or FILE_ENV.get("PLATFORM_CALLBACK_TOKEN")
+    or os.environ.get("PLATFORM_CALLBACK_TOKEN")
+    or "replace-with-callback-bearer-token"
+).strip()
 
 
 def build_signature(timestamp: str, raw_body: str) -> str:

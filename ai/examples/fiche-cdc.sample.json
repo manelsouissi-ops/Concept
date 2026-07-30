@@ -1,0 +1,244 @@
+{
+  "codeInterne": "AO-20260727-0945",
+  "extraction": [
+    {
+      "key": "reference_officielle",
+      "label": "reference_officielle",
+      "value": "AMI-2026/17",
+      "source": "Section 1"
+    },
+    {
+      "key": "intitule_mission",
+      "label": "intitule_mission",
+      "value": "Mission de supervision et d'assistance technique pour un programme d'alimentation en eau potable",
+      "source": "Section 1"
+    },
+    {
+      "key": "client_maitre_ouvrage",
+      "label": "client_maitre_ouvrage",
+      "value": "Office national de l'eau",
+      "source": "Section 1"
+    },
+    {
+      "key": "pays",
+      "label": "pays",
+      "value": "Burkina Faso",
+      "source": "Section 1"
+    },
+    {
+      "key": "zone_execution",
+      "label": "zone_execution",
+      "value": "Région Centre et Hauts-Bassins",
+      "source": "Section 2"
+    },
+    {
+      "key": "projet_rattachement",
+      "label": "projet_rattachement",
+      "value": "Programme AEP Urbain 2026-2030",
+      "source": "Section 1"
+    },
+    {
+      "key": "source_financement",
+      "label": "source_financement",
+      "value": "Banque mondiale",
+      "source": "Section 3"
+    },
+    {
+      "key": "credit_financement",
+      "label": "credit_financement",
+      "value": "",
+      "source": "Section 3"
+    },
+    {
+      "key": "secteur",
+      "label": "secteur",
+      "value": "Hydraulique urbaine",
+      "source": "Section 2"
+    },
+    {
+      "key": "nature_prestation",
+      "label": "nature_prestation",
+      "value": "Supervision de travaux et assistance technique",
+      "source": "Section 2"
+    },
+    {
+      "key": "type_procedure",
+      "label": "type_procedure",
+      "value": "Appel à manifestation d'intérêt",
+      "source": "Section 1"
+    },
+    {
+      "key": "methode_selection",
+      "label": "methode_selection",
+      "value": "Sélection fondée sur la qualité et le coût",
+      "source": "Section 1"
+    },
+    {
+      "key": "type_proposition",
+      "label": "type_proposition",
+      "value": "Technique et financière",
+      "source": "Section 1"
+    },
+    {
+      "key": "type_contrat",
+      "label": "type_contrat",
+      "value": "Lump sum",
+      "source": "Section 4"
+    },
+    {
+      "key": "date_emission",
+      "label": "date_emission",
+      "value": "2026-07-10",
+      "source": "Section 1"
+    },
+    {
+      "key": "date_limite_depot",
+      "label": "date_limite_depot",
+      "value": "2026-08-12",
+      "source": "Section 1"
+    },
+    {
+      "key": "langue_offre",
+      "label": "langue_offre",
+      "value": "Français",
+      "source": "Section 1"
+    },
+    {
+      "key": "ponderation_technique_financiere",
+      "label": "ponderation_technique_financiere",
+      "value": "80/20",
+      "source": "Section 5"
+    },
+    {
+      "key": "note_technique_minimale",
+      "label": "note_technique_minimale",
+      "value": "75",
+      "source": "Section 5"
+    },
+    {
+      "key": "duree_totale",
+      "label": "duree_totale",
+      "value": "24 mois",
+      "source": "Section 2"
+    },
+    {
+      "key": "volume_hommes_mois",
+      "label": "volume_hommes_mois",
+      "value": "96",
+      "source": "Section 2"
+    },
+    {
+      "key": "nombre_profils_experts",
+      "label": "nombre_profils_experts",
+      "value": "8",
+      "source": "Section 2"
+    },
+    {
+      "key": "phases_mission",
+      "label": "phases_mission",
+      "value": "Démarrage, supervision, réception provisoire, clôture",
+      "source": "Section 2"
+    },
+    {
+      "key": "livrables_principaux",
+      "label": "livrables_principaux",
+      "value": "Rapports mensuels, rapport de démarrage, rapport final",
+      "source": "Section 6"
+    },
+    {
+      "key": "nombre_livrables_structurants",
+      "label": "nombre_livrables_structurants",
+      "value": "3",
+      "source": "Section 6"
+    },
+    {
+      "key": "profils_cles",
+      "label": "profils_cles",
+      "value": "Chef de mission, hydraulicien, électromécanicien",
+      "source": "Section 2"
+    },
+    {
+      "key": "disciplines_techniques",
+      "label": "disciplines_techniques",
+      "value": "Hydraulique, génie civil, électromécanique, environnement",
+      "source": "Section 2"
+    },
+    {
+      "key": "nombre_sites",
+      "label": "nombre_sites",
+      "value": "12",
+      "source": "Section 2"
+    },
+    {
+      "key": "contraintes_site",
+      "label": "contraintes_site",
+      "value": "Accès saison des pluies, coordination multi-sites",
+      "source": "Section 7"
+    },
+    {
+      "key": "outils_methodes",
+      "label": "outils_methodes",
+      "value": "Planification MS Project, SIG, reporting numérique",
+      "source": "Section 7"
+    },
+    {
+      "key": "moyens_materiels",
+      "label": "moyens_materiels",
+      "value": "Véhicules, équipements topographiques, outils SIG",
+      "source": "Section 7"
+    },
+    {
+      "key": "exigences_es",
+      "label": "exigences_es",
+      "value": "Plan ESMP et suivi HSE",
+      "source": "Section 8"
+    },
+    {
+      "key": "normes_referentiels",
+      "label": "normes_referentiels",
+      "value": "Banque mondiale ESS, normes nationales",
+      "source": "Section 8"
+    },
+    {
+      "key": "points_techniques_structurants",
+      "label": "points_techniques_structurants",
+      "value": "Coordination de plusieurs entreprises et suivi qualité multi-sites",
+      "source": "Section 2"
+    }
+  ],
+  "evaluation": [
+    {
+      "key": "complexite_technique",
+      "label": "complexite_technique",
+      "score": 4,
+      "justification": "Mission multisite avec plusieurs disciplines et exigences de coordination."
+    },
+    {
+      "key": "difficulte_terrain",
+      "label": "difficulte_terrain",
+      "score": 4,
+      "justification": "Zones d'intervention étendues avec contraintes d'accès saisonnières."
+    },
+    {
+      "key": "risque_sous_dimensionnement",
+      "label": "risque_sous_dimensionnement",
+      "score": 3,
+      "justification": "Le nombre d'experts semble juste au regard de la couverture multisite.",
+      "chargeEstimee": "96 hommes-mois"
+    }
+  ],
+  "controle": {
+    "champsNonTrouves": [
+      "Modalités détaillées de paiement",
+      "Cautions exactes"
+    ],
+    "incoherences": [
+      "Le volume hommes-mois n'est pas décliné par profil."
+    ],
+    "aVerifier": [
+      "Existence d'un groupement local imposé",
+      "Délais de règlement réels"
+    ],
+    "resolutions": []
+  }
+}

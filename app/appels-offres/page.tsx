@@ -1,7 +1,8 @@
-import Link from "next/link";
 import { AppelsOffresListView } from "@/components/appels-offres-list-view.tsx";
 import { EmptyState } from "@/components/empty-state.tsx";
 import { PageHeader } from "@/components/page-header.tsx";
+import { buildDashboardRowAction, buildDashboardStatusDisplay } from "@/lib/appels-offres/dashboard.ts";
+import { listFciOverallStatusesByAppelOffresCodes } from "@/lib/appels-offres/fci/repository.ts";
 import { buildAppelOffresSummary } from "@/lib/appels-offres/presentation.ts";
 import {
   getAppelOffresDetailByCode,
@@ -25,23 +26,31 @@ export default async function AppelsOffresPage({
         records.map((record) => getAppelOffresDetailByCode(record.code, { includeArchived: true }))
       )
     ).filter((item): item is NonNullable<typeof item> => item !== null);
-    const summaries = details.map(buildAppelOffresSummary);
+
+    const fciStatusByCode = await listFciOverallStatusesByAppelOffresCodes(
+      details.map((detail) => detail.code)
+    );
+
+    const items = details.map((detail) => {
+      const summary = buildAppelOffresSummary(detail);
+      const fciStatus = fciStatusByCode.get(detail.code) ?? null;
+
+      return {
+        ...summary,
+        statusDisplay: buildDashboardStatusDisplay(summary, fciStatus),
+        rowAction: buildDashboardRowAction(detail.code, summary, fciStatus)
+      };
+    });
 
     return (
       <div className="page-stack">
         <PageHeader
-          eyebrow="Opportunités"
           title="Appels d'offres"
-          description="Centralisez, suivez et analysez les opportunités de l'entreprise."
-          actions={
-            <Link href="/appels-offres/nouveau" className="button button-primary">
-              Nouvel appel d'offres
-            </Link>
-          }
+          description="Centralisez, suivez et analysez les opportunites de l'entreprise."
         />
 
         <AppelsOffresListView
-          items={summaries}
+          items={items}
           initialStatusFilter={initialStatusFilter}
           initialSortBy={initialSortBy}
         />
@@ -51,9 +60,8 @@ export default async function AppelsOffresPage({
     return (
       <div className="page-stack">
         <PageHeader
-          eyebrow="Opportunités"
           title="Appels d'offres"
-          description="Centralisez, suivez et analysez les opportunités de l'entreprise."
+          description="Centralisez, suivez et analysez les opportunites de l'entreprise."
         />
 
         <section className="data-card">
@@ -63,7 +71,7 @@ export default async function AppelsOffresPage({
               description={
                 error instanceof Error
                   ? error.message
-                  : "La liste des appels d'offres n'a pas pu être chargée."
+                  : "La liste des appels d'offres n'a pas pu etre chargee."
               }
             />
           </div>

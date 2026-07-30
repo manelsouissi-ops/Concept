@@ -1,8 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { AlertIcon } from "@/components/app-icons.tsx";
+import type { AppelOffresDetail } from "@/lib/appels-offres/types.ts";
 import { StatusBadge } from "@/components/status-badge.tsx";
-import { toBusinessSafeAnalysisError } from "@/lib/appels-offres/user-errors.ts";
 import {
   EVALUATION_FIELD_DEFINITIONS,
   EXTRACTION_FIELD_DEFINITIONS,
@@ -19,6 +21,8 @@ import {
 
 type Props = {
   code: string;
+  appel: AppelOffresDetail;
+  onReviewStateChange?: (state: "saved" | "validated" | null) => void;
 };
 
 type SaveState = "idle" | "saved" | "validated";
@@ -32,6 +36,18 @@ type FicheStatusResponse = Pick<
   StatusPayload,
   "status" | "processingStartedAt" | "errorReason" | "errorStage" | "n8nExecutionId"
 >;
+
+type DossierFormState = {
+  code: string;
+  title: string;
+  buyer: string;
+  country: string;
+  dueDate: string;
+  responsableCommercial: string;
+  priorite: AppelOffresDetail["priorite"];
+  reference: string;
+  notes: string;
+};
 
 type PdfPageProxyLike = {
   getViewport: (params: { scale: number }) => { width: number; height: number };
@@ -57,20 +73,62 @@ type PdfJsModuleLike = {
   }) => { promise: Promise<PdfDocumentLike> };
 };
 
-const EXTRACTION_GROUP_ORDER = [
-  "Identification",
-  "Procedure",
-  "Duree & volume",
-  "Livrables & profils",
-  "Site & contraintes"
+const DOCUMENT_SECTION_ORDER = [
+  "informations_generales",
+  "client_et_projet",
+  "donnees_commerciales",
+  "besoins_techniques",
+  "contraintes",
+  "delais"
 ] as const;
 
-const EXTRACTION_GROUP_TITLES: Record<(typeof EXTRACTION_GROUP_ORDER)[number], string> = {
-  Identification: "Informations generales",
-  Procedure: "Procedure et calendrier",
-  "Duree & volume": "Duree et volume",
-  "Livrables & profils": "Livrables et profils",
-  "Site & contraintes": "Contraintes et exigences"
+const DOCUMENT_SECTION_TITLES: Record<(typeof DOCUMENT_SECTION_ORDER)[number], string> = {
+  informations_generales: "Informations generales",
+  client_et_projet: "Client et projet",
+  donnees_commerciales: "Cadre commercial",
+  besoins_techniques: "Besoins techniques",
+  contraintes: "Contraintes",
+  delais: "Delais"
+};
+
+const EXTRACTION_SECTION_BY_KEY: Record<
+  ExtractionField["key"],
+  (typeof DOCUMENT_SECTION_ORDER)[number]
+> = {
+  reference_officielle: "informations_generales",
+  intitule_mission: "informations_generales",
+  secteur: "informations_generales",
+  nature_prestation: "informations_generales",
+  client_maitre_ouvrage: "client_et_projet",
+  pays: "client_et_projet",
+  zone_execution: "client_et_projet",
+  projet_rattachement: "client_et_projet",
+  source_financement: "client_et_projet",
+  credit_financement: "client_et_projet",
+  type_procedure: "donnees_commerciales",
+  methode_selection: "donnees_commerciales",
+  type_proposition: "donnees_commerciales",
+  type_contrat: "donnees_commerciales",
+  langue_offre: "donnees_commerciales",
+  ponderation_technique_financiere: "donnees_commerciales",
+  note_technique_minimale: "donnees_commerciales",
+  duree_totale: "delais",
+  date_emission: "delais",
+  date_limite_depot: "delais",
+  volume_hommes_mois: "besoins_techniques",
+  nombre_profils_experts: "besoins_techniques",
+  phases_mission: "besoins_techniques",
+  livrables_principaux: "besoins_techniques",
+  nombre_livrables_structurants: "besoins_techniques",
+  profils_cles: "besoins_techniques",
+  disciplines_techniques: "besoins_techniques",
+  outils_methodes: "besoins_techniques",
+  moyens_materiels: "besoins_techniques",
+  points_techniques_structurants: "besoins_techniques",
+  nombre_sites: "contraintes",
+  contraintes_site: "contraintes",
+  exigences_es: "contraintes",
+  normes_referentiels: "contraintes"
 };
 
 const CONTROL_SECTION_CONFIG = [
@@ -152,6 +210,28 @@ function statusLabel(status: FicheResponse["status"]["status"]) {
   }
 }
 
+function statusTone(status: FicheResponse["status"]["status"]) {
+  switch (status) {
+    case "processing":
+      return "ai" as const;
+    case "validated":
+      return "success" as const;
+    case "error":
+      return "danger" as const;
+    default:
+      return "warning" as const;
+  }
+}
+
+function humanizeIdentifierLabel(value: string) {
+  const normalized = value.replace(/_/g, " ").trim();
+  if (!normalized) {
+    return value;
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function getFieldReviewState({
   value,
   initialValue,
@@ -191,6 +271,33 @@ function formatElapsed(processingStartedAt: string | null) {
   const seconds = totalSeconds % 60;
 
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function createDossierFormState(appel: AppelOffresDetail): DossierFormState {
+  return {
+    code: appel.code,
+    title: appel.title,
+    buyer: appel.buyer,
+    country: appel.country,
+    dueDate: appel.dueDate ?? "",
+    responsableCommercial: appel.responsableCommercial,
+    priorite: appel.priorite,
+    reference: appel.reference,
+    notes: appel.notes
+  };
+}
+
+function hasDossierChanges(current: DossierFormState, baseline: DossierFormState) {
+  return (
+    current.title !== baseline.title ||
+    current.buyer !== baseline.buyer ||
+    current.country !== baseline.country ||
+    current.dueDate !== baseline.dueDate ||
+    current.responsableCommercial !== baseline.responsableCommercial ||
+    current.priorite !== baseline.priorite ||
+    current.reference !== baseline.reference ||
+    current.notes !== baseline.notes
+  );
 }
 
 function normalizeForSearch(value: string) {
@@ -310,12 +417,249 @@ function findBestMarkdownLine(
   };
 }
 
-export function FicheEditor({ code }: Props) {
+function getUnavailableReason(errorStage: string | null, errorReason: string | null) {
+  if (errorStage === "upload") {
+    return "Le document source n'a pas pu etre prepare pour l'analyse.";
+  }
+
+  if (
+    errorStage &&
+    ["webhook", "marker", "markdown", "anonymization", "llm", "xml", "callback"].includes(
+      errorStage
+    )
+  ) {
+    return "L'analyse a ete interrompue avant la fin du traitement.";
+  }
+
+  if (errorReason && /(annul|cancel|interromp)/i.test(errorReason)) {
+    return "L'analyse a ete interrompue avant la fin du traitement.";
+  }
+
+  return null;
+}
+
+function FicheUnavailableState({
+  isError,
+  errorStage,
+  errorReason,
+  isPending,
+  onRetry
+}: {
+  isError: boolean;
+  errorStage: string | null;
+  errorReason: string | null;
+  isPending: boolean;
+  onRetry: () => void;
+}) {
+  const reason = isError ? getUnavailableReason(errorStage, errorReason) : null;
+
+  return (
+    <section className="panel fiche-document-panel">
+      <div className="panel-inner stack fiche-editor-stack fiche-unavailable-stack">
+        <div className="fiche-document-intro fiche-unavailable-intro">
+          <div className="fiche-unavailable-header">
+            <div className={`fiche-unavailable-icon${isError ? " is-error" : ""}`} aria-hidden="true">
+              <AlertIcon className="upload-icon" />
+            </div>
+          <div className="fiche-unavailable-copy">
+  <h3>
+    {isError
+      ? "La Fiche CDC n'a pas pu être générée"
+      : "La Fiche CDC est en cours de génération"}
+  </h3>
+
+  <p className="meta">
+    {isError
+      ? "L'analyse automatique n'a pas abouti."
+      : "L'analyse du CDC est en cours. La fiche sera disponible automatiquement à la fin du traitement."}
+  </p>
+
+  {reason ? (
+    <p className="meta fiche-unavailable-reason">{reason}</p>
+  ) : null}
+</div>
+          </div>
+        </div>
+
+        {isError ? (
+  <div className="actions fiche-unavailable-actions">
+    <button
+      className="button button-primary"
+      type="button"
+      onClick={onRetry}
+      disabled={isPending}
+    >
+      {isPending ? "Relance..." : "Relancer l'analyse"}
+    </button>
+  </div>
+) : null}
+
+<div className="fiche-unavailable-explainer">
+  <p>
+    {isError
+      ? "Après une nouvelle analyse réussie, vous pourrez vérifier, compléter et valider la Fiche CDC."
+      : "Les informations extraites apparaîtront ici dès que l'analyse sera terminée."}
+  </p>
+</div>
+      </div>
+    </section>
+  );
+}
+
+function DossierFieldsSection({
+  form,
+  isLocked,
+  isPending,
+  onUpdateField
+}: {
+  form: DossierFormState;
+  isLocked: boolean;
+  isPending: boolean;
+  onUpdateField: <Key extends keyof DossierFormState>(
+    key: Key,
+    value: DossierFormState[Key]
+  ) => void;
+}) {
+  return (
+    <div className="stack fiche-document-section">
+      <div className="subsection-title">Informations du dossier</div>
+      <div className="fiche-dossier-groups">
+        <div className="stack fiche-document-subsection">
+          <div className="fiche-section-heading">General</div>
+          <div className="form-grid fiche-dossier-grid">
+            <div className="field">
+              <label htmlFor="fiche-dossier-code">Code interne</label>
+              <input
+                id="fiche-dossier-code"
+                className="input mono"
+                value={form.code}
+                readOnly
+                disabled
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="fiche-dossier-title">Intitule de l'appel d'offres</label>
+              <input
+                id="fiche-dossier-title"
+                className="input"
+                value={form.title}
+                disabled={isLocked || isPending}
+                onChange={(event) => onUpdateField("title", event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="fiche-dossier-buyer">Client</label>
+              <input
+                id="fiche-dossier-buyer"
+                className="input"
+                value={form.buyer}
+                disabled={isLocked || isPending}
+                onChange={(event) => onUpdateField("buyer", event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="fiche-dossier-country">Pays</label>
+              <input
+                id="fiche-dossier-country"
+                className="input"
+                value={form.country}
+                disabled={isLocked || isPending}
+                onChange={(event) => onUpdateField("country", event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="stack fiche-document-subsection">
+          <div className="fiche-section-heading">Pilotage</div>
+          <div className="form-grid fiche-dossier-grid">
+            <div className="field">
+              <label htmlFor="fiche-dossier-owner">Responsable commercial</label>
+              <input
+                id="fiche-dossier-owner"
+                className="input"
+                value={form.responsableCommercial}
+                disabled={isLocked || isPending}
+                onChange={(event) =>
+                  onUpdateField("responsableCommercial", event.target.value)
+                }
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="fiche-dossier-priority">Priorite</label>
+              <select
+                id="fiche-dossier-priority"
+                className="select"
+                value={form.priorite}
+                disabled={isLocked || isPending}
+                onChange={(event) =>
+                  onUpdateField(
+                    "priorite",
+                    event.target.value as AppelOffresDetail["priorite"]
+                  )
+                }
+              >
+                <option value="basse">Basse</option>
+                <option value="normale">Normale</option>
+                <option value="haute">Haute</option>
+                <option value="critique">Critique</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="fiche-dossier-due-date">Date limite</label>
+              <input
+                id="fiche-dossier-due-date"
+                className="input"
+                type="date"
+                value={form.dueDate}
+                disabled={isLocked || isPending}
+                onChange={(event) => onUpdateField("dueDate", event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="stack fiche-document-subsection">
+          <div className="fiche-section-heading">References</div>
+          <div className="form-grid fiche-dossier-grid">
+            <div className="field">
+              <label htmlFor="fiche-dossier-reference">Reference ou description courte</label>
+              <input
+                id="fiche-dossier-reference"
+                className="input"
+                value={form.reference}
+                disabled={isLocked || isPending}
+                onChange={(event) => onUpdateField("reference", event.target.value)}
+              />
+            </div>
+            <div className="field field-span-full">
+              <label htmlFor="fiche-dossier-notes">Notes internes</label>
+              <textarea
+                id="fiche-dossier-notes"
+                className="textarea"
+                value={form.notes}
+                disabled={isLocked || isPending}
+                onChange={(event) => onUpdateField("notes", event.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function FicheEditor({ code, appel, onReviewStateChange }: Props) {
+  const router = useRouter();
   const [data, setData] = useState<FicheResponse | null>(null);
   const [statusData, setStatusData] = useState<FicheStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isPending, startTransition] = useTransition();
+  const [dossierForm, setDossierForm] = useState<DossierFormState>(() =>
+    createDossierFormState(appel)
+  );
   const [markdownOpen, setMarkdownOpen] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [markdownHighlightIndex, setMarkdownHighlightIndex] = useState<number | null>(null);
@@ -327,9 +671,11 @@ export function FicheEditor({ code }: Props) {
   const [elapsedLabel, setElapsedLabel] = useState<string | null>(null);
   const markdownLineRefs = useRef<Array<HTMLDivElement | null>>([]);
   const initialExtractionRef = useRef<Map<string, string>>(new Map());
+  const initialDossierRef = useRef<DossierFormState>(createDossierFormState(appel));
 
   useEffect(() => {
     let active = true;
+    setIsLoading(true);
 
     async function fetchStatus() {
       const response = await fetch(`/api/fiche/${encodeURIComponent(code)}/status`);
@@ -339,8 +685,17 @@ export function FicheEditor({ code }: Props) {
         return;
       }
 
+      if (response.status === 404) {
+        setStatusData(null);
+        setData(null);
+        setError(null);
+        setIsLoading(false);
+        return;
+      }
+
       if (!response.ok || isErrorResponse(body)) {
         setError("Impossible de charger cette fiche.");
+        setIsLoading(false);
         return;
       }
 
@@ -356,6 +711,7 @@ export function FicheEditor({ code }: Props) {
 
         if (!ficheResponse.ok || isErrorResponse(ficheBody)) {
           setError("Impossible de charger cette fiche.");
+          setIsLoading(false);
           return;
         }
 
@@ -364,11 +720,13 @@ export function FicheEditor({ code }: Props) {
           ficheBody.extraction.map((field) => [field.key, field.value])
         );
         setError(null);
+        setIsLoading(false);
         return;
       }
 
       setData(null);
       setError(null);
+      setIsLoading(false);
     }
 
     void fetchStatus();
@@ -377,6 +735,22 @@ export function FicheEditor({ code }: Props) {
       active = false;
     };
   }, [code]);
+
+  useEffect(() => {
+    const nextState = createDossierFormState(appel);
+    setDossierForm(nextState);
+    initialDossierRef.current = nextState;
+  }, [
+    appel.code,
+    appel.title,
+    appel.buyer,
+    appel.country,
+    appel.dueDate,
+    appel.responsableCommercial,
+    appel.priorite,
+    appel.reference,
+    appel.notes
+  ]);
 
   useEffect(() => {
     if (statusData?.status !== "processing") {
@@ -460,6 +834,7 @@ export function FicheEditor({ code }: Props) {
       return { ...current, extraction };
     });
     setSaveState("idle");
+    onReviewStateChange?.(null);
   }
 
   function updateEvaluation(
@@ -478,6 +853,7 @@ export function FicheEditor({ code }: Props) {
       return { ...current, evaluation };
     });
     setSaveState("idle");
+    onReviewStateChange?.(null);
   }
 
   function updateResolution(
@@ -512,6 +888,19 @@ export function FicheEditor({ code }: Props) {
       return { ...current, controle };
     });
     setSaveState("idle");
+    onReviewStateChange?.(null);
+  }
+
+  function updateDossierField<Key extends keyof DossierFormState>(
+    key: Key,
+    value: DossierFormState[Key]
+  ) {
+    setDossierForm((current) => ({
+      ...current,
+      [key]: value
+    }));
+    setSaveState("idle");
+    onReviewStateChange?.(null);
   }
 
   function handleSourceJump(field: ExtractionField) {
@@ -547,6 +936,35 @@ export function FicheEditor({ code }: Props) {
     };
   }
 
+  async function persistDossier(current: DossierFormState) {
+    const payload = new FormData();
+    payload.append("code", current.code);
+    payload.append("title", current.title.trim());
+    payload.append("reference", current.reference.trim());
+    payload.append("buyer", current.buyer.trim());
+    payload.append("country", current.country.trim());
+    payload.append("dueDate", current.dueDate.trim());
+    payload.append("notes", current.notes.trim());
+    payload.append("priorite", current.priorite);
+    payload.append("responsable_commercial", current.responsableCommercial.trim());
+
+    const response = await fetch(`/api/appels-offres/${encodeURIComponent(code)}`, {
+      method: "PUT",
+      body: payload
+    });
+    const body = (await response.json()) as AppelOffresDetail | { error?: string };
+
+    if (!response.ok || isErrorResponse(body)) {
+      throw new Error(
+        isErrorResponse(body)
+          ? body.error ?? "La sauvegarde du dossier a echoue."
+          : "La sauvegarde du dossier a echoue."
+      );
+    }
+
+    return body;
+  }
+
   async function persistDraft(current: FicheResponse) {
     const response = await fetch(`/api/fiche/${encodeURIComponent(code)}`, {
       method: "PUT",
@@ -566,26 +984,55 @@ export function FicheEditor({ code }: Props) {
   }
 
   async function persist(method: "PUT" | "POST", url: string) {
-    if (!data) {
+    if (method === "POST" && !data) {
       return;
     }
 
     const snapshot = data;
+    const dossierSnapshot = dossierForm;
+    const shouldPersistDossier = hasDossierChanges(dossierSnapshot, initialDossierRef.current);
 
     startTransition(async () => {
+      let dossierSaved = false;
+      let ficheSaved = false;
+
       try {
+        if (!dossierSnapshot.title.trim()) {
+          throw new Error("L'intitule de l'appel d'offres est obligatoire.");
+        }
+
+        if (shouldPersistDossier) {
+          const savedDossier = await persistDossier(dossierSnapshot);
+          const nextDossierState = createDossierFormState(savedDossier);
+          setDossierForm(nextDossierState);
+          initialDossierRef.current = nextDossierState;
+          dossierSaved = true;
+        }
+
+        if (!snapshot) {
+          setError(null);
+          setSaveState("saved");
+          onReviewStateChange?.("saved");
+          router.refresh();
+          return;
+        }
+
         if (method === "PUT") {
           const saved = await persistDraft(snapshot);
           setData(saved);
           initialExtractionRef.current = new Map(
             saved.extraction.map((field) => [field.key, field.value])
           );
+          ficheSaved = true;
           setError(null);
           setSaveState("saved");
+          onReviewStateChange?.("saved");
+          router.refresh();
           return;
         }
 
         const saved = await persistDraft(snapshot);
+        ficheSaved = true;
         const response = await fetch(url, { method: "POST" });
         const body = (await response.json()) as FicheResponse | { error?: string };
 
@@ -603,10 +1050,29 @@ export function FicheEditor({ code }: Props) {
         );
         setError(null);
         setSaveState("validated");
+        onReviewStateChange?.("validated");
+        router.refresh();
       } catch (caughtError) {
-        setError(
-          caughtError instanceof Error ? caughtError.message : "L'operation a echoue."
-        );
+        const message =
+          caughtError instanceof Error ? caughtError.message : "L'operation a echoue.";
+
+        if (dossierSaved && !ficheSaved) {
+          setError(
+            `Les informations du dossier ont ete enregistrees, mais la Fiche CDC n'a pas pu etre sauvegardee. ${message}`
+          );
+          router.refresh();
+          return;
+        }
+
+        if (dossierSaved && ficheSaved && method === "POST") {
+          setError(
+            `Les modifications ont ete enregistrees, mais la validation finale a echoue. ${message}`
+          );
+          router.refresh();
+          return;
+        }
+
+        setError(message);
       }
     });
   }
@@ -658,6 +1124,7 @@ export function FicheEditor({ code }: Props) {
         setData(null);
         setError(null);
         setSaveState("idle");
+        onReviewStateChange?.(null);
       } catch (caughtError) {
         setError(
           caughtError instanceof Error ? caughtError.message : "La regeneration a echoue."
@@ -681,73 +1148,7 @@ export function FicheEditor({ code }: Props) {
     );
   }
 
-  if (statusData?.status === "processing") {
-    return (
-      <section className="panel">
-        <div className="panel-inner stack">
-          <div className="actions">
-            <span className="status-pill processing">{statusLabel(statusData.status)}</span>
-            <span className="badge mono">{code}</span>
-          </div>
-
-          <div className="callout info">
-            Analyse du CDC en cours.
-            {elapsedLabel ? ` Temps ecoule: ${elapsedLabel}.` : ""}
-          </div>
-
-          <div className="hint">
-            Cette page se met a jour automatiquement toutes les 5 secondes.
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  if (statusData?.status === "error" && !data) {
-    return (
-      <section className="panel">
-        <div className="panel-inner stack">
-          <div className="actions">
-            <span className="status-pill error">{statusLabel(statusData.status)}</span>
-            <span className="badge mono">{code}</span>
-          </div>
-
-          <div className="callout warning">
-            L'analyse n'a pas pu etre terminee.
-            <div>
-              {toBusinessSafeAnalysisError(
-                statusData.errorReason ??
-                  "Le dossier et le CDC ont ete conserves. Vous pouvez relancer le traitement."
-              )}
-            </div>
-          </div>
-
-          {statusData.errorStage || statusData.n8nExecutionId ? (
-            <details className="technical-details">
-              <summary className="markdown-summary">Details techniques (administration)</summary>
-              <div className="technical-details-grid">
-                <span>Etape : {statusData.errorStage ?? "Non disponible"}</span>
-                <span>Execution ID : {statusData.n8nExecutionId ?? "Non disponible"}</span>
-              </div>
-            </details>
-          ) : null}
-
-          <div className="actions">
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={() => void retryGeneration()}
-              disabled={isPending}
-            >
-              {isPending ? "Relance..." : "Relancer l'analyse"}
-            </button>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  if (!data) {
+  if (isLoading) {
     return (
       <section className="panel">
         <div className="panel-inner">
@@ -757,47 +1158,301 @@ export function FicheEditor({ code }: Props) {
     );
   }
 
+  if (statusData?.status === "processing") {
+    return (
+      <section className="panel">
+        <div className="panel-inner stack fiche-processing-state">
+          <div className="stack">
+            <h3>Fiche CDC en preparation</h3>
+            <p className="meta">
+              L'analyse du CDC est en cours. La fiche sera generee automatiquement.
+            </p>
+          </div>
+
+          <div className="processing-summary-grid compact">
+            <article className="summary-card processing-summary-card">
+              <span>Statut</span>
+              <strong>{statusLabel(statusData.status)}</strong>
+            </article>
+            <article className="summary-card processing-summary-card">
+              <span>Temps ecoule</span>
+              <strong>{elapsedLabel ?? "En attente"}</strong>
+            </article>
+            <article className="summary-card processing-summary-card">
+              <span>Actualisation</span>
+              <strong>Automatique toutes les 5 secondes</strong>
+            </article>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (!data) {
+    return (
+      <FicheUnavailableState
+        isError={statusData?.status === "error"}
+        errorStage={statusData?.errorStage ?? null}
+        errorReason={statusData?.errorReason ?? null}
+        isPending={isPending}
+        onRetry={() => void retryGeneration()}
+      />
+    );
+  }
+
+  if (data.status.status === "error") {
+    return (
+      <FicheUnavailableState
+        isError
+        errorStage={data.status.errorStage ?? null}
+        errorReason={data.status.errorReason ?? null}
+        isPending={isPending}
+        onRetry={() => void retryGeneration()}
+      />
+    );
+  }
+
   const isLocked = data.status.status !== "draft";
   const unresolvedCount = data.controle.resolutions.filter(
     (resolution) => resolution.status === "unresolved"
   ).length;
   const canValidate = data.status.status === "draft" && !isPending && unresolvedCount === 0;
-  const extractionByKey = new Map(data.extraction.map((field) => [field.key, field] as const));
-  const groupedExtraction = EXTRACTION_GROUP_ORDER.map((group) => ({
-    group,
-    fields: EXTRACTION_FIELD_DEFINITIONS.map((definition, index) => ({
+  const extractionEntries = new Map(
+    data.extraction.map((field, index) => [field.key, { field, index }] as const)
+  );
+  const groupedExtraction = DOCUMENT_SECTION_ORDER.map((section) => ({
+    section,
+    fields: EXTRACTION_FIELD_DEFINITIONS.map((definition) => ({
       definition,
-      field: extractionByKey.get(definition.key),
-      index
-    })).filter((entry) => entry.definition.group === group)
+      entry: extractionEntries.get(definition.key)
+    })).filter((item) => EXTRACTION_SECTION_BY_KEY[item.definition.key] === section)
   }));
+  const ficheHeaderTitle =
+    data.status.status === "validated" ? "Fiche CDC validee" : "Fiche CDC generee par l'IA";
+  const ficheHeaderDescription =
+    data.status.status === "validated"
+      ? "La fiche a ete validee. Elle reste consultable pour reference."
+      : "Verifiez les informations extraites, corrigez ou completez les champs si necessaire, puis validez la fiche.";
+  const modifiedAtLabel = data.status.modifiedAt
+    ? `Derniere mise a jour le ${new Date(data.status.modifiedAt).toLocaleString("fr-FR")}`
+    : null;
 
   return (
-    <section className="panel">
-      <div className="panel-inner stack">
-        <div className="actions">
-          <span className={`status-pill ${data.status.status}`}>{statusLabel(data.status.status)}</span>
-          <span className="badge mono">{data.codeInterne}</span>
-          <span className="meta">
-            Creee le {new Date(data.status.createdAt).toLocaleString("fr-FR")}
-          </span>
-          {data.status.validatedAt ? (
-            <span className="meta">
-              Validee le {new Date(data.status.validatedAt).toLocaleString("fr-FR")}
+    <section className="panel fiche-document-panel">
+      <div className="panel-inner stack fiche-editor-stack">
+        <div className="fiche-document-intro">
+          <div className="fiche-document-copy">
+            <span className="card-kicker">
+              {data.status.status === "validated"
+                ? "Document valide"
+                : "Version initiale generee par l'IA"}
             </span>
-          ) : null}
+            <h3>{ficheHeaderTitle}</h3>
+            <p className="meta">{ficheHeaderDescription}</p>
+          </div>
+          <div className="fiche-document-meta">
+            <StatusBadge
+              label={statusLabel(data.status.status)}
+              tone={statusTone(data.status.status)}
+            />
+            <span className="meta">
+              Creee le {new Date(data.status.createdAt).toLocaleString("fr-FR")}
+            </span>
+            {modifiedAtLabel ? <span className="meta">{modifiedAtLabel}</span> : null}
+            {data.status.validatedAt ? (
+              <span className="meta">
+                Validee le {new Date(data.status.validatedAt).toLocaleString("fr-FR")}
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>Sources de verification</h3>
-              <p className="meta">
-                Markdown source et PDF du CDC utilises pour justifier les informations generees.
+        {isLocked ? (
+          <div className="fiche-inline-feedback fiche-inline-feedback-readonly">
+            Cette Fiche CDC est maintenant en lecture seule. Les informations validees restent consultables.
+          </div>
+        ) : null}
+
+        <section className="section-card fiche-document-shell">
+          <div className="section-body stack fiche-document-body">
+            <DossierFieldsSection
+              form={dossierForm}
+              isLocked={isLocked}
+              isPending={isPending}
+              onUpdateField={updateDossierField}
+            />
+
+            <div className="stack fiche-document-section">
+              <div className="subsection-title">Informations extraites par l'IA</div>
+              <p className="meta fiche-section-description">
+                Verifiez les informations extraites du CDC, corrigez-les ou completez-les si necessaire.
               </p>
+              {data.extraction.length ? (
+                groupedExtraction.map(({ section, fields }) => (
+                  <div className="stack fiche-document-subsection" key={section}>
+                    <div className="fiche-section-heading">
+                      {DOCUMENT_SECTION_TITLES[section]}
+                    </div>
+                    {fields.map(({ entry, definition }) => {
+                      const field = entry?.field;
+                      const index = entry?.index ?? -1;
+                      const reviewState = getFieldReviewState({
+                        value: field?.value ?? "",
+                        initialValue: initialExtractionRef.current.get(definition.key) ?? "",
+                        ficheStatus: data.status.status
+                      });
+
+                      return (
+                        <article className="fiche-review-field" key={definition.key}>
+                          <div className="field-topline">
+                            <label htmlFor={`extraction-${definition.key}`} className="mono">
+                              {humanizeIdentifierLabel(definition.label)}
+                            </label>
+                            <StatusBadge label={reviewState.label} tone={reviewState.tone} />
+                          </div>
+
+                          <div className="fiche-review-field-actions">
+                            {field?.source ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="badge source-badge"
+                                  title={field.source}
+                                  onClick={() => handleSourceJump(field)}
+                                >
+                                  Source : {field.source}
+                                </button>
+                                {sourceFeedbackKey === field.key && sourceFeedbackMessage ? (
+                                  <span className="meta source-feedback">
+                                    {sourceFeedbackMessage}
+                                  </span>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span className="badge" title="Aucune source fournie">
+                                Aucune source fournie
+                              </span>
+                            )}
+                          </div>
+
+                          {!field?.value.trim() ? (
+                            <div className="empty-inline-note">Aucune information detectee</div>
+                          ) : null}
+
+                          <textarea
+                            id={`extraction-${definition.key}`}
+                            className="textarea"
+                            value={field?.value ?? ""}
+                            onChange={(event) => updateExtraction(index, event.target.value)}
+                            disabled={isLocked || isPending}
+                            placeholder="Ajouter une valeur"
+                          />
+                        </article>
+                      );
+                    })}
+                  </div>
+                ))
+              ) : (
+                <div className="empty-note">Aucun champ d'extraction detecte.</div>
+              )}
+            </div>
+
+            <div className="stack fiche-document-section">
+              <div className="subsection-title">Donnees commerciales</div>
+              {EVALUATION_FIELD_DEFINITIONS.map((definition, index) => {
+                const field = data.evaluation[index];
+
+                return (
+                  <div className="field-row fiche-evaluation-field" key={definition.key}>
+                    <div className="field-topline">
+                      <label htmlFor={`evaluation-score-${definition.key}`} className="mono">
+                        {humanizeIdentifierLabel(definition.label)}
+                      </label>
+                    </div>
+                    <div className="form-grid">
+                      <div className="field">
+                        <label htmlFor={`evaluation-score-${definition.key}`}>Note</label>
+                        <select
+                          id={`evaluation-score-${definition.key}`}
+                          className="select"
+                          value={field?.score ?? ""}
+                          disabled={isLocked || isPending}
+                          onChange={(event) =>
+                            updateEvaluation(index, {
+                              score: event.target.value ? Number(event.target.value) : null
+                            })
+                          }
+                        >
+                          <option value="">Selectionner</option>
+                          {[1, 2, 3, 4, 5].map((score) => (
+                            <option key={score} value={score}>
+                              {score}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {definition.key === "risque_sous_dimensionnement" ? (
+                        <div className="field">
+                          <label htmlFor={`evaluation-charge-${definition.key}`}>
+                            Charge estimee
+                          </label>
+                          <input
+                            id={`evaluation-charge-${definition.key}`}
+                            className="input"
+                            value={field?.chargeEstimee ?? ""}
+                            disabled={isLocked || isPending}
+                            onChange={(event) =>
+                              updateEvaluation(index, {
+                                chargeEstimee: event.target.value
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                      <div className="field">
+                        <label htmlFor={`evaluation-justification-${definition.key}`}>
+                          Justification
+                        </label>
+                        <textarea
+                          id={`evaluation-justification-${definition.key}`}
+                          className="textarea"
+                          value={field?.justification ?? ""}
+                          disabled={isLocked || isPending}
+                          onChange={(event) =>
+                            updateEvaluation(index, {
+                              justification: event.target.value
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="stack fiche-document-section">
+              <div className="subsection-title">Contraintes et points a verifier</div>
+              {CONTROL_SECTION_CONFIG.map((section) => (
+                <ControlList
+                  key={section.key}
+                  title={section.title}
+                  section={section.key}
+                  items={section.getItems(data.controle)}
+                  resolutions={data.controle.resolutions}
+                  emptyLabel={section.emptyLabel}
+                  isLocked={isLocked}
+                  isPending={isPending}
+                  onUpdateResolution={updateResolution}
+                />
+              ))}
             </div>
           </div>
-          <div className="section-body">
+        </section>
+
+        <details className="workspace-disclosure fiche-sources-disclosure">
+          <summary className="markdown-summary">Sources et remarques IA</summary>
+          <div className="workspace-disclosure-body stack">
             <details
               className="markdown-details"
               open={markdownOpen}
@@ -816,7 +1471,11 @@ export function FicheEditor({ code }: Props) {
                         ref={(element) => {
                           markdownLineRefs.current[index] = element;
                         }}
-                        className={isHighlighted ? "markdown-line markdown-line-highlight" : "markdown-line"}
+                        className={
+                          isHighlighted
+                            ? "markdown-line markdown-line-highlight"
+                            : "markdown-line"
+                        }
                       >
                         {line || " "}
                       </div>
@@ -827,260 +1486,36 @@ export function FicheEditor({ code }: Props) {
                 <div className="callout warning">Aucun contenu Markdown trouve.</div>
               )}
             </details>
-          </div>
-        </section>
 
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>PDF source</h3>
-              <p className="meta">
-                Le PDF stocke peut etre consulte ici. Les sources actuelles n'incluent pas de numeros de page,
-                donc le saut automatique restera exceptionnel tant que ces metadonnees ne sont pas presentes.
-              </p>
-            </div>
-          </div>
-          <div className="section-body">
-            <PdfViewerPanel
-              code={code}
-              open={pdfOpen}
-              onOpenChange={setPdfOpen}
-              targetPage={pdfJumpPage}
-              flashToken={pdfFlashToken}
-            />
-          </div>
-        </section>
-
-        {isLocked ? (
-          <div className="callout warning">
-            Cette Fiche CDC n'est modifiable que lorsqu'elle est en statut A verifier.
-            Vous pouvez toujours la consulter, mais les champs sont desormais verrouilles.
-          </div>
-        ) : null}
-
-        {data.status.status === "error" ? (
-          <div className="callout warning">
-            {toBusinessSafeAnalysisError(
-              data.status.errorReason ??
-                "L'analyse n'a pas pu etre terminee. Vous pouvez relancer le traitement."
-            )}
-            <div className="actions">
-              <button
-                className="button button-primary"
-                type="button"
-                onClick={() => void retryGeneration()}
-                disabled={isPending}
-              >
-                {isPending ? "Relance..." : "Relancer l'analyse"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {saveState === "saved" ? (
-          <div className="callout info">Brouillon sauvegarde.</div>
-        ) : null}
-
-        {saveState === "validated" ? (
-          <div className="callout info">La fiche a bien ete validee.</div>
-        ) : null}
-
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>Informations extraites</h3>
-              <p className="meta">
-                Chaque champ affiche son etat et sa source pour faciliter la relecture commerciale.
-              </p>
-            </div>
-          </div>
-          <div className="section-body">
-            {data.extraction.length ? (
-              groupedExtraction.map(({ group, fields }) => (
-                <div className="stack" key={group}>
-                  <div className="subsection-title">{EXTRACTION_GROUP_TITLES[group]}</div>
-                  {fields.map(({ field, index, definition }) => (
-                    <article className="fiche-review-field" key={definition.key}>
-                      <div className="field-topline">
-                        <label htmlFor={`extraction-${definition.key}`} className="mono">
-                          {definition.label}
-                        </label>
-                        <StatusBadge
-                          label={
-                            getFieldReviewState({
-                              value: field?.value ?? "",
-                              initialValue: initialExtractionRef.current.get(definition.key) ?? "",
-                              ficheStatus: data.status.status
-                            }).label
-                          }
-                          tone={
-                            getFieldReviewState({
-                              value: field?.value ?? "",
-                              initialValue: initialExtractionRef.current.get(definition.key) ?? "",
-                              ficheStatus: data.status.status
-                            }).tone
-                          }
-                        />
-                      </div>
-
-                      <div className="fiche-review-field-actions">
-                        {field?.source ? (
-                          <>
-                            <button
-                              type="button"
-                              className="badge source-badge"
-                              title={field.source}
-                              onClick={() => handleSourceJump(field)}
-                            >
-                              Source : {field.source}
-                            </button>
-                            {sourceFeedbackKey === field.key && sourceFeedbackMessage ? (
-                              <span className="meta source-feedback">{sourceFeedbackMessage}</span>
-                            ) : null}
-                          </>
-                        ) : (
-                          <span className="badge" title="Aucune source fournie">
-                            Aucune source fournie
-                          </span>
-                        )}
-                      </div>
-
-                      {!field?.value.trim() ? (
-                        <div className="empty-inline-note">Aucune information detectee</div>
-                      ) : null}
-
-                      <textarea
-                        id={`extraction-${definition.key}`}
-                        className="textarea"
-                        value={field?.value ?? ""}
-                        onChange={(event) => updateExtraction(index, event.target.value)}
-                        disabled={isLocked || isPending}
-                        placeholder="Ajouter une valeur"
-                      />
-                    </article>
-                  ))}
-                </div>
-              ))
-            ) : (
-              <div className="empty-note">Aucun champ d'extraction detecte.</div>
-            )}
-          </div>
-        </section>
-
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>Evaluation</h3>
-              <p className="meta">Trois scores sur 5 accompagnes de leurs justifications.</p>
-            </div>
-          </div>
-          <div className="section-body">
-            {EVALUATION_FIELD_DEFINITIONS.map((definition, index) => {
-              const field = data.evaluation[index];
-
-              return (
-                <div className="field-row" key={definition.key}>
-                  <div className="field-topline">
-                    <label htmlFor={`evaluation-score-${definition.key}`} className="mono">
-                      {definition.label}
-                    </label>
-                  </div>
-                  <div className="form-grid">
-                    <div className="field">
-                      <label htmlFor={`evaluation-score-${definition.key}`}>Note</label>
-                      <select
-                        id={`evaluation-score-${definition.key}`}
-                        className="select"
-                        value={field?.score ?? ""}
-                        disabled={isLocked || isPending}
-                        onChange={(event) =>
-                          updateEvaluation(index, {
-                            score: event.target.value ? Number(event.target.value) : null
-                          })
-                        }
-                      >
-                        <option value="">Selectionner</option>
-                        {[1, 2, 3, 4, 5].map((score) => (
-                          <option key={score} value={score}>
-                            {score}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {definition.key === "risque_sous_dimensionnement" ? (
-                      <div className="field">
-                        <label htmlFor={`evaluation-charge-${definition.key}`}>charge_estimee</label>
-                        <input
-                          id={`evaluation-charge-${definition.key}`}
-                          className="input"
-                          value={field?.chargeEstimee ?? ""}
-                          disabled={isLocked || isPending}
-                          onChange={(event) =>
-                            updateEvaluation(index, {
-                              chargeEstimee: event.target.value
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
-                    <div className="field">
-                      <label htmlFor={`evaluation-justification-${definition.key}`}>
-                        justification
-                      </label>
-                      <textarea
-                        id={`evaluation-justification-${definition.key}`}
-                        className="textarea"
-                        value={field?.justification ?? ""}
-                        disabled={isLocked || isPending}
-                        onChange={(event) =>
-                          updateEvaluation(index, {
-                            justification: event.target.value
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>Controle</h3>
-              <p className="meta">
-                Chaque alerte doit maintenant etre traitee avant la validation finale.
-              </p>
-            </div>
-          </div>
-          <div className="section-body stack">
-            {CONTROL_SECTION_CONFIG.map((section) => (
-              <ControlList
-                key={section.key}
-                title={section.title}
-                section={section.key}
-                items={section.getItems(data.controle)}
-                resolutions={data.controle.resolutions}
-                emptyLabel={section.emptyLabel}
-                isLocked={isLocked}
-                isPending={isPending}
-                onUpdateResolution={updateResolution}
+            <div className="stack">
+              <div>
+                <strong>PDF source</strong>
+                <p className="meta">
+                  Le PDF du CDC reste consultable pour verifier les informations extraites.
+                </p>
+              </div>
+              <PdfViewerPanel
+                code={code}
+                open={pdfOpen}
+                onOpenChange={setPdfOpen}
+                targetPage={pdfJumpPage}
+                flashToken={pdfFlashToken}
               />
-            ))}
+            </div>
           </div>
-        </section>
+        </details>
 
-        <div className="actions">
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => persist("PUT", `/api/fiche/${encodeURIComponent(code)}`)}
-            disabled={isLocked || isPending}
-          >
-            {isPending ? "Sauvegarde..." : "Enregistrer"}
-          </button>
+        <div className="fiche-document-footer">
+          {!isLocked ? (
+            <div className="actions fiche-document-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => persist("PUT", `/api/fiche/${encodeURIComponent(code)}`)}
+                disabled={isLocked || isPending}
+              >
+                {isPending ? "Sauvegarde..." : "Enregistrer les modifications"}
+              </button>
               <button
                 className="button button-primary"
                 type="button"
@@ -1088,14 +1523,24 @@ export function FicheEditor({ code }: Props) {
                 disabled={!canValidate}
               >
                 {isPending ? "Validation..." : "Valider la Fiche CDC"}
-          </button>
-        </div>
+              </button>
+            </div>
+          ) : null}
 
-        {!isLocked && unresolvedCount > 0 ? (
-          <div className="callout warning">
-            Traitez les {unresolvedCount} element(s) de controle restant(s) avant de valider.
+          <div className="fiche-document-footer-meta">
+            {saveState === "saved" ? (
+              <span className="fiche-inline-feedback">Modifications enregistrees</span>
+            ) : null}
+            {saveState === "validated" ? (
+              <span className="fiche-inline-feedback">Fiche CDC validee</span>
+            ) : null}
+            {!isLocked && unresolvedCount > 0 ? (
+              <span className="meta">
+                Traitez les {unresolvedCount} element(s) de controle restant(s) avant de valider.
+              </span>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
     </section>
   );

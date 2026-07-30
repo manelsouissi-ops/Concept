@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://concept.local/ai/schemas/fci-finance.schema.json",
+  "title": "CONCEPT FCI Finance Module Contract",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/module_envelope_base"
+    }
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "module_code": {
+      "const": "B"
+    },
+    "module_type": {
+      "const": "finance"
+    },
+    "generated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "source_fiche": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/source_fiche"
+    },
+    "summary": {
+      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/summary"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "elements_financiers_internes": {
+          "type": "object",
+          "properties": {
+            "budget_estime_du_marche": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "taux_de_change_applique_et_source": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "coefficient_de_charges_de_structure": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "marge_cible_visee": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            }
+          },
+          "required": [
+            "budget_estime_du_marche",
+            "taux_de_change_applique_et_source",
+            "coefficient_de_charges_de_structure",
+            "marge_cible_visee"
+          ],
+          "additionalProperties": false
+        },
+        "cash_flow_par_jalon": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "jalon_livrable": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "pourcentage_montant": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "delai_paiement_estime": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              },
+              "risque_cash_flow": {
+                "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              }
+            },
+            "required": [
+              "jalon_livrable",
+              "pourcentage_montant",
+              "delai_paiement_estime",
+              "risque_cash_flow"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "calculs_financiers": {
+          "type": "array",
+          "items": {
+            "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/finance_calculation"
+          }
+        },
+        "synthese_financiere": {
+          "type": "object",
+          "properties": {
+            "pression_tresorerie_preliminaire": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "exposition_garanties": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "commentaires_financiers_generaux": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+            },
+            "points_de_revue_financiere": {
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
+            }
+          },
+          "required": [
+            "pression_tresorerie_preliminaire",
+            "exposition_garanties",
+            "commentaires_financiers_generaux",
+            "points_de_revue_financiere"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "elements_financiers_internes",
+        "cash_flow_par_jalon",
+        "calculs_financiers",
+        "synthese_financiere"
+      ],
+      "additionalProperties": false
+    },
+    "ai_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "contract_version",
+    "module_code",
+    "module_type",
+    "generated_at",
+    "source_fiche",
+    "summary",
+    "data",
+    "ai_notes",
+    "validation_warnings"
+  ],
+  "additionalProperties": false
+}
