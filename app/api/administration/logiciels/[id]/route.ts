@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 import {
   getSoftwareById,
   updateSoftware
@@ -30,10 +31,15 @@ function parseId(value: string) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "administration");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { id } = await params;
     const software = await getSoftwareById(parseId(id));
 
@@ -52,6 +58,11 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "administration");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { id } = await params;
     const software = await updateSoftware(parseId(id), parseSoftwareFormData(await request.formData()));
 

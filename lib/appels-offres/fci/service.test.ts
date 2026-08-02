@@ -39,6 +39,7 @@ import {
   prepareFciRegeneration,
   saveFciModuleEdits,
   applyFciN8nCallback,
+  toFciErrorResponse,
   validateFciModule
 } from "./service.ts";
 import { getFciN8nIntegrationConfig } from "./n8n-config.ts";
@@ -48,6 +49,7 @@ import {
   N8nCallbackAuthError,
   verifyN8nCallbackAuthentication
 } from "../../integrations/n8n-callback-auth.ts";
+import type { CurrentUser } from "../../auth/rbac.ts";
 import type {
   FciN8nFailureCallback,
   FciN8nSuccessCallback
@@ -59,6 +61,52 @@ loadEnvConfig(process.cwd());
 const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
 const cleanupCodes = new Set<string>();
 const cleanupPool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
+
+function buildTestCurrentUser(
+  id: string,
+  name: string,
+  role: CurrentUser["role"],
+  departmentCode: CurrentUser["departmentCode"]
+): CurrentUser {
+  return {
+    id,
+    name,
+    email: `${id}@concept.local`,
+    role,
+    status: "ACTIVE",
+    departmentCode,
+    departmentLabel: departmentCode,
+    jobTitle: role,
+    avatarUrl: null,
+    phone: null,
+    language: "fr-FR",
+    timezone: "Europe/Paris",
+    lastLoginAt: null,
+    createdAt: "2026-07-30T00:00:00.000Z",
+    isDevelopmentUser: true
+  };
+}
+
+const ADMIN_USER = buildTestCurrentUser("user-admin", "Bob Durand", "ADMIN", "ADMINISTRATION");
+const COMMERCIAL_USER = buildTestCurrentUser(
+  "user-commercial",
+  "Claire Commerciale",
+  "COMMERCIAL",
+  "COMMERCIAL"
+);
+const FINANCE_USER = buildTestCurrentUser("user-finance", "Farid Finance", "FINANCE", "FINANCE");
+const OPERATIONS_USER = buildTestCurrentUser(
+  "user-operations",
+  "Olivia Operations",
+  "OPERATIONS",
+  "OPERATIONS"
+);
+const DIRECTION_GENERALE_USER = buildTestCurrentUser(
+  "user-dg",
+  "Diane DG",
+  "DIRECTION_GENERALE",
+  "DIRECTION_GENERALE"
+);
 
 function hasDatabase() {
   return Boolean(databaseUrl && cleanupPool);
@@ -1289,4 +1337,155 @@ test("failure callbacks preserve the previously validated version during regener
       );
     });
   });
+});
+
+test("read-only roles can view every FCI module but only their assigned module is editable", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeFciWorkspace(code, ADMIN_USER);
+
+    const commercialModule = await getFciModule(code, "A", COMMERCIAL_USER);
+    const financeReadonlyModule = await getFciModule(code, "B", COMMERCIAL_USER);
+    const operationsModule = await getFciModule(code, "C", OPERATIONS_USER);
+    const dgModule = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+
+    assert.equal(commercialModule.permissions.can_edit, true);
+    assert.equal(commercialModule.permissions.read_only, false);
+    assert.equal(commercialModule.allowed_actions.includes("generate"), true);
+
+    assert.equal(financeReadonlyModule.permissions.can_edit, false);
+    assert.equal(financeReadonlyModule.permissions.read_only, true);
+    assert.equal(financeReadonlyModule.allowed_actions.includes("generate"), false);
+    assert.match(financeReadonlyModule.permissions.read_only_message ?? "", /Lecture seule/i);
+
+    assert.equal(operationsModule.permissions.can_edit, true);
+    assert.equal(dgModule.permissions.can_make_final_decision, true);
+  });
+});
+
+test("unauthorized FCI edits and validations return RBAC_FORBIDDEN while admin keeps full access", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeFciWorkspace(code, ADMIN_USER);
+
+    await assert.rejects(
+      () =>
+        saveFciModuleEdits(code, "A", {
+          data: { section: "finance-cannot-edit-commercial" },
+          sourceSummary: null,
+          confidence: null,
+          aiNotes: null,
+          editor: FINANCE_USER.name,
+          expectedVersion: null
+        }, FINANCE_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "RBAC_FORBIDDEN"
+        && error.status === 403
+    );
+
+    await saveFciModuleEdits(code, "D", {
+      data: {
+        d1_valeur_strategique: {
+          programme_pluriannuel: true
+        }
+      },
+      sourceSummary: null,
+      confidence: null,
+      aiNotes: null,
+      editor: ADMIN_USER.name,
+      expectedVersion: null
+    }, ADMIN_USER);
+
+    await assert.rejects(
+      () =>
+        validateFciModule(code, "D", {
+          validatedBy: COMMERCIAL_USER.name,
+          comment: null,
+          expectedVersion: 1,
+          acknowledgeStaleSource: false
+        }, COMMERCIAL_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "RBAC_FORBIDDEN"
+        && error.status === 403
+    );
+  });
+});
+
+test("unauthorized generation is denied but admin can still generate any departmental module", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeFciWorkspace(code, ADMIN_USER);
+
+    await assert.rejects(
+      () => prepareFciGeneration(code, "B", COMMERCIAL_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "RBAC_FORBIDDEN"
+        && error.status === 403
+    );
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: "exec-fci-admin-rbac-1",
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          const result = await prepareFciGeneration(code, "B", ADMIN_USER);
+          assert.equal(result.accepted, true);
+          assert.equal(result.job.status, "running");
+        }
+      );
+    });
+  });
+});
+
+test("RBAC service errors map to a 403 API response payload", () => {
+  const response = toFciErrorResponse(
+    new FciServiceError(
+      "RBAC_FORBIDDEN",
+      "Acces refuse : seul finance peut modifier ce module FCI.",
+      403,
+      { module_code: "B", role: "COMMERCIAL" }
+    )
+  );
+
+  assert.equal(response.status, 403);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.error.code, "RBAC_FORBIDDEN");
+  assert.match(String(response.body.error.message), /Acces refuse/i);
 });

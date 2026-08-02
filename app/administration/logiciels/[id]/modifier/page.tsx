@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header.tsx";
 import { SoftwareForm } from "@/components/software-form.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import { getSoftwareById } from "@/lib/administration/logiciels/repository.ts";
 
 export default async function EditSoftwarePage({
@@ -8,6 +9,7 @@ export default async function EditSoftwarePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireAreaAccessForPage("administration");
   const { id } = await params;
   const softwareId = Number(id);
 

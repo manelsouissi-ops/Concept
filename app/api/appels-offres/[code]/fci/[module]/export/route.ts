@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateFciExportArtifact, parseFciExportFormat, FciExportError } from "@/lib/appels-offres/fci/export/index.ts";
 import { getFciModule, parseRequestedModule, toFciErrorResponse } from "@/lib/appels-offres/fci/service.ts";
+import { resolveCurrentUserFromRequest } from "@/lib/auth/current-user.ts";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,11 @@ export async function GET(
     const { code, module } = await params;
     const url = new URL(request.url);
     const format = parseFciExportFormat(url.searchParams.get("format"));
-    const modulePresentation = await getFciModule(code, parseRequestedModule(module));
+    const modulePresentation = await getFciModule(
+      code,
+      parseRequestedModule(module),
+      await resolveCurrentUserFromRequest(request)
+    );
     const artifact = await generateFciExportArtifact(modulePresentation, format);
 
     return new NextResponse(new Uint8Array(artifact.buffer), {

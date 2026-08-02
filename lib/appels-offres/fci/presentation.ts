@@ -10,7 +10,19 @@ import type {
 import { isFciModuleGeneratable } from "./validation.ts";
 import type { SourceFicheSnapshot } from "./source-fiche.ts";
 import type { AppelOffresRecord } from "../types.ts";
-import type { FicheStatus } from "@/lib/types.ts";
+import type { FicheStatus } from "../../types.ts";
+import {
+  buildUserPresentation,
+  canGenerateFciModule,
+  canMakeFinalDecision,
+  canRegenerateFciModule,
+  canValidateFciModule,
+  canViewFciModule,
+  canEditFciModule,
+  getFciReadOnlyMessage,
+  type CurrentUser,
+  type UserPresentation
+} from "../../auth/rbac.ts";
 import {
   calculateFciPayloadCompletion,
   getFciDepartmentCode,
@@ -64,9 +76,21 @@ export type FciModuleSummaryPresentation = {
   } | null;
   stale_source: boolean;
   available_actions: FciModuleAllowedAction[];
+  current_user: UserPresentation;
+  permissions: {
+    can_view: boolean;
+    can_edit: boolean;
+    can_generate: boolean;
+    can_regenerate: boolean;
+    can_validate: boolean;
+    can_make_final_decision: boolean;
+    read_only: boolean;
+    read_only_message: string | null;
+  };
 };
 
 export type FciWorkspacePresentation = {
+  current_user: UserPresentation;
   appel_offres: {
     id: number;
     code: string;
@@ -105,6 +129,7 @@ export type FciWorkspacePresentation = {
 };
 
 export type FciModulePresentation = {
+  current_user: UserPresentation;
   appel_offres: {
     code: string;
     title: string;
@@ -163,6 +188,16 @@ export type FciModulePresentation = {
   };
   stale_source: boolean;
   allowed_actions: FciModuleAllowedAction[];
+  permissions: {
+    can_view: boolean;
+    can_edit: boolean;
+    can_generate: boolean;
+    can_regenerate: boolean;
+    can_validate: boolean;
+    can_make_final_decision: boolean;
+    read_only: boolean;
+    read_only_message: string | null;
+  };
   history_summary: {
     versions_count: number;
     jobs_count: number;
@@ -467,13 +502,18 @@ export function buildFciModuleAllowedActions(input: {
   latestJob: FciGenerationJobRecord | null;
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
+  currentUser: CurrentUser;
 }) {
   const actions: FciModuleAllowedAction[] = ["view_history"];
   const generatable = isFciModuleGeneratable(input.module.moduleCode);
   const activeJob = input.latestJob ? isActiveJobStatus(input.latestJob.status) : false;
   const sourceValidated = input.sourceFiche?.isValidated ?? false;
+  const canEdit = canEditFciModule(input.currentUser.role, input.module.moduleCode);
+  const canValidate = canValidateFciModule(input.currentUser.role, input.module.moduleCode);
+  const canGenerate = canGenerateFciModule(input.currentUser.role, input.module.moduleCode);
+  const canRegenerate = canRegenerateFciModule(input.currentUser.role, input.module.moduleCode);
 
-  if (input.latestData && input.module.status !== "generating") {
+  if (canEdit && input.latestData && input.module.status !== "generating") {
     actions.unshift("validate");
     actions.unshift("edit");
   }
@@ -483,10 +523,39 @@ export function buildFciModuleAllowedActions(input: {
   }
 
   if (generatable && !activeJob && sourceValidated) {
-    actions.unshift(input.latestData ? "regenerate" : "generate");
+    if (input.latestData && canRegenerate) {
+      actions.unshift("regenerate");
+    } else if (!input.latestData && canGenerate) {
+      actions.unshift("generate");
+    }
+  }
+
+  if (!canValidate) {
+    return actions.filter((action) => action !== "validate");
   }
 
   return [...new Set(actions)];
+}
+
+function buildFciModulePermissions(currentUser: CurrentUser, moduleCode: FciModuleCode) {
+  const canView = canViewFciModule(currentUser.role, moduleCode);
+  const canEdit = canEditFciModule(currentUser.role, moduleCode);
+  const canGenerate = canGenerateFciModule(currentUser.role, moduleCode);
+  const canRegenerate = canRegenerateFciModule(currentUser.role, moduleCode);
+  const canValidate = canValidateFciModule(currentUser.role, moduleCode);
+  const canMakeDecision = canMakeFinalDecision(currentUser.role);
+  const readOnlyMessage = getFciReadOnlyMessage(currentUser.role, moduleCode);
+
+  return {
+    can_view: canView,
+    can_edit: canEdit,
+    can_generate: canGenerate,
+    can_regenerate: canRegenerate,
+    can_validate: canValidate,
+    can_make_final_decision: canMakeDecision,
+    read_only: canView && !canEdit,
+    read_only_message: readOnlyMessage
+  };
 }
 
 export function buildFciModuleSummary(input: {
@@ -496,6 +565,7 @@ export function buildFciModuleSummary(input: {
   latestJob: FciGenerationJobRecord | null;
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
+  currentUser: CurrentUser;
 }): FciModuleSummaryPresentation {
   const staleSource = isModuleSourceStale(input.latestData, input.sourceFiche);
   const normalizedPayload = normalizeLatestPayload({
@@ -513,6 +583,10 @@ export function buildFciModuleSummary(input: {
   const definition = isDepartmentalModuleCode(input.module.moduleCode)
     ? getFciModuleDefinition(input.module.moduleCode)
     : null;
+  const permissions = buildFciModulePermissions(
+    input.currentUser,
+    input.module.moduleCode
+  );
 
   return {
     module_code: input.module.moduleCode,
@@ -543,8 +617,11 @@ export function buildFciModuleSummary(input: {
       latestData: input.latestData,
       latestJob: input.latestJob,
       sourceFiche: input.sourceFiche,
-      knowledgeBaseEnabled: input.knowledgeBaseEnabled
-    })
+      knowledgeBaseEnabled: input.knowledgeBaseEnabled,
+      currentUser: input.currentUser
+    }),
+    current_user: buildUserPresentation(input.currentUser),
+    permissions
   };
 }
 
@@ -564,6 +641,7 @@ export function buildFciWorkspacePresentation(input: {
   detail: FciDetail;
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
+  currentUser: CurrentUser;
 }): FciWorkspacePresentation {
   const latestDataByModuleId = indexLatestModuleData(input.detail.moduleData);
   const latestJobsByModuleId = indexLatestGenerationJobs(input.detail.generationJobs);
@@ -573,6 +651,7 @@ export function buildFciWorkspacePresentation(input: {
   });
 
   return {
+    current_user: buildUserPresentation(input.currentUser),
     appel_offres: {
       id: input.appelOffres.id,
       code: input.appelOffres.code,
@@ -616,7 +695,8 @@ export function buildFciWorkspacePresentation(input: {
         latestData: latestDataByModuleId.get(module.id) ?? null,
         latestJob: latestJobsByModuleId.get(module.id) ?? null,
         sourceFiche: input.sourceFiche,
-        knowledgeBaseEnabled: input.knowledgeBaseEnabled
+        knowledgeBaseEnabled: input.knowledgeBaseEnabled,
+        currentUser: input.currentUser
       })
     )
   };
@@ -632,6 +712,7 @@ export function buildFciModulePresentation(input: {
   auditEvents: FciAuditEventRecord[];
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
+  currentUser: CurrentUser;
 }): FciModulePresentation {
   const staleSource = isModuleSourceStale(input.latestData, input.sourceFiche);
   const normalizedPayload = normalizeLatestPayload({
@@ -649,8 +730,13 @@ export function buildFciModulePresentation(input: {
   const definition = isDepartmentalModuleCode(input.module.moduleCode)
     ? getFciModuleDefinition(input.module.moduleCode)
     : null;
+  const permissions = buildFciModulePermissions(
+    input.currentUser,
+    input.module.moduleCode
+  );
 
   return {
+    current_user: buildUserPresentation(input.currentUser),
     appel_offres: {
       code: input.appelOffres.code,
       title: input.appelOffres.title,
@@ -717,8 +803,10 @@ export function buildFciModulePresentation(input: {
       latestData: input.latestData,
       latestJob: input.latestJob,
       sourceFiche: input.sourceFiche,
-      knowledgeBaseEnabled: input.knowledgeBaseEnabled
+      knowledgeBaseEnabled: input.knowledgeBaseEnabled,
+      currentUser: input.currentUser
     }),
+    permissions,
     history_summary: {
       versions_count: input.versions.length,
       jobs_count: input.jobs.length,

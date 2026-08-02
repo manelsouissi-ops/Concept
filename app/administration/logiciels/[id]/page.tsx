@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header.tsx";
 import { SoftwareStatusToggle } from "@/components/software-status-toggle.tsx";
 import { StatusBadge } from "@/components/status-badge.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import { getSoftwareById } from "@/lib/administration/logiciels/repository.ts";
 
 function formatTimestamp(value: string) {
@@ -14,6 +15,7 @@ export default async function SoftwareDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireAreaAccessForPage("administration");
   const { id } = await params;
   const softwareId = Number(id);
 

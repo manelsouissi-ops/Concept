@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 import {
   createSoftware,
   listSoftware
@@ -22,6 +23,11 @@ function isUniqueViolation(error: unknown) {
 
 export async function GET(request: Request) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "administration");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { searchParams } = new URL(request.url);
     const items = await listSoftware({
       search: searchParams.get("search") ?? undefined,
@@ -36,6 +42,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "administration");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const formData = await request.formData();
     const software = await createSoftware(parseSoftwareFormData(formData));
     return NextResponse.json({ software }, { status: 201 });

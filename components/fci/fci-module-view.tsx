@@ -46,10 +46,6 @@ type DialogState =
   | { kind: "regenerate" }
   | null;
 
-function getSafeActor() {
-  return "Bob Durand";
-}
-
 function escapeSelectorValue(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -292,7 +288,7 @@ export function FciModuleView({
                   ai_notes: editablePayload.ai_notes,
                   validation_warnings: editablePayload.validation_warnings
                 },
-                editor: getSafeActor(),
+                editor: modulePresentation.current_user.name,
                 expectedVersion: modulePresentation.latest_data?.version ?? null
               });
 
@@ -384,7 +380,7 @@ export function FciModuleView({
             }
 
             await validateFciModule(code, moduleCode, {
-              validatedBy: getSafeActor(),
+              validatedBy: modulePresentation.current_user.name,
               comment: input.comment,
               expectedVersion: modulePresentation.latest_data?.version ?? null,
               acknowledgeStaleSource: input.acknowledged
@@ -460,6 +456,9 @@ export function FciModuleView({
 
       {errorMessage ? <div className="callout warning" role="alert">{errorMessage}</div> : null}
       {infoMessage ? <div className="callout info" aria-live="polite">{infoMessage}</div> : null}
+      {modulePresentation.permissions.read_only_message ? (
+        <div className="callout info">{modulePresentation.permissions.read_only_message}</div>
+      ) : null}
       {conflictMessage ? (
         <div className="callout warning">
           <strong>Conflit de version</strong>
@@ -609,6 +608,7 @@ export function FciModuleView({
             definition={definition}
             payload={editablePayload}
             validationErrors={validationErrors}
+            readOnly={modulePresentation.permissions.read_only}
             onChange={(nextPayload) => {
               setValidationErrors([]);
               setEditablePayload({

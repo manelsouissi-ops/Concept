@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import {
   BellIcon,
@@ -14,6 +14,11 @@ import {
   UserCircleIcon
 } from "./app-icons.tsx";
 import { BrandLogo } from "./brand-logo.tsx";
+import { UserAvatar } from "./user-avatar.tsx";
+import { canAccess, type UserPresentation } from "@/lib/auth/rbac.ts";
+import { switchDevelopmentUser, UsersClientError } from "@/lib/users/client.ts";
+import type { DevelopmentUserState } from "@/lib/users/types.ts";
+import { getUserRoleLabel } from "@/lib/auth/rbac.ts";
 
 type NavigationItem = {
   label: string;
@@ -39,6 +44,11 @@ const administrationNavigation: NavigationItem[] = [
   { label: "Referentiels", icon: <LibraryIcon className="nav-icon" />, disabled: true },
   { label: "Employes", icon: <LibraryIcon className="nav-icon" />, disabled: true },
   { label: "Competences", icon: <LibraryIcon className="nav-icon" />, disabled: true },
+  {
+    label: "Utilisateurs",
+    href: "/administration/utilisateurs",
+    icon: <UserCircleIcon className="nav-icon" />
+  },
   {
     label: "Logiciels",
     href: "/administration/logiciels",
@@ -69,6 +79,56 @@ function getRouteMeta(pathname: string) {
     return {
       title: "Nouvel appel d'offres",
       breadcrumbs: ["Appels d'offres", "Creation"]
+    };
+  }
+
+  if (pathname === "/profile") {
+    return {
+      title: "Mon profil",
+      breadcrumbs: ["Mon profil"]
+    };
+  }
+
+  if (pathname === "/settings") {
+    return {
+      title: "Parametres",
+      breadcrumbs: ["Parametres"]
+    };
+  }
+
+  if (pathname.startsWith("/settings/")) {
+    const leaf = pathname.split("/").filter(Boolean)[1] ?? "section";
+    return {
+      title: `Parametres ${leaf}`,
+      breadcrumbs: ["Parametres", leaf]
+    };
+  }
+
+  if (pathname === "/administration/utilisateurs") {
+    return {
+      title: "Utilisateurs",
+      breadcrumbs: ["Administration", "Utilisateurs"]
+    };
+  }
+
+  if (pathname === "/administration/utilisateurs/nouveau") {
+    return {
+      title: "Creer un utilisateur",
+      breadcrumbs: ["Administration", "Utilisateurs", "Nouveau"]
+    };
+  }
+
+  if (pathname.startsWith("/administration/utilisateurs/")) {
+    const segments = pathname.split("/").filter(Boolean);
+    const userId = decodeURIComponent(segments[2] ?? "");
+    const lastSegment = segments[3] ?? "";
+
+    return {
+      title: lastSegment === "modifier" ? `Modifier l'utilisateur ${userId}` : `Utilisateur ${userId}`,
+      breadcrumbs:
+        lastSegment === "modifier"
+          ? ["Administration", "Utilisateurs", userId, "Modification"]
+          : ["Administration", "Utilisateurs", userId]
     };
   }
 
@@ -224,11 +284,50 @@ function SidebarDisclosure({
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  currentUser,
+  developmentUserState,
+  isDevelopmentMode
+}: {
+  children: ReactNode;
+  currentUser: UserPresentation;
+  developmentUserState?: DevelopmentUserState | null;
+  isDevelopmentMode?: boolean;
+}) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [isSwitchPending, startSwitchTransition] = useTransition();
   const routeMeta = getRouteMeta(pathname);
   const showTopContext = routeMeta.breadcrumbs.length > 1;
+  const canAccessAdministration = canAccess(currentUser.role, "administration");
+  const administrationItems = administrationNavigation.map((item) =>
+    item.href && !canAccessAdministration ? { ...item, disabled: true } : item
+  );
+
+  function handleSwitchUser(userId: number) {
+    if (!isDevelopmentMode || isSwitchPending) {
+      return;
+    }
+
+    startSwitchTransition(() => {
+      void (async () => {
+        setSwitchError(null);
+        try {
+          await switchDevelopmentUser(userId);
+          router.refresh();
+        } catch (requestError) {
+          setSwitchError(
+            requestError instanceof UsersClientError
+              ? requestError.message
+              : "Le changement d'utilisateur a echoue."
+          );
+        }
+      })();
+    });
+  }
 
   return (
     <div className="app-shell">
@@ -251,7 +350,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <SidebarDisclosure
           label="Administration"
           icon={<SettingsIcon className="nav-icon" />}
-          items={administrationNavigation}
+          items={administrationItems}
           currentPath={pathname}
           onNavigate={() => setSidebarOpen(false)}
         />
@@ -273,10 +372,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-spacer" />
 
         <div className="sidebar-user">
-          <span className="sidebar-user-avatar">BD</span>
+          <UserAvatar
+            displayName={currentUser.name}
+            avatarUrl={currentUser.avatar_url}
+            size="md"
+          />
           <div className="sidebar-user-copy">
-            <strong>Bob Durand</strong>
-            <span>Commercial</span>
+            <strong>{currentUser.name}</strong>
+            <span>{currentUser.role_label}</span>
+            <small>{currentUser.department_label}</small>
           </div>
         </div>
       </aside>
@@ -321,18 +425,92 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span
               className="topbar-icon-button topbar-icon-button-disabled"
               aria-disabled="true"
-              title="Notifications bientôt disponibles"
+              title="Notifications bientot disponibles"
             >
               <BellIcon className="topbar-action-icon" />
             </span>
 
-            <div className="topbar-user-display" aria-label="Identite utilisateur">
-              <UserCircleIcon className="topbar-action-icon" />
-              <div className="topbar-user-copy">
-                <strong>Bob Durand</strong>
-                <span>Commercial</span>
+            <details className="topbar-user-menu">
+              <summary className="topbar-user-button" aria-label="Menu utilisateur">
+                <UserAvatar
+                  displayName={currentUser.name}
+                  avatarUrl={currentUser.avatar_url}
+                  size="sm"
+                />
+                <div className="topbar-user-copy">
+                  <strong>{currentUser.name}</strong>
+                  <span>
+                    {currentUser.role_label} · {currentUser.department_label}
+                  </span>
+                </div>
+              </summary>
+
+              <div className="topbar-user-menu-content">
+                <div className="topbar-user-menu-identity">
+                  <UserAvatar
+                    displayName={currentUser.name}
+                    avatarUrl={currentUser.avatar_url}
+                    size="md"
+                  />
+                  <div className="topbar-user-menu-copy">
+                    <strong>{currentUser.name}</strong>
+                    <span>{currentUser.email}</span>
+                    <small>
+                      {currentUser.role_label} · {currentUser.department_label}
+                    </small>
+                  </div>
+                </div>
+
+                <div className="topbar-user-menu-links">
+                  <Link href="/profile" className="topbar-user-menu-link">
+                    Profil
+                  </Link>
+                  <Link href="/settings" className="topbar-user-menu-link">
+                    Parametres
+                  </Link>
+                  <span className="topbar-user-menu-link disabled" aria-disabled="true">
+                    Deconnexion
+                    <small>Bientot</small>
+                  </span>
+                </div>
+
+                {isDevelopmentMode && developmentUserState ? (
+                  <div className="topbar-dev-switcher">
+                    <div className="topbar-dev-switcher-header">
+                      <strong>Mode developpement</strong>
+                      <span>Changer immediatement d'utilisateur pour tester les permissions.</span>
+                    </div>
+
+                    <div className="topbar-dev-switcher-list">
+                      {developmentUserState.users.map((user) => {
+                        const isSelected = user.id === developmentUserState.currentUserId;
+                        return (
+                          <button
+                            key={user.id}
+                            type="button"
+                            className={isSelected ? "topbar-dev-user active" : "topbar-dev-user"}
+                            disabled={isSwitchPending}
+                            onClick={() => handleSwitchUser(user.id)}
+                          >
+                            <div className="topbar-dev-user-copy">
+                              <strong>{user.displayName}</strong>
+                              <span>
+                                {getUserRoleLabel(user.role)} · {user.departmentName}
+                              </span>
+                            </div>
+                            <small>{user.email}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {switchError ? (
+                      <div className="callout warning topbar-dev-switcher-error">{switchError}</div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
-            </div>
+            </details>
 
             {routeMeta.actionHref && routeMeta.actionLabel ? (
               <Link href={routeMeta.actionHref} className="button button-primary topbar-cta">

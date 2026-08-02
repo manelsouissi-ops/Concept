@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 import { setSoftwareStatus } from "@/lib/administration/logiciels/repository.ts";
 
 export const runtime = "nodejs";
@@ -13,10 +14,15 @@ function parseId(value: string) {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "administration");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { id } = await params;
     const software = await setSoftwareStatus(parseId(id), "active");
 

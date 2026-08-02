@@ -29,8 +29,11 @@ export function FciHeader({
       <div className="workspace-identity-grid compact">
         <div className="workspace-identity-meta compact">
           <span>Progression : {workspace.progress.percentage}%</span>
-          <span>Modules validés : {workspace.progress.validated_modules}</span>
+          <span>Modules valides : {workspace.progress.validated_modules}</span>
           <span>Source Fiche : {workspace.source_fiche.version ?? "Indisponible"}</span>
+          <span>
+            Utilisateur : {workspace.current_user.name} ({workspace.current_user.role_label})
+          </span>
         </div>
         <div className="workspace-identity-actions">
           {workspace.module_summaries.length ? null : (

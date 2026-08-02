@@ -46,13 +46,16 @@ export function FciModuleCard({
       </div>
       {summary?.validated_at ? (
         <p className="meta">
-          Validé par {summary.validated_by ?? "inconnu"} le {formatFciDateTime(summary.validated_at)}
+          Valide par {summary.validated_by ?? "inconnu"} le {formatFciDateTime(summary.validated_at)}
         </p>
       ) : null}
       {summary?.status === "generating" ? (
         <p className="meta">
           {getFciGenerationJobStatusPresentation("running").label}
         </p>
+      ) : null}
+      {summary?.permissions.read_only_message ? (
+        <p className="meta">{summary.permissions.read_only_message}</p>
       ) : null}
       {safeErrorMessage ? (
         <div className="callout warning">{safeErrorMessage}</div>
@@ -76,7 +79,7 @@ export function FciModuleCard({
             disabled={disabled}
             aria-disabled={disabled}
           >
-            Générer
+            Generer
           </button>
         ) : null}
         {availableActions.includes("regenerate") ? (
@@ -87,7 +90,7 @@ export function FciModuleCard({
             disabled={disabled}
             aria-disabled={disabled}
           >
-            Régénérer
+            Regenerer
           </button>
         ) : null}
         {availableActions.includes("validate") ? (

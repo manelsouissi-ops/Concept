@@ -56,7 +56,16 @@ import {
   type FciFormPayload,
   type FciPayloadDefaults
 } from "./rendering.ts";
-import type { FicheStatus } from "@/lib/types.ts";
+import type { FicheStatus } from "../../types.ts";
+import {
+  canEditFciModule,
+  canGenerateFciModule,
+  canValidateFciModule,
+  getFciEditDeniedMessage,
+  getFciGenerateDeniedMessage,
+  type CurrentUser
+} from "../../auth/rbac.ts";
+import { getFallbackDevelopmentUser } from "../../auth/current-user.ts";
 
 export type FciServiceErrorCode =
   | "AO_NOT_FOUND"
@@ -74,7 +83,8 @@ export type FciServiceErrorCode =
   | "INVALID_PAYLOAD"
   | "FCI_CONFIGURATION_ERROR"
   | "FCI_LAUNCH_FAILED"
-  | "FCI_CALLBACK_CONFLICT";
+  | "FCI_CALLBACK_CONFLICT"
+  | "RBAC_FORBIDDEN";
 
 export class FciServiceError extends Error {
   code: FciServiceErrorCode;
@@ -110,6 +120,58 @@ export type FciValidateModulePayload = {
   expectedVersion: number | null;
   acknowledgeStaleSource: boolean;
 };
+
+function normalizeCurrentUser(currentUser?: CurrentUser | null) {
+  return currentUser ?? getFallbackDevelopmentUser();
+}
+
+function assertCanEditModule(currentUser: CurrentUser, moduleCode: FciModuleCode) {
+  if (canEditFciModule(currentUser.role, moduleCode)) {
+    return;
+  }
+
+  throw new FciServiceError(
+    "RBAC_FORBIDDEN",
+    getFciEditDeniedMessage(moduleCode),
+    403,
+    {
+      module_code: moduleCode,
+      role: currentUser.role
+    }
+  );
+}
+
+function assertCanGenerateModule(currentUser: CurrentUser, moduleCode: FciModuleCode) {
+  if (canGenerateFciModule(currentUser.role, moduleCode)) {
+    return;
+  }
+
+  throw new FciServiceError(
+    "RBAC_FORBIDDEN",
+    getFciGenerateDeniedMessage(moduleCode),
+    403,
+    {
+      module_code: moduleCode,
+      role: currentUser.role
+    }
+  );
+}
+
+function assertCanValidateModule(currentUser: CurrentUser, moduleCode: FciModuleCode) {
+  if (canValidateFciModule(currentUser.role, moduleCode)) {
+    return;
+  }
+
+  throw new FciServiceError(
+    "RBAC_FORBIDDEN",
+    getFciEditDeniedMessage(moduleCode),
+    403,
+    {
+      module_code: moduleCode,
+      role: currentUser.role
+    }
+  );
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === "object" && !Array.isArray(value);
@@ -409,7 +471,8 @@ function hasBlockingGenerationJob(job: FciGenerationJobRecord | null) {
 
 async function buildModulePresentationOrThrow(
   code: string,
-  moduleCode: FciModuleCode
+  moduleCode: FciModuleCode,
+  currentUser: CurrentUser
 ) {
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
@@ -430,7 +493,8 @@ async function buildModulePresentationOrThrow(
     jobs,
     auditEvents,
     sourceFiche,
-    knowledgeBaseEnabled
+    knowledgeBaseEnabled,
+    currentUser
   });
 }
 
@@ -512,7 +576,8 @@ export function toFciErrorResponse(error: unknown) {
   };
 }
 
-export async function initializeFciWorkspace(code: string) {
+export async function initializeFciWorkspace(code: string, currentUser?: CurrentUser | null) {
+  const actor = normalizeCurrentUser(currentUser);
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const appelOffres = await requireAppelOffres(code);
   const existingSet = await getFciSetByAppelOffresCode(code);
@@ -577,11 +642,13 @@ export async function initializeFciWorkspace(code: string) {
     appelOffres,
     detail,
     sourceFiche,
-    knowledgeBaseEnabled
+    knowledgeBaseEnabled,
+    currentUser: actor
   });
 }
 
-export async function getFciWorkspace(code: string) {
+export async function getFciWorkspace(code: string, currentUser?: CurrentUser | null) {
+  const actor = normalizeCurrentUser(currentUser);
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const sourceFiche = await readCurrentSourceForWorkspace(code);
@@ -590,19 +657,30 @@ export async function getFciWorkspace(code: string) {
     appelOffres,
     detail,
     sourceFiche,
-    knowledgeBaseEnabled
+    knowledgeBaseEnabled,
+    currentUser: actor
   });
 }
 
-export async function getFciModule(code: string, moduleCode: FciModuleCode) {
-  return buildModulePresentationOrThrow(code, moduleCode);
+export async function getFciModule(
+  code: string,
+  moduleCode: FciModuleCode,
+  currentUser?: CurrentUser | null
+) {
+  return buildModulePresentationOrThrow(
+    code,
+    moduleCode,
+    normalizeCurrentUser(currentUser)
+  );
 }
 
 export async function saveFciModuleEdits(
   code: string,
   moduleCode: FciModuleCode,
-  payload: FciSaveModulePayload
+  payload: FciSaveModulePayload,
+  currentUser?: CurrentUser | null
 ) {
+  const actor = normalizeCurrentUser(currentUser);
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
@@ -627,6 +705,8 @@ export async function saveFciModuleEdits(
       { module_code: moduleCode }
     );
   }
+
+  assertCanEditModule(actor, moduleCode);
 
   const sourceFiche = await readCurrentSourceForWorkspace(code);
   const normalizedPayload = normalizeStoredFciModulePayload(
@@ -666,7 +746,7 @@ export async function saveFciModuleEdits(
     appelOffresId: appelOffres.id,
     fciModuleId: module.id,
     eventType: "fci.module_data.saved",
-    actor: payload.editor,
+    actor: actor.name,
     payloadJson: {
       moduleCode,
       version: nextVersion,
@@ -675,7 +755,7 @@ export async function saveFciModuleEdits(
   });
 
   await recalculateAndPersistOverallStatus(code);
-  return buildModulePresentationOrThrow(code, moduleCode);
+  return buildModulePresentationOrThrow(code, moduleCode, actor);
 }
 
 function isEnvironmentConfigurationError(error: unknown): error is Error {
@@ -1173,12 +1253,15 @@ async function launchFciGenerationJob(input: {
 
 export async function prepareFciGeneration(
   code: string,
-  moduleCode: FciModuleCode
+  moduleCode: FciModuleCode,
+  currentUser?: CurrentUser | null
 ) {
+  const actor = normalizeCurrentUser(currentUser);
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
   const sourceFiche = await requireValidatedSourceFiche(code);
+  assertCanGenerateModule(actor, moduleCode);
 
   return launchFciGenerationJob({
     code,
@@ -1193,12 +1276,15 @@ export async function prepareFciGeneration(
 
 export async function prepareFciRegeneration(
   code: string,
-  moduleCode: FciModuleCode
+  moduleCode: FciModuleCode,
+  currentUser?: CurrentUser | null
 ) {
+  const actor = normalizeCurrentUser(currentUser);
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
   const sourceFiche = await requireValidatedSourceFiche(code);
+  assertCanGenerateModule(actor, moduleCode);
 
   return launchFciGenerationJob({
     code,
@@ -1679,8 +1765,10 @@ export async function applyFciN8nCallback(
 export async function validateFciModule(
   code: string,
   moduleCode: FciModuleCode,
-  payload: FciValidateModulePayload
+  payload: FciValidateModulePayload,
+  currentUser?: CurrentUser | null
 ) {
+  const actor = normalizeCurrentUser(currentUser);
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
@@ -1714,6 +1802,8 @@ export async function validateFciModule(
       { module_code: moduleCode }
     );
   }
+
+  assertCanValidateModule(actor, moduleCode);
 
   const sourceFiche = await readCurrentSourceForWorkspace(code);
   const staleSource = isModuleSourceStale(latestData, sourceFiche);
@@ -1763,7 +1853,7 @@ export async function validateFciModule(
       identification_commune: {
         ...identification,
         validated_by_name: buildValidatedByField(
-          payload.validatedBy,
+          actor.name,
           isPlainObject(identification.validated_by_name)
             ? (identification.validated_by_name as FciFormField)
             : null
@@ -1795,7 +1885,7 @@ export async function validateFciModule(
   await updateFciModule(module.id, {
     status: "validated",
     validatedAt,
-    validatedBy: payload.validatedBy,
+    validatedBy: actor.name,
     errorCode: null,
     errorMessage: null
   });
@@ -1803,17 +1893,17 @@ export async function validateFciModule(
     appelOffresId: appelOffres.id,
     fciModuleId: module.id,
     eventType: "fci.module.validated",
-    actor: payload.validatedBy,
+    actor: actor.name,
     payloadJson: {
-      moduleCode,
-      version: nextVersion,
-      comment: payload.comment,
-      staleSource
-    }
-  });
+        moduleCode,
+        version: nextVersion,
+        comment: payload.comment,
+        staleSource
+      }
+    });
 
   await recalculateAndPersistOverallStatus(code);
-  return buildModulePresentationOrThrow(code, moduleCode);
+  return buildModulePresentationOrThrow(code, moduleCode, actor);
 }
 
 export async function getFciModuleHistory(

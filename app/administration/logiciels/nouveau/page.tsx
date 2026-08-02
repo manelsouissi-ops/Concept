@@ -1,7 +1,9 @@
 import { PageHeader } from "@/components/page-header.tsx";
 import { SoftwareForm } from "@/components/software-form.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 
 export default async function NewSoftwarePage() {
+  await requireAreaAccessForPage("administration");
   return (
     <div className="page-stack">
       <PageHeader

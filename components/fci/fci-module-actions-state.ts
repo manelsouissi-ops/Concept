@@ -52,6 +52,7 @@ function getActionDefinition(
     isDirty: boolean;
     isBusy: boolean;
     pendingAction: FciModuleActionKind | null;
+    canEdit: boolean;
     canValidate: boolean;
     canGenerate: boolean;
     canRegenerate: boolean;
@@ -60,9 +61,12 @@ function getActionDefinition(
 ): FciActionButtonView | null {
   switch (action) {
     case "save":
+      if (!input.canEdit) {
+        return null;
+      }
       return {
         action,
-        label: input.pendingAction === "save" ? "Enregistrement…" : "Enregistrer le brouillon",
+        label: input.pendingAction === "save" ? "Enregistrement..." : "Enregistrer le brouillon",
         className: "button button-primary",
         disabled: !input.isDirty || input.isBusy
       };
@@ -72,7 +76,7 @@ function getActionDefinition(
       }
       return {
         action,
-        label: input.pendingAction === "validate" ? "Validation…" : "Marquer comme terminé",
+        label: input.pendingAction === "validate" ? "Validation..." : "Marquer comme termine",
         className: "button button-secondary",
         disabled: input.isBusy || input.isDirty
       };
@@ -82,7 +86,7 @@ function getActionDefinition(
       }
       return {
         action,
-        label: input.pendingAction === "generate" ? "Lancement…" : "Lancer la génération",
+        label: input.pendingAction === "generate" ? "Lancement..." : "Lancer la generation",
         className: "button button-ai",
         disabled: input.isBusy
       };
@@ -92,21 +96,24 @@ function getActionDefinition(
       }
       return {
         action,
-        label: input.pendingAction === "regenerate" ? "Relance…" : "Relancer la génération",
+        label: input.pendingAction === "regenerate" ? "Relance..." : "Relancer la generation",
         className: "button button-ai",
         disabled: input.isBusy
       };
     case "reset":
+      if (!input.canEdit) {
+        return null;
+      }
       return {
         action,
-        label: "Réinitialiser les modifications",
+        label: "Reinitialiser les modifications",
         className: "button button-ghost",
         disabled: !input.isDirty || input.isBusy
       };
     case "history":
       return {
         action,
-        label: "Voir l’historique",
+        label: "Voir l'historique",
         className: "button button-ghost",
         disabled: input.isBusy
       };
@@ -123,7 +130,7 @@ function getActionDefinition(
       }
       return {
         action,
-        label: input.pendingAction === "download-docx" ? "Préparation Word…" : "Télécharger Word",
+        label: input.pendingAction === "download-docx" ? "Preparation Word..." : "Telecharger Word",
         className: "button button-ghost",
         disabled: input.isBusy
       };
@@ -133,7 +140,7 @@ function getActionDefinition(
       }
       return {
         action,
-        label: input.pendingAction === "download-pdf" ? "Préparation PDF…" : "Télécharger PDF",
+        label: input.pendingAction === "download-pdf" ? "Preparation PDF..." : "Telecharger PDF",
         className: "button button-ghost",
         disabled: input.isBusy
       };
@@ -141,14 +148,21 @@ function getActionDefinition(
 }
 
 export function buildFciModuleActionGroups(input: {
-  modulePresentation: Pick<FciModulePresentation, "allowed_actions" | "latest_data">;
+  modulePresentation: Pick<FciModulePresentation, "allowed_actions" | "latest_data" | "permissions">;
   isDirty: boolean;
   isBusy: boolean;
   pendingAction: FciModuleActionKind | null;
 }) {
-  const canValidate = input.modulePresentation.allowed_actions.includes("validate");
-  const canGenerate = input.modulePresentation.allowed_actions.includes("generate");
-  const canRegenerate = input.modulePresentation.allowed_actions.includes("regenerate");
+  const canEdit = input.modulePresentation.permissions.can_edit;
+  const canValidate =
+    input.modulePresentation.permissions.can_validate
+    && input.modulePresentation.allowed_actions.includes("validate");
+  const canGenerate =
+    input.modulePresentation.permissions.can_generate
+    && input.modulePresentation.allowed_actions.includes("generate");
+  const canRegenerate =
+    input.modulePresentation.permissions.can_regenerate
+    && input.modulePresentation.allowed_actions.includes("regenerate");
   const canExport = input.modulePresentation.latest_data != null;
 
   return ACTION_GROUPS.map((group) => ({
@@ -160,6 +174,7 @@ export function buildFciModuleActionGroups(input: {
           isDirty: input.isDirty,
           isBusy: input.isBusy,
           pendingAction: input.pendingAction,
+          canEdit,
           canValidate,
           canGenerate,
           canRegenerate,

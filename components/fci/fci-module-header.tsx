@@ -20,7 +20,7 @@ export function FciModuleHeader({
       <div className="workspace-backlink-row">
         <button type="button" className="button button-ghost button-small workspace-backlink" onClick={onBack}>
           <ArrowRightIcon className="button-icon rotate-180" />
-          Retour à la vue FCI
+          Retour a la vue FCI
         </button>
       </div>
       <div className="workspace-identity-topline compact">
@@ -41,12 +41,23 @@ export function FciModuleHeader({
             {contractVersion ? `Formulaire : v${contractVersion}` : "Formulaire : version inconnue"}
           </span>
           <span>
-            Dernière mise à jour : {formatFciDateTime(
+            Derniere mise a jour : {formatFciDateTime(
               modulePresentation.latest_data?.updated_at ?? modulePresentation.module.updated_at
             )}
           </span>
+          <span>
+            Utilisateur : {modulePresentation.current_user.name} ({modulePresentation.current_user.role_label})
+          </span>
+          <span>
+            Acces : {modulePresentation.permissions.read_only ? "Lecture seule" : "Edition autorisee"}
+          </span>
         </div>
       </div>
+      {modulePresentation.permissions.read_only_message ? (
+        <div className="callout info">
+          {modulePresentation.permissions.read_only_message}
+        </div>
+      ) : null}
     </section>
   );
 }

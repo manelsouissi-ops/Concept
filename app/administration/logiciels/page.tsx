@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header.tsx";
 import { SoftwareListView } from "@/components/software-list-view.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import { listSoftware } from "@/lib/administration/logiciels/repository.ts";
 
 export default async function SoftwarePage() {
+  await requireAreaAccessForPage("administration");
   const items = await listSoftware({ status: "all" });
 
   return (

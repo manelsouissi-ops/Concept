@@ -5,6 +5,7 @@ import {
   toFciErrorResponse,
   validateFciModule
 } from "@/lib/appels-offres/fci/service.ts";
+import { resolveCurrentUserFromRequest } from "@/lib/auth/current-user.ts";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,8 @@ export async function POST(
     const data = await validateFciModule(
       code,
       parseRequestedModule(module),
-      parseFciValidatePayload(body)
+      parseFciValidatePayload(body),
+      await resolveCurrentUserFromRequest(request)
     );
     return NextResponse.json({ ok: true, data });
   } catch (error) {

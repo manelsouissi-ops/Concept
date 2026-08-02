@@ -1,8 +1,10 @@
 import { PageHeader } from "@/components/page-header.tsx";
 import { SoftwareImportWorkflow } from "@/components/software-import-workflow.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import { shouldShowDevelopmentImportOptions } from "@/lib/administration/logiciels/import-presentation.ts";
 
-export default function SoftwareImportPage() {
+export default async function SoftwareImportPage() {
+  await requireAreaAccessForPage("administration");
   return (
     <div className="page-stack">
       <PageHeader

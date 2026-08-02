@@ -6,16 +6,21 @@ import {
   saveFciModuleEdits,
   toFciErrorResponse
 } from "@/lib/appels-offres/fci/service.ts";
+import { resolveCurrentUserFromRequest } from "@/lib/auth/current-user.ts";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string; module: string }> }
 ) {
   try {
     const { code, module } = await params;
-    const data = await getFciModule(code, parseRequestedModule(module));
+    const data = await getFciModule(
+      code,
+      parseRequestedModule(module),
+      await resolveCurrentUserFromRequest(request)
+    );
     return NextResponse.json({ ok: true, data });
   } catch (error) {
     const { status, body } = toFciErrorResponse(error);
@@ -33,7 +38,8 @@ export async function PUT(
     const data = await saveFciModuleEdits(
       code,
       parseRequestedModule(module),
-      parseFciSavePayload(body)
+      parseFciSavePayload(body),
+      await resolveCurrentUserFromRequest(request)
     );
     return NextResponse.json({ ok: true, data });
   } catch (error) {
