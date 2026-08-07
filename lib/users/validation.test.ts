@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assertAdminCanUpdateUser,
   parseProfilePayload,
   parseUserPayload,
   validateProfileUpdateInput,
@@ -96,4 +97,36 @@ test("validateProfileUpdateInput keeps role and status out of editable profile d
   assert.equal(normalized.displayName, "Isabelle Moreau");
   assert.equal("role" in normalized, false);
   assert.equal("status" in normalized, false);
+});
+
+test("ADMIN cannot reassign their own account to a business role through user administration", () => {
+  assert.throws(
+    () =>
+      assertAdminCanUpdateUser(
+        {
+          id: "1",
+          role: "ADMIN"
+        },
+        1,
+        {
+          role: "COMMERCIAL",
+          departmentCode: "COMMERCIAL"
+        }
+      ),
+    /ne peut pas se reattribuer un role metier/i
+  );
+
+  assert.doesNotThrow(() =>
+    assertAdminCanUpdateUser(
+      {
+        id: "1",
+        role: "ADMIN"
+      },
+      1,
+      {
+        role: "ADMIN",
+        departmentCode: "ADMINISTRATION"
+      }
+    )
+  );
 });

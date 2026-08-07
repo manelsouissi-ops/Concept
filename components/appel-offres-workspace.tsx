@@ -13,15 +13,24 @@ import {
   UploadIcon
 } from "@/components/app-icons.tsx";
 import { AppelOffresAnalysisPanel } from "@/components/appel-offres-analysis-panel";
+import { CommercialWorkflowPanel } from "@/components/commercial-workflow-panel.tsx";
+import { DgDecisionCenter } from "@/components/dg-decision-center.tsx";
 import { EmptyState } from "@/components/empty-state.tsx";
 import { FciWorkspace } from "@/components/fci/fci-workspace.tsx";
+import { GoNoGoPanel } from "@/components/go-no-go-panel.tsx";
+import { GoNoGoReportBuilder } from "@/components/go-no-go-report-builder.tsx";
 import { ProcessingTimeline } from "@/components/processing-timeline.tsx";
 import { StatusBadge } from "@/components/status-badge.tsx";
 import { WorkspaceHeader } from "@/components/workspace-header.tsx";
 import { WorkspaceTabs } from "@/components/workspace-tabs.tsx";
 import { buildDashboardStatusDisplay } from "@/lib/appels-offres/dashboard-status.ts";
 import { getPdfFileSelectionError } from "@/lib/appels-offres/create-form.ts";
+import {
+  getAppelOffresWorkspaceTabs,
+  isDecisionCenterRole
+} from "@/lib/appels-offres/dossier-experience.ts";
 import type { FciSetOverallStatus } from "@/lib/appels-offres/fci/types.ts";
+import type { UserRole } from "@/lib/auth/rbac.ts";
 import {
   buildAppelOffresSummary,
   type BadgeTone
@@ -42,13 +51,7 @@ type WorkspaceFlash = "created-processing" | "launch-failed" | "analysis-started
 type ReviewWorkflowState = "saved" | "validated" | null;
 type ReplacementSubmitState = "idle" | "submitting";
 
-const tabs: Array<{ key: WorkspaceTabKey; label: string; countKey?: "documents" | "history" }> = [
-  { key: "overview", label: "Apercu" },
-  { key: "documents", label: "Documents", countKey: "documents" },
-  { key: "fiche", label: "Fiche CDC" },
-  { key: "fci", label: "FCI" },
-  { key: "history", label: "Historique", countKey: "history" }
-];
+type FciTabModuleCode = "A" | "B" | "C";
 
 function formatDateTime(value: string | null) {
   if (!value) {
@@ -444,12 +447,14 @@ export function AppelOffresWorkspace({
   appel,
   initialTab = "overview",
   flash,
-  fciStatus = null
+  fciStatus = null,
+  currentUserRole
 }: {
   appel: AppelOffresDetail;
   initialTab?: WorkspaceTabKey;
   flash?: WorkspaceFlash;
   fciStatus?: FciSetOverallStatus | null;
+  currentUserRole?: UserRole;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -519,10 +524,16 @@ export function AppelOffresWorkspace({
   );
   const FicheDocumentIcon = ficheDocumentStatus.icon;
   const visibleBusinessDocumentsCount = (sourcePdfDocument ? 1 : 0) + (ficheReady ? 1 : 0);
+  const decisionCenterRole = isDecisionCenterRole(currentUserRole);
+  const commercialCoordinatorRole = currentUserRole === "COMMERCIAL";
+  const visibleTabs = useMemo(
+    () => getAppelOffresWorkspaceTabs(currentUserRole),
+    [currentUserRole]
+  );
 
   const tabConfigs = useMemo(
     () =>
-      tabs.map((tab) => ({
+      visibleTabs.map((tab) => ({
         key: tab.key,
         label: tab.label,
         count:
@@ -532,7 +543,7 @@ export function AppelOffresWorkspace({
               ? activity.length
               : undefined
       })),
-    [activity.length, visibleBusinessDocumentsCount]
+    [activity.length, visibleBusinessDocumentsCount, visibleTabs]
   );
   const replacementSelectedFile = replacementFile ? (
     <div className="upload-selected-file compact">
@@ -595,6 +606,14 @@ export function AppelOffresWorkspace({
     if (nextTab !== "fci") {
       params.delete("fciModule");
     }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  function openFciModule(moduleCode: FciTabModuleCode) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "fci");
+    params.set("fciModule", moduleCode);
+    params.delete("flash");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
@@ -748,22 +767,33 @@ export function AppelOffresWorkspace({
 
   return (
     <div className="stack workspace-stack">
-      <WorkspaceHeader
-        backHref="/appels-offres"
-        code={appel.code}
-        identity={identity}
-        statusLabel={statusDisplay.label}
-        statusTone={statusDisplay.tone}
-        deadlineLabel={formatDate(appel.dueDate)}
-        secondaryActions={actions.secondary}
-        secondaryLinks={[
-          {
-            label: "Analyse des logiciels",
-            href: `/appels-offres/${encodeURIComponent(appel.code)}/analyse/logiciels`
+      {!decisionCenterRole || activeTab !== "go-no-go" ? (
+        <WorkspaceHeader
+          backHref="/appels-offres"
+          code={appel.code}
+          identity={identity}
+          statusLabel={statusDisplay.label}
+          statusTone={statusDisplay.tone}
+          deadlineLabel={formatDate(appel.dueDate)}
+          secondaryActions={decisionCenterRole ? [] : actions.secondary}
+          secondaryLinks={
+            decisionCenterRole
+              ? [
+                  {
+                    label: "Documents du dossier",
+                    href: `/appels-offres/${encodeURIComponent(appel.code)}?view=documents`
+                  }
+                ]
+              : [
+                  {
+                    label: "Analyse des logiciels",
+                    href: `/appels-offres/${encodeURIComponent(appel.code)}/analyse/logiciels`
+                  }
+                ]
           }
-        ]}
-        onAction={handleAction}
-      />
+          onAction={handleAction}
+        />
+      ) : null}
 
       <section className="tabs-card workspace-tabs-card">
         {flashContent ? (
@@ -780,8 +810,17 @@ export function AppelOffresWorkspace({
         />
 
         <div className="tabs-panel workspace-tabs-panel">
-          {activeTab === "overview" ? (
+          {activeTab === "overview" && !decisionCenterRole ? (
             <div className="stack">
+              {commercialCoordinatorRole ? (
+                <CommercialWorkflowPanel
+                  code={appel.code}
+                  onOpenFci={() => updateView("fci")}
+                  onOpenFciModule={openFciModule}
+                  onOpenGoNoGo={() => updateView("go-no-go")}
+                />
+              ) : null}
+
               <div className="workspace-primary-grid">
                 <article className="workspace-card compact">
                   <span className="card-kicker">Prochaine action</span>
@@ -1007,17 +1046,18 @@ export function AppelOffresWorkspace({
                 </div>
               </section>
 
-              <section className="section-card">
-                <div className="section-header">
-                  <div>
-                    <h3>Mettre a jour le CDC</h3>
-                    <p className="meta">
-                      Importez un nouveau PDF si le document source doit etre remplace.
-                    </p>
+              {!decisionCenterRole ? (
+                <section className="section-card">
+                  <div className="section-header">
+                    <div>
+                      <h3>Mettre a jour le CDC</h3>
+                      <p className="meta">
+                        Importez un nouveau PDF si le document source doit etre remplace.
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="section-body">
-                  <div className="workspace-document-version-card">
+                  <div className="section-body">
+                    <div className="workspace-document-version-card">
                     <div className="workspace-document-leading">
                       <div className="workspace-document-icon is-upload" aria-hidden="true">
                         <UploadIcon className="workspace-document-icon-svg" />
@@ -1065,16 +1105,28 @@ export function AppelOffresWorkspace({
                         </button>
                       </div>
                     </div>
+                    </div>
+                    {replacementSelectedFile}
+                    {replacementError ? <div className="callout warning">{replacementError}</div> : null}
+                    {replacementSuccess ? <div className="callout info">{replacementSuccess}</div> : null}
                   </div>
-                  {replacementSelectedFile}
-                  {replacementError ? <div className="callout warning">{replacementError}</div> : null}
-                  {replacementSuccess ? <div className="callout info">{replacementSuccess}</div> : null}
-                </div>
-              </section>
+                </section>
+              ) : (
+                <section className="section-card">
+                  <div className="section-header">
+                    <div>
+                      <h3>Acces documentaire</h3>
+                      <p className="meta">
+                        Les documents du dossier restent accessibles en lecture seule pour la Direction generale.
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              )}
             </div>
           ) : null}
 
-          {activeTab === "fiche" ? (
+          {activeTab === "fiche" && !decisionCenterRole ? (
             <FicheEditor
               code={appel.code}
               appel={appel}
@@ -1082,7 +1134,32 @@ export function AppelOffresWorkspace({
             />
           ) : null}
 
-          {activeTab === "fci" ? (
+          {activeTab === "fiche" && decisionCenterRole ? (
+            <section className="section-card">
+              <div className="section-header">
+                <div>
+                  <h3>Fiche CDC</h3>
+                  <p className="meta">
+                    La Fiche CDC reste un acces secondaire en lecture seule pour la Direction generale.
+                  </p>
+                </div>
+              </div>
+              <div className="section-body">
+                <EmptyState
+                  compact
+                  title="Revue executive centralisee"
+                  description="La decision finale se prepare depuis le centre de decision Go/No-Go. Les documents du dossier restent consultables sans exposer de controles de modification."
+                />
+                <div className="workspace-card-actions">
+                  <button type="button" className="button button-secondary" onClick={() => updateView("documents")}>
+                    Ouvrir les documents
+                  </button>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {activeTab === "fci" && !decisionCenterRole ? (
             <div className="stack">
               <section className="section-card">
                 <div className="section-header">
@@ -1208,6 +1285,29 @@ export function AppelOffresWorkspace({
                 onOpenFiche={() => updateView("fiche")}
               />
             </div>
+          ) : null}
+
+          {activeTab === "go-no-go" ? (
+            decisionCenterRole ? (
+              <DgDecisionCenter
+                appel={appel}
+                fciStatus={fciStatus}
+                onOpenDocuments={() => updateView("documents")}
+                onOpenHistory={() => updateView("history")}
+              />
+            ) : commercialCoordinatorRole ? (
+              <GoNoGoReportBuilder
+                code={appel.code}
+                onOpenDocuments={() => updateView("documents")}
+                onOpenFciModule={openFciModule}
+              />
+            ) : (
+              <GoNoGoPanel
+                code={appel.code}
+                onOpenFci={() => updateView("fci")}
+                onOpenFciModule={openFciModule}
+              />
+            )
           ) : null}
 
           {activeTab === "history" ? (

@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { AppelOffresWorkspace } from "@/components/appel-offres-workspace.tsx";
+import { resolveAppelOffresWorkspaceView } from "@/lib/appels-offres/dossier-experience.ts";
 import { getFciSetByAppelOffresCode } from "@/lib/appels-offres/fci/repository.ts";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import {
   getAppelOffresDetailByCode,
   syncStoredDocumentsMetadata
@@ -12,6 +14,7 @@ type WorkspaceView =
   | "processing"
   | "fiche"
   | "fci"
+  | "go-no-go"
   | "documents"
   | "history";
 
@@ -22,6 +25,7 @@ export default async function AppelOffresDetailPage({
   params: Promise<{ code: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const currentUser = await requireAreaAccessForPage("appels_offres");
   const { code } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const flashValue = resolvedSearchParams?.flash;
@@ -31,16 +35,20 @@ export default async function AppelOffresDetailPage({
     ["created-processing", "launch-failed", "analysis-started"].includes(flashValue)
       ? (flashValue as WorkspaceFlash)
       : undefined;
-  const initialView =
+  const requestedView =
     typeof viewValue === "string"
       ? viewValue === "fiche-cdc" || viewValue === "information"
         ? "fiche"
         : viewValue === "processing"
           ? "fci"
-          : ["overview", "fiche", "fci", "documents", "history"].includes(viewValue)
+          : ["overview", "fiche", "fci", "go-no-go", "documents", "history"].includes(viewValue)
             ? (viewValue as WorkspaceView)
             : undefined
       : undefined;
+  const initialView = resolveAppelOffresWorkspaceView({
+    requestedView,
+    role: currentUser.role
+  });
 
   await syncStoredDocumentsMetadata(code).catch(() => undefined);
   const appel = await getAppelOffresDetailByCode(code);
@@ -59,6 +67,7 @@ export default async function AppelOffresDetailPage({
         flash={flash}
         initialTab={initialView}
         fciStatus={fciStatus}
+        currentUserRole={currentUser.role}
       />
     </div>
   );

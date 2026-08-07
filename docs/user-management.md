@@ -1,90 +1,56 @@
 # User Management
 
-## Objective
+## Objectif
 
-This module introduces a persisted identity layer for CONCEPT without adding authentication yet.
+Le module `User Management` fournit la couche d'identite persisted de CONCEPT et alimente :
 
-It provides:
+- l'authentification locale ;
+- le RBAC centralise ;
+- l'administration des utilisateurs ;
+- le profil utilisateur ;
+- le switcher de developpement.
 
-- a real `app_users` domain model in PostgreSQL;
-- departments and user statuses;
-- an editable `/profile` experience;
-- an administration area for user lifecycle management;
-- a development-only current-user switcher;
-- RBAC integration driven by the selected persisted user instead of a hardcoded Bob-only fallback.
+## Objets de base
 
-The authentication milestone will later connect to this model.
+Tables principales :
 
-## Architecture
-
-### Domain and persistence
-
-User management lives under `lib/users/`:
-
-- `types.ts`: user, department, status, and development-switcher types
-- `presentation.ts`: labels, initials, and UI-facing helpers
-- `validation.ts`: payload parsing and business validation
-- `repository.ts`: PostgreSQL schema setup, seed data, CRUD operations, and development user selection
-- `client.ts`: browser-side fetch helpers for profile, administration, and development switching
-- `http.ts`: shared API response helpers
-- `settings.ts`: placeholder settings navigation model
-
-### Database objects
-
-The repository ensures these tables exist:
-
-- `public.app_departments`
 - `public.app_users`
+- `public.app_departments`
 - `public.app_runtime_settings`
 
-`public.app_runtime_settings` stores the currently selected development user:
+`public.app_runtime_settings` conserve l'utilisateur cible du switcher de developpement.
 
-- `development.current_user_id`
+## Utilisateurs
 
-This allows permission changes without restart and without custom headers.
+Champs fonctionnels principaux :
 
-## Identity model
+- nom / prenom / display name
+- email / normalized_email
+- role
+- department_code
+- status
+- job_title
+- phone
+- language
+- timezone
+- last_login_at
 
-### User
-
-Main fields:
-
-- `id`
-- `first_name`
-- `last_name`
-- `display_name`
-- `email`
-- `normalized_email`
-- `job_title`
-- `department_code`
-- `role`
-- `status`
-- `avatar_url`
-- `phone`
-- `language`
-- `timezone`
-- `created_at`
-- `updated_at`
-- `last_login_at`
-
-### Statuses
+Statuts :
 
 - `ACTIVE`
 - `INACTIVE`
 - `INVITED`
 - `LOCKED`
 
-### Departments
+Departements seeds :
 
+- `ADMINISTRATION`
 - `COMMERCIAL`
 - `FINANCE`
 - `OPERATIONS`
 - `DIRECTION_GENERALE`
-- `ADMINISTRATION`
 
-## Roles and RBAC
-
-Roles reuse the existing RBAC model:
+## Roles actuels
 
 - `ADMIN`
 - `COMMERCIAL`
@@ -92,110 +58,95 @@ Roles reuse the existing RBAC model:
 - `OPERATIONS`
 - `DIRECTION_GENERALE`
 
-The current user is now resolved from the persisted development user in the database.
+Important :
 
-That current user feeds:
-
-- `canAccess(...)`
-- `canViewFciModule(...)`
-- `canEditFciModule(...)`
-- `canMakeFinalDecision(...)`
-
-No manual testing headers are required anymore.
+- `ADMIN` est un role d'administration technique
+- `ADMIN` ne voit plus les contenus metier appels d'offres / Fiche CDC / FCI
+- les roles metier gardent l'acces au dashboard et aux appels d'offres
 
 ## Seed users
 
-The repository seeds realistic internal users:
+Utilisateurs seeds locaux :
 
-- Bob Durand — `ADMIN` / `ADMINISTRATION`
-- Claire Martin — `COMMERCIAL` / `COMMERCIAL`
-- Sophie Bernard — `FINANCE` / `FINANCE`
-- Marc Leroy — `OPERATIONS` / `OPERATIONS`
-- Isabelle Moreau — `DIRECTION_GENERALE` / `DIRECTION_GENERALE`
+- Bob Durand -> `ADMIN` / `ADMINISTRATION`
+- Claire Martin -> `COMMERCIAL` / `COMMERCIAL`
+- Sophie Bernard -> `FINANCE` / `FINANCE`
+- Marc Leroy -> `OPERATIONS` / `OPERATIONS`
+- Isabelle Moreau -> `DIRECTION_GENERALE` / `DIRECTION_GENERALE`
 
-Bob remains the default development user.
+Bob reste le compte d'administration par defaut pour le developpement.
 
-## Development switcher
+## Se connecter en local
 
-Visible only when `NODE_ENV !== "production"`.
+Variables requises dans `.env.local` :
 
-Behavior:
+- `DATABASE_URL` - connexion PostgreSQL (requise avant tout : le schema
+  d'authentification, les sessions et les utilisateurs seed y sont stockes).
+- `AUTH_SECRET` - secret utilise pour signer les jetons de session.
+- `CONCEPT_DEV_ADMIN_PASSWORD` - mot de passe local pour le compte `ADMIN`
+  seed (`bob.durand@concept.local`), lu par `lib/auth/config.ts`. Actif
+  uniquement quand `NODE_ENV=development`.
+- `CONCEPT_DEV_USER_PASSWORD` - mot de passe local partage par les quatre
+  comptes metier seed (`claire.martin@concept.local`,
+  `sophie.bernard@concept.local`, `marc.leroy@concept.local`,
+  `isabelle.moreau@concept.local`).
 
-- the top-right user dropdown exposes the available seeded users;
-- selecting a user updates `public.app_runtime_settings`;
-- the app refreshes immediately;
-- permissions, navigation access, and FCI edit rights change without restart.
+Ces mots de passe ne sont jamais codes en dur : ils sont lus depuis
+l'environnement au demarrage et hashes (`lib/auth/repository.ts:
+seedDevelopmentPasswords`) sur les seeds qui n'ont pas encore de
+`password_hash`, uniquement en developpement.
 
-This switcher is intentionally separate from authentication.
+Pour se connecter : ouvrir `/login`, saisir `bob.durand@concept.local` et la
+valeur de `CONCEPT_DEV_ADMIN_PASSWORD` (ou un des quatre emails seed metier
+avec `CONCEPT_DEV_USER_PASSWORD`). Une connexion reussie pose le cookie de
+session `concept_session` et redirige vers la page par defaut du role
+(`/administration` pour `ADMIN`, `/dashboard` pour les autres roles).
 
-## UI surfaces
+## Surfaces UI
 
-### App shell
+### Administration
 
-The shell now shows:
+Pages principales :
 
-- avatar or initials;
-- name;
-- role;
-- department;
-- dropdown links to:
-  - `/profile`
-  - `/settings`
-  - development switcher in development mode
-
-### Profile
-
-`/profile` allows the current user to edit:
-
-- first name
-- last name
-- email
-- phone
-- department
-- job title
-- avatar URL
-- language
-- timezone
-
-Read-only profile context:
-
-- role
-- account status
-- last login
-- created date
-
-### Administration → Utilisateurs
-
-Pages:
-
+- `/administration`
 - `/administration/utilisateurs`
 - `/administration/utilisateurs/nouveau`
 - `/administration/utilisateurs/[id]`
 - `/administration/utilisateurs/[id]/modifier`
+- `/administration/logiciels`
 
-Supported actions:
+Actions reservees a `ADMIN` :
 
-- create user
-- edit user
-- activate user
-- deactivate user
-- search/filter by role, department, and status
+- creer un utilisateur
+- modifier un utilisateur
+- activer / desactiver
+- attribuer role et departement
+- gerer les donnees de reference techniques
 
-### Settings placeholders
+### Profil
 
-Pages:
+`/profile` reste accessible a tous les roles, y compris `ADMIN`.
 
-- `/settings`
-- `/settings/general`
-- `/settings/profile`
-- `/settings/notifications`
-- `/settings/security`
+### Parametres
 
-These pages are intentionally non-functional placeholders, but they follow the same application design system and are ready to receive future settings capabilities.
+`/settings/**` reste accessible a tous les roles authentifies.
 
-## API routes
+## Restrictions `ADMIN`
 
-### Administration
+Le role `ADMIN` ne doit pas etre utilise comme super-role metier.
+
+Restrictions explicites :
+
+- pas d'acces au dashboard business
+- pas d'acces a `/appels-offres/**`
+- pas d'acces a `/fiche/**`
+- pas d'acces aux modules FCI
+- pas d'export FCI
+- pas de validation metier
+
+## APIs
+
+Routes d'administration :
 
 - `GET /api/administration/utilisateurs`
 - `POST /api/administration/utilisateurs`
@@ -204,56 +155,41 @@ These pages are intentionally non-functional placeholders, but they follow the s
 - `POST /api/administration/utilisateurs/[id]/activate`
 - `POST /api/administration/utilisateurs/[id]/deactivate`
 
-These routes are protected by the existing administration RBAC gate.
+Ces routes renvoient `403` pour tout role non-`ADMIN`.
 
-### Profile
+Routes profil :
 
 - `GET /api/profile`
 - `PATCH /api/profile`
 
-### Development switching
+## Switcher de developpement
 
-- `GET /api/development/current-user`
-- `PUT /api/development/current-user`
+Disponible uniquement si :
 
-Available only outside production mode.
+- `NODE_ENV=development`
+- `CONCEPT_ENABLE_DEV_USER_SWITCHER=true`
+- utilisateur courant = `ADMIN`
 
-## Validation and safeguards
+Libelle UI :
 
-Validation currently enforces:
+- `Changer d'utilisateur - developpement`
 
-- required first name
-- required last name
-- valid email format
-- unique email at persistence level
-- valid department code
-- valid role
-- valid status
+Le switcher permet de tester l'experience d'un role metier sans modifier le modele RBAC.
 
-API behavior:
+## Validation et garde-fous
 
-- unauthorized administration access returns `403`
-- duplicate email returns `409`
-- invalid payload returns `400`
-- unknown user returns `404`
+- unicite email en base
+- validation des roles
+- validation des departements
+- validation des statuts
+- `403` sur les APIs d'administration non autorisees
 
-## Future authentication integration
+## Evolutions futures
 
-This module is intentionally authentication-ready, but not authenticated.
+Hors scope actuel :
 
-The next milestone can safely add:
-
-- a real user principal from session/auth middleware
-- password or SSO providers
-- invite/onboarding flows
-- lockout and audit controls
-- user-specific notification preferences
-- avatar uploads instead of URL-only storage
-
-To integrate production authentication, the main remaining steps are:
-
-1. Replace the development user resolver with a session-backed resolver.
-2. Map the authenticated identity to `public.app_users`.
-3. Persist `last_login_at` during successful sign-in.
-4. Restrict the development switcher to local development only.
-5. Add security and audit requirements around user activation, locking, and admin actions.
+- onboarding / invitation complete
+- reset de mot de passe
+- audit avance des actions admin
+- gestion des sessions utilisateur
+- permissions fines par fonctionnalite

@@ -4,6 +4,7 @@ import {
   getAppelOffresDetailByCode,
   unarchiveAppelOffres
 } from "@/lib/appels-offres/repository.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -12,10 +13,15 @@ function asErrorMessage(error: unknown) {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const current = await getAppelOffresDetailByCode(code, { includeArchived: true });
 

@@ -1,4 +1,5 @@
 import type { StatusPayload } from "../types.ts";
+import type { UserStatus } from "../users/types.ts";
 
 export type AppelOffresStatus =
   | "draft"
@@ -15,7 +16,9 @@ export type AppelOffresBusinessStatus =
   | "fiche_a_valider"
   | "fiche_validee"
   | "erreur"
-  | "archive";
+  | "archive"
+  | "offre_autorisee"
+  | "offre_rejetee";
 
 export type AppelOffresSource = "manual" | "fiche-flow";
 
@@ -71,9 +74,49 @@ export type AppelOffresRecord = AppelOffresInput & {
   status: AppelOffresStatus;
   businessStatus: AppelOffresBusinessStatus | null;
   source: AppelOffresSource;
+  commercialOwnerUserId?: number | null;
+  commercialOwnerAssignedAt?: string | null;
+  commercialOwnerAssignedByUserId?: number | null;
+  commercialOwnerPreviousUserId?: number | null;
+  commercialOwnerReason?: string | null;
+  commercialOwnerUpdatedAt?: string | null;
+  commercialOwnerStatus?: UserStatus | null;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+};
+
+export type AppelOffresCommercialOwnerView = {
+  userId: number | null;
+  displayName: string | null;
+  email: string | null;
+  jobTitle: string | null;
+  role: "COMMERCIAL" | null;
+  status: UserStatus | null;
+  assignedAt: string | null;
+  assignedByUserId: number | null;
+  assignedByName: string | null;
+  previousOwnerUserId: number | null;
+  previousOwnerName: string | null;
+  reason: string | null;
+  updatedAt: string | null;
+  isRecoveryRequired: boolean;
+  legacyResponsibleLabel: string | null;
+};
+
+export type AppelOffresCommercialOwnershipEventRecord = {
+  id: number;
+  appelOffresId: number;
+  appelOffresCode: string;
+  previousOwnerUserId: number | null;
+  previousOwnerName: string | null;
+  newOwnerUserId: number;
+  newOwnerName: string | null;
+  changedByUserId: number | null;
+  changedByName: string | null;
+  reason: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
 };
 
 export type DocumentRecord = {

@@ -8,7 +8,8 @@ export function StatCard({
   description,
   href,
   actionLabel,
-  tone = "default"
+  tone = "default",
+  statusTone
 }: {
   icon: ReactNode;
   label: string;
@@ -17,12 +18,20 @@ export function StatCard({
   href?: string;
   actionLabel?: string;
   tone?: "default" | "success" | "ai" | "warning" | "danger";
+  /** Small status dot in the topline. Omit when the metric has no health signal to show. */
+  statusTone?: "success" | "warning" | "danger";
 }) {
   const content = (
     <>
       <div className="stat-card-topline">
         <span className="stat-card-icon">{icon}</span>
         <span className="stat-card-label">{label}</span>
+        {statusTone ? (
+          <span
+            className={`stat-card-status-dot stat-card-status-dot-${statusTone}`}
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
       <strong className="stat-card-value">{value}</strong>
       {description ? <p className="stat-card-description">{description}</p> : null}

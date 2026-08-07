@@ -1,5 +1,6 @@
 import type { FciWorkspacePresentation } from "@/lib/appels-offres/fci/presentation.ts";
 import { getFciModuleDefinitions } from "@/lib/appels-offres/fci/rendering.ts";
+import type { FciHumanVisibleModuleCode } from "@/lib/appels-offres/fci/types.ts";
 import { formatFciDateTime } from "@/lib/appels-offres/fci/ui.ts";
 import { FciModuleCard } from "./fci-module-card.tsx";
 import { FciProgress } from "./fci-progress.tsx";
@@ -16,9 +17,12 @@ export function FciOverview({
   workspace: FciWorkspacePresentation;
   isBusy?: boolean;
   busyMessage?: string;
-  onOpenModule: (moduleCode: "A" | "B" | "C" | "D") => void;
-  onPrepareAction: (moduleCode: "A" | "B" | "C" | "D", action: "generate" | "regenerate" | "validate") => void;
-  onOpenHistory: (moduleCode: "A" | "B" | "C" | "D") => void;
+  onOpenModule: (moduleCode: FciHumanVisibleModuleCode) => void;
+  onPrepareAction: (
+    moduleCode: FciHumanVisibleModuleCode,
+    action: "regenerate" | "validate"
+  ) => void;
+  onOpenHistory: (moduleCode: FciHumanVisibleModuleCode) => void;
 }) {
   const definitions = getFciModuleDefinitions();
   const summaryByCode = new Map(
@@ -95,14 +99,14 @@ export function FciOverview({
                   disabledMessage={isBusy ? busyMessage : undefined}
                   onAction={(action) => {
                     if (action === "open") {
-                      onOpenModule(definition.moduleCode);
+                      onOpenModule(definition.moduleCode as FciHumanVisibleModuleCode);
                       return;
                     }
                     if (action === "history") {
-                      onOpenHistory(definition.moduleCode);
+                      onOpenHistory(definition.moduleCode as FciHumanVisibleModuleCode);
                       return;
                     }
-                    onPrepareAction(definition.moduleCode, action);
+                    onPrepareAction(definition.moduleCode as FciHumanVisibleModuleCode, action);
                   }}
                 />
               );

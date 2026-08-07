@@ -12,6 +12,7 @@ import {
 } from "@/lib/appels-offres/repository.ts";
 import { storeSourcePdf } from "@/lib/appels-offres/storage.ts";
 import { parseAppelOffresFormData } from "@/lib/appels-offres/validation.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -20,10 +21,15 @@ function asErrorMessage(error: unknown) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     await syncStoredDocumentsMetadata(code).catch(() => undefined);
     const detail = await getAppelOffresDetailByCode(code, { includeArchived: true });
@@ -51,6 +57,11 @@ export async function PUT(
   let jobId: number | null = null;
 
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const current = await getAppelOffresDetailByCode(code, { includeArchived: true });
 
@@ -150,10 +161,15 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const current = await getAppelOffresDetailByCode(code, { includeArchived: true });
 

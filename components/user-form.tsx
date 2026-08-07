@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
-import { createUser, updateUser, UsersClientError } from "@/lib/users/client.ts";
+import {
+  createUser,
+  getUserOwnershipImpact,
+  updateUser,
+  UsersClientError
+} from "@/lib/users/client.ts";
 import type { DepartmentRecord, UserMutationInput, UserRecord } from "@/lib/users/types.ts";
 import { USER_ROLES, getUserRoleLabel } from "@/lib/auth/rbac.ts";
 import { USER_STATUSES } from "@/lib/users/types.ts";
@@ -57,6 +62,39 @@ export function UserForm({ mode, departments, user }: Props) {
     setIsWorking(true);
 
     try {
+      if (mode === "edit" && user?.id) {
+        const ownershipImpact = await getUserOwnershipImpact(user.id);
+
+        if (
+          user.role === "COMMERCIAL"
+          && form.role !== "COMMERCIAL"
+          && ownershipImpact.activeOwnedCount > 0
+        ) {
+          setError(
+            `Ce role ne peut pas etre modifie tant que ${ownershipImpact.activeOwnedCount} dossier(s) actif(s) lui sont rattaches.`
+          );
+          return;
+        }
+
+        if (
+          user.role === "COMMERCIAL"
+          && user.status === "ACTIVE"
+          && form.status !== "ACTIVE"
+          && ownershipImpact.activeOwnedCount > 0
+        ) {
+          const preview = ownershipImpact.ownedTenderCodes.slice(0, 3).join(", ");
+          const suffix = ownershipImpact.ownedTenderCodes.length > 3 ? ", ..." : "";
+          const confirmed = window.confirm(
+            `Ce Commercial possede ${ownershipImpact.activeOwnedCount} dossier(s) actif(s) (${preview}${suffix}). `
+            + "La desactivation placera ces dossiers dans la file de reaffectation. Continuer ?"
+          );
+
+          if (!confirmed) {
+            return;
+          }
+        }
+      }
+
       const response =
         mode === "create"
           ? await createUser(form)

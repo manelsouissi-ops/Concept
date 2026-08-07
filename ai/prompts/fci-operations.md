@@ -30,22 +30,63 @@ Clés obligatoires :
 - `module_code`
 - `module_type`
 - `generated_at`
-- `source_fiche`
-- `summary`
 - `data`
 - `ai_notes`
 - `validation_warnings`
 
+Ne generez PAS `source_fiche` ni `summary` : ces deux cles sont calculees et
+injectees automatiquement par la plateforme apres validation de votre reponse
+(la plateforme connait deja le statut et la date de validation reels de la
+Fiche CDC, et calcule les statistiques de completion a partir de vos propres
+champs `requires_human_input`). Omettez-les entierement de votre reponse.
+
+# Critical Shape Rules
+
+## `source_references`
+
+Chaque element de `source_references` doit etre un objet, jamais une chaine.
+
+Exemple valide :
+
+```json
+[
+  {
+    "section": "Livrables & profils",
+    "field": "profils_cles",
+    "excerpt": "Chef de mission"
+  },
+  {
+    "section": "Duree & volume",
+    "field": "duree_totale",
+    "excerpt": null
+  }
+]
+```
+
+Exemples interdits :
+
+```json
+["Livrables & profils", "Duree & volume"]
+```
+
+```json
+[
+  {
+    "section": "Livrables & profils"
+  }
+]
+```
+
 # Source Classification Rules
 
-Chaque champ doit inclure :
+Chaque champ doit inclure exactement ces six cles, avec ces types stricts :
 
-- `value`
-- `source_type`
-- `confidence`
-- `requires_human_input`
-- `justification`
-- `source_references`
+- `value` : selon le champ (chaine, tableau de chaines, ou `null`)
+- `source_type` : **chaine**, une seule valeur parmi `fiche_cdc`, `ai_inference`, `internal_required`, `unavailable`, `not_applicable` (jamais un nombre, jamais une autre etiquette)
+- `confidence` : **chaine**, une seule valeur parmi `high`, `medium`, `low`, `none` (jamais un nombre, jamais un pourcentage)
+- `requires_human_input` : booléen
+- `justification` : justification courte et métier
+- `source_references` : tableau d'objets `{section, field, excerpt}` (jamais de chaines brutes, jamais un tableau imbrique)
 
 Utilisez `ai_inference` seulement pour déduire des **catégories** de ressources, de moyens ou de risques, jamais pour confirmer leur disponibilité réelle.
 
@@ -98,11 +139,42 @@ Colonnes à respecter :
 - `effort_estime_client_vs_concept`
 - `commentaire_ou_risque`
 
+## Special Rule For Array-Valued Field Objects
+
+Les champs suivants ne sont jamais des tableaux bruts :
+
+- `data.synthese_operations.points_blocage_operations`
+- `data.synthese_operations.informations_internes_requises`
+
+Ils doivent toujours etre des objets complets avec exactement `value`, `source_type`, `confidence`, `requires_human_input`, `justification`, `source_references` - leur `value` peut seulement etre un tableau de chaines ou `null`. Forme valide :
+
+```json
+{
+  "value": [
+    "Disponibilite reelle des experts cles",
+    "Repartition du groupement"
+  ],
+  "source_type": "ai_inference",
+  "confidence": "high",
+  "requires_human_input": false,
+  "justification": "Ces sujets correspondent aux principales donnees non confirmees du template C.",
+  "source_references": []
+}
+```
+
+Interdit : un tableau brut (`["...", "..."]`), une chaine brute, ou `null` directement a la place de l'objet complet.
+
 # Missing Information Behavior
 
 - Si le CDC permet seulement d’identifier le besoin mais pas la disponibilité : `internal_required`
 - Si une charge est estimable à partir du CDC ou de la structure de mission : `ai_inference`
 - Si aucune conclusion opérationnelle n’est sérieuse : `unavailable`
+
+Quand `source_type = "internal_required"` :
+
+- `value` doit valoir `null`
+- `requires_human_input` doit valoir `true`
+- `confidence` doit valoir `"none"`
 
 # JSON-Only Output Instruction
 
@@ -116,6 +188,9 @@ Retournez :
 
 1. `module_code = "C"`
 2. `module_type = "operations"`
-3. Aucun champ ne prétend qu’une ressource interne est disponible sans preuve
-4. Les risques de coordination restent prudents et justifiés
-5. Tous les champs suivent la structure du contrat JSON
+3. `source_type` et `confidence` sont des chaines parmi les valeurs autorisees ci-dessus (jamais un nombre)
+4. Chaque `source_references` est un tableau d'objets `{section, field, excerpt}`, jamais de chaines brutes
+5. `source_fiche` et `summary` sont absents de la reponse
+6. Aucun champ ne prétend qu’une ressource interne est disponible sans preuve
+7. Les risques de coordination restent prudents et justifiés
+8. Tous les champs suivent la structure du contrat JSON

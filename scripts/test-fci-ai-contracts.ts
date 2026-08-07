@@ -111,11 +111,22 @@ function run() {
     messages.some((message) => message.includes("/value"))
   );
 
-  const invalidCompletion = deepClone(sampleOperations);
-  (invalidCompletion.summary as Record<string, unknown>).completion_percentage = 120;
-  expectInvalid("C", invalidCompletion, (messages) =>
-    messages.some((message) => message.includes("completion_percentage"))
-  );
+  // source_fiche and summary are platform-owned metadata (computed and
+  // injected in applyFciSuccessCallback, see callback-derivation.ts) - the
+  // AI is not asked to produce them, so a payload that omits them entirely,
+  // or sends garbage for them, must still validate on everything else.
+  const missingPlatformOwnedFields = deepClone(sampleOperations);
+  delete missingPlatformOwnedFields.source_fiche;
+  delete missingPlatformOwnedFields.summary;
+  expectValid("C", missingPlatformOwnedFields);
+
+  const garbagePlatformOwnedFields = deepClone(sampleOperations);
+  (garbagePlatformOwnedFields as Record<string, unknown>).summary = {
+    completion_percentage: 120,
+    status: "not_a_real_status"
+  };
+  (garbagePlatformOwnedFields as Record<string, unknown>).source_fiche = "not even an object";
+  expectValid("C", garbagePlatformOwnedFields);
 
   const invalidSourceReference = deepClone(sampleCommercial);
   (

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AuthError } from "@/lib/auth/errors.ts";
 
 export function buildUsersApiSuccess<TData>(data: TData, status = 200) {
   return NextResponse.json(
@@ -34,6 +35,10 @@ export function mapUsersApiError(
   fallbackCode = "USERS_REQUEST_FAILED",
   fallbackMessage = "La requete utilisateur a echoue."
 ) {
+  if (error instanceof AuthError) {
+    return buildUsersApiError(error.code, error.message, error.status);
+  }
+
   const message = error instanceof Error ? error.message : fallbackMessage;
 
   if (/introuvable/i.test(message)) {

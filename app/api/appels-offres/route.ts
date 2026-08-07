@@ -8,6 +8,7 @@ import {
   setAppelOffresStatus,
   syncStoredDocumentsMetadata
 } from "@/lib/appels-offres/repository.ts";
+import { assignCommercialOwner } from "@/lib/appels-offres/ownership.ts";
 import {
   AnalysisRequestError,
   launchAnalysisForAppelOffres
@@ -17,6 +18,7 @@ import {
   toErrorMessage
 } from "@/lib/appels-offres/user-errors.ts";
 import { parseAppelOffresFormData } from "@/lib/appels-offres/validation.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 import { getMaxCdcUploadBytes } from "@/lib/integrations/n8n-config.ts";
 
 export const runtime = "nodejs";
@@ -125,6 +127,11 @@ function logCreateFailure(
 
 export async function GET(request: Request) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { searchParams } = new URL(request.url);
     const appelsOffres = await listAppelsOffres({
       search: searchParams.get("search") ?? undefined,
@@ -150,6 +157,11 @@ export async function POST(request: Request) {
   let created = false;
 
   try {
+    const { currentUser, deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse || !currentUser) {
+      return deniedResponse;
+    }
+
     const formData = await request.formData();
     const { input, file } = parseAppelOffresFormData(formData, {
       requireCode: true,
@@ -176,6 +188,18 @@ export async function POST(request: Request) {
       source: "manual"
     });
     created = true;
+
+    if (currentUser.role === "COMMERCIAL" && currentUser.status === "ACTIVE") {
+      const actorUserId = Number(currentUser.id);
+      if (Number.isInteger(actorUserId) && actorUserId > 0) {
+        await assignCommercialOwner({
+          code,
+          newOwnerUserId: actorUserId,
+          reason: "auto_creator_assignment",
+          currentUser
+        });
+      }
+    }
 
     await appendAuditLog(code, "appel_offres.create.requested", {
       hasSourcePdf: true

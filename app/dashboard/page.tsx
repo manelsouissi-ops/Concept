@@ -8,8 +8,17 @@ import {
   FolderIcon
 } from "@/components/app-icons.tsx";
 import { DashboardRecentAppelsTable } from "@/components/dashboard-recent-appels-table.tsx";
+import { DecisionWorkspace } from "@/components/decision-workspace.tsx";
+import { DepartmentTaskWorkspace } from "@/components/department-task-workspace.tsx";
+import { CommercialWorkspace } from "@/components/commercial-workspace.tsx";
 import { EmptyState } from "@/components/empty-state.tsx";
+import { getCommercialWorkspacePresentation } from "@/lib/appels-offres/commercial-workspace.ts";
 import { getDashboardData } from "@/lib/appels-offres/dashboard.ts";
+import { getDecisionWorkspacePresentation } from "@/lib/appels-offres/decision-workspace.ts";
+import { getFinanceWorkspacePresentation } from "@/lib/appels-offres/finance-workspace.ts";
+import { getRoleWorkspaceExperience } from "@/lib/appels-offres/role-workspace.ts";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
+import { getFciModuleForRole } from "@/lib/auth/rbac.ts";
 import type { WorkspaceActivityItem } from "@/lib/appels-offres/workspace.ts";
 
 type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
@@ -43,7 +52,10 @@ function getDashboardFilterHref(kind: "total" | "processing" | "validation") {
   }
 }
 
-function buildStats(dashboard: DashboardData) {
+// COMMERCIAL owns intake and Fiche CDC validation ahead of any FCI module work,
+// so its dashboard stays centered on that stage. This mirrors the existing
+// (unchanged) behavior.
+function buildCommercialStats(dashboard: DashboardData) {
   return [
     {
       key: "total",
@@ -93,71 +105,172 @@ function buildRecentActivityItems(dashboard: DashboardData) {
   }));
 }
 
+function buildCommercialActionItems(dashboard: DashboardData, deadlineCount: number) {
+  return [
+    dashboard.actions_requises.fiches_cdc_a_valider.length > 0
+      ? {
+          key: "validation",
+          title: "Fiches CDC a valider",
+          supportingText: `${dashboard.actions_requises.fiches_cdc_a_valider.length} dossier${dashboard.actions_requises.fiches_cdc_a_valider.length > 1 ? "s a relire" : " a relire"}`,
+          href: getDashboardFilterHref("validation"),
+          actionLabel: "Revoir les fiches",
+          tone: "warning",
+          icon: <FileTextIcon className="stat-icon" />
+        }
+      : null,
+    dashboard.actions_requises.analyses_fci_a_generer.length > 0
+      ? {
+          key: "fci-generer",
+          title: "Modules FCI a suivre",
+          supportingText: `${dashboard.actions_requises.analyses_fci_a_generer.length} dossier${dashboard.actions_requises.analyses_fci_a_generer.length > 1 ? "s concernes" : " concerne"}`,
+          href: "/appels-offres?status=fiche_validee",
+          actionLabel: "Suivre",
+          tone: "muted",
+          icon: <FolderIcon className="stat-icon" />
+        }
+      : null,
+    dashboard.actions_requises.dossiers_prets_pour_offre.length > 0
+      ? {
+          key: "prets-offre",
+          title: "Dossiers prets pour l'offre",
+          supportingText: `${dashboard.actions_requises.dossiers_prets_pour_offre.length} dossier${dashboard.actions_requises.dossiers_prets_pour_offre.length > 1 ? "s prets" : " pret"}`,
+          href: "/appels-offres?status=fiche_validee",
+          actionLabel: "Consulter",
+          tone: "success",
+          icon: <CheckCircleIcon className="stat-icon" />
+        }
+      : null,
+    dashboard.actions_requises.dossiers_a_verifier.length > 0
+      ? {
+          key: "a-verifier",
+          title: "Dossiers a verifier",
+          supportingText: `${dashboard.actions_requises.dossiers_a_verifier.length} dossier${dashboard.actions_requises.dossiers_a_verifier.length > 1 ? "s a verifier" : " a verifier"}`,
+          href: "/appels-offres?status=erreur",
+          actionLabel: "Verifier ces dossiers",
+          tone: "muted",
+          icon: <FolderIcon className="stat-icon" />
+        }
+      : null,
+    deadlineCount > 0
+      ? {
+          key: "deadlines",
+          title: "Echeances proches",
+          supportingText: `${deadlineCount} appel${deadlineCount > 1 ? "s d'offres approchent de leur echeance" : " d'offres approche de son echeance"}`,
+          href: "/appels-offres?sort=deadline",
+          actionLabel: "Voir les echeances",
+          tone: "default",
+          icon: <ClockIcon className="stat-icon" />
+        }
+      : null
+  ].filter(Boolean) as DashboardTaskItem[];
+}
+
 export default async function DashboardPage() {
+  const currentUser = await requireAreaAccessForPage("dashboard");
+  const workspaceExperience = getRoleWorkspaceExperience(currentUser.role);
+  if (workspaceExperience.dashboardVariant === "department_minimal") {
+    try {
+      // FINANCE/OPERATIONS each own exactly one editable FCI module (B/C), so
+      // their dashboard stays scoped to that single task lane.
+      const moduleCode = getFciModuleForRole(currentUser.role);
+      if (!moduleCode) {
+        throw new Error("Aucun module FCI n'est associe a ce role.");
+      }
+      const financeWorkspace = await getFinanceWorkspacePresentation(currentUser, moduleCode);
+      return <DepartmentTaskWorkspace workspace={financeWorkspace} />;
+    } catch (error) {
+      return (
+        <div className="page-stack">
+          <section className="data-card">
+            <div className="section-header">
+              <div>
+                <h3>Espace {currentUser.departmentLabel}</h3>
+                <p className="meta">Workspace personnel indisponible.</p>
+              </div>
+            </div>
+            <div className="section-body">
+              <EmptyState
+                title="Chargement impossible"
+                description={
+                  error instanceof Error
+                    ? error.message
+                    : "Le workspace n'a pas pu etre charge."
+                }
+              />
+            </div>
+          </section>
+        </div>
+      );
+    }
+  }
+
+  if (workspaceExperience.dashboardVariant === "decision") {
+    try {
+      const decisionWorkspace = await getDecisionWorkspacePresentation(currentUser);
+      return <DecisionWorkspace workspace={decisionWorkspace} />;
+    } catch (error) {
+      return (
+        <div className="page-stack">
+          <section className="data-card">
+            <div className="section-header">
+              <div>
+                <h3>Centre de decision DG</h3>
+                <p className="meta">File Go/No-Go indisponible.</p>
+              </div>
+            </div>
+            <div className="section-body">
+              <EmptyState
+                title="Chargement impossible"
+                description={
+                  error instanceof Error
+                    ? error.message
+                    : "Le centre de decision n'a pas pu etre charge."
+                }
+              />
+            </div>
+          </section>
+        </div>
+      );
+    }
+  }
+
+  if (workspaceExperience.dashboardVariant === "commercial_coordination") {
+    try {
+      const commercialWorkspace = await getCommercialWorkspacePresentation(currentUser);
+      return <CommercialWorkspace workspace={commercialWorkspace} />;
+    } catch (error) {
+      return (
+        <div className="page-stack">
+          <section className="data-card">
+            <div className="section-header">
+              <div>
+                <h3>Pilotage des appels d'offres</h3>
+                <p className="meta">Workspace de coordination indisponible.</p>
+              </div>
+            </div>
+            <div className="section-body">
+              <EmptyState
+                title="Chargement impossible"
+                description={
+                  error instanceof Error
+                    ? error.message
+                    : "Le workspace de coordination n'a pas pu etre charge."
+                }
+              />
+            </div>
+          </section>
+        </div>
+      );
+    }
+  }
+
   try {
     const dashboard = await getDashboardData();
-    const dashboardNowReference = new Date("2026-07-22T12:00:00.000+02:00").toISOString();
+    const dashboardNowReference = new Date().toISOString();
     const recentActivity = buildRecentActivityItems(dashboard);
-    const statItems = buildStats(dashboard);
+    const statItems = buildCommercialStats(dashboard);
     const deadlineCount = dashboard.actions_requises.appels_proches_date_limite.length;
-
-    const actionItems = [
-      dashboard.actions_requises.fiches_cdc_a_valider.length > 0
-        ? {
-            key: "validation",
-            title: "Fiches CDC a valider",
-            supportingText: `${dashboard.actions_requises.fiches_cdc_a_valider.length} dossier${dashboard.actions_requises.fiches_cdc_a_valider.length > 1 ? "s a relire" : " a relire"}`,
-            href: getDashboardFilterHref("validation"),
-            actionLabel: "Revoir les fiches",
-            tone: "warning",
-            icon: <FileTextIcon className="stat-icon" />
-          }
-        : null,
-      dashboard.actions_requises.analyses_fci_a_generer.length > 0
-        ? {
-            key: "fci-generer",
-            title: "Analyses FCI a generer",
-            supportingText: `${dashboard.actions_requises.analyses_fci_a_generer.length} dossier${dashboard.actions_requises.analyses_fci_a_generer.length > 1 ? "s concernes" : " concerne"}`,
-            href: "/appels-offres?status=fiche_validee",
-            actionLabel: "Generer",
-            tone: "muted",
-            icon: <FolderIcon className="stat-icon" />
-          }
-        : null,
-      dashboard.actions_requises.dossiers_prets_pour_offre.length > 0
-        ? {
-            key: "prets-offre",
-            title: "Dossiers prets pour l'offre",
-            supportingText: `${dashboard.actions_requises.dossiers_prets_pour_offre.length} dossier${dashboard.actions_requises.dossiers_prets_pour_offre.length > 1 ? "s prets" : " pret"}`,
-            href: "/appels-offres?status=fiche_validee",
-            actionLabel: "Consulter",
-            tone: "success",
-            icon: <CheckCircleIcon className="stat-icon" />
-          }
-        : null,
-      dashboard.actions_requises.dossiers_a_verifier.length > 0
-        ? {
-            key: "a-verifier",
-            title: "Dossiers a verifier",
-            supportingText: `${dashboard.actions_requises.dossiers_a_verifier.length} dossier${dashboard.actions_requises.dossiers_a_verifier.length > 1 ? "s a verifier" : " a verifier"}`,
-            href: "/appels-offres?status=erreur",
-            actionLabel: "Verifier ces dossiers",
-            tone: "muted",
-            icon: <FolderIcon className="stat-icon" />
-          }
-        : null,
-      deadlineCount > 0
-        ? {
-            key: "deadlines",
-            title: "Echeances proches",
-            supportingText: `${deadlineCount} appel${deadlineCount > 1 ? "s d'offres approchent de leur echeance" : " d'offres approche de son echeance"}`,
-            href: "/appels-offres?sort=deadline",
-            actionLabel: "Voir les echeances",
-            tone: "default",
-            icon: <ClockIcon className="stat-icon" />
-          }
-        : null
-    ].filter(Boolean) as DashboardTaskItem[];
+    const actionItems = buildCommercialActionItems(dashboard, deadlineCount);
 
     if (dashboard.total_appels_offres === 0) {
       return (
@@ -181,7 +294,7 @@ export default async function DashboardPage() {
     return (
       <div className="page-stack">
         <section className="data-card dashboard-hero">
-          <h1>Bonjour Bob</h1>
+          <h1>Bonjour {currentUser.firstName}</h1>
           <p className="dashboard-hero-summary">Voici l&apos;etat de vos appels d&apos;offres aujourd&apos;hui.</p>
         </section>
 

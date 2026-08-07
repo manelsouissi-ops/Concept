@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { confirmSoftwareAnalysisImport } from "@/lib/appels-offres/software-analysis-importer.ts";
 import type { SoftwareAnalysisImportSource } from "@/lib/appels-offres/software-analysis-types.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -38,6 +39,11 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const source = await parseImportSource(await request.formData());
     const summary = await confirmSoftwareAnalysisImport(code, source);

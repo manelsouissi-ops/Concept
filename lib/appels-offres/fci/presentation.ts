@@ -1,5 +1,6 @@
 import type {
   FciAuditEventRecord,
+  FciContributingModuleCode,
   FciDetail,
   FciGenerationJobRecord,
   FciModuleCode,
@@ -7,7 +8,11 @@ import type {
   FciModuleRecord,
   FciSetOverallStatus
 } from "./types.ts";
-import { isFciModuleGeneratable } from "./validation.ts";
+import {
+  isFciContributingModuleCode,
+  isFciModuleGeneratable,
+  isHumanVisibleFciModuleCode
+} from "./validation.ts";
 import type { SourceFicheSnapshot } from "./source-fiche.ts";
 import type { AppelOffresRecord } from "../types.ts";
 import type { FicheStatus } from "../../types.ts";
@@ -35,7 +40,6 @@ import {
 
 export type FciModuleAllowedAction =
   | "edit"
-  | "generate"
   | "regenerate"
   | "validate"
   | "view_history";
@@ -124,7 +128,7 @@ export type FciWorkspacePresentation = {
     percentage: number;
   };
   knowledge_base_enabled: boolean;
-  enabled_modules: FciModuleCode[];
+  enabled_modules: FciContributingModuleCode[];
   module_summaries: FciModuleSummaryPresentation[];
 };
 
@@ -431,7 +435,11 @@ export function calculateFciOverallStatus(input: {
   modules: FciModuleRecord[];
   latestDataByModuleId: Map<number, FciModuleDataRecord>;
 }) {
-  const enabledModules = input.modules.filter((module) => module.status !== "unavailable");
+  const enabledModules = input.modules.filter(
+    (module) =>
+      module.status !== "unavailable"
+      && isFciContributingModuleCode(module.moduleCode)
+  );
 
   if (enabledModules.length === 0) {
     return "not_started" satisfies FciSetOverallStatus;
@@ -476,7 +484,11 @@ export function buildFciProgress(input: {
   modules: FciModuleRecord[];
   latestDataByModuleId: Map<number, FciModuleDataRecord>;
 }) {
-  const enabledModules = input.modules.filter((module) => module.status !== "unavailable");
+  const enabledModules = input.modules.filter(
+    (module) =>
+      module.status !== "unavailable"
+      && isFciContributingModuleCode(module.moduleCode)
+  );
   const totalModules = enabledModules.length;
   const validatedModules = enabledModules.filter(
     (module) => module.status === "validated"
@@ -510,7 +522,6 @@ export function buildFciModuleAllowedActions(input: {
   const sourceValidated = input.sourceFiche?.isValidated ?? false;
   const canEdit = canEditFciModule(input.currentUser.role, input.module.moduleCode);
   const canValidate = canValidateFciModule(input.currentUser.role, input.module.moduleCode);
-  const canGenerate = canGenerateFciModule(input.currentUser.role, input.module.moduleCode);
   const canRegenerate = canRegenerateFciModule(input.currentUser.role, input.module.moduleCode);
 
   if (canEdit && input.latestData && input.module.status !== "generating") {
@@ -525,8 +536,6 @@ export function buildFciModuleAllowedActions(input: {
   if (generatable && !activeJob && sourceValidated) {
     if (input.latestData && canRegenerate) {
       actions.unshift("regenerate");
-    } else if (!input.latestData && canGenerate) {
-      actions.unshift("generate");
     }
   }
 
@@ -686,19 +695,25 @@ export function buildFciWorkspacePresentation(input: {
     }),
     knowledge_base_enabled: input.knowledgeBaseEnabled,
     enabled_modules: input.detail.modules
-      .filter((module) => module.status !== "unavailable")
-      .map((module) => module.moduleCode),
-    module_summaries: input.detail.modules.map((module) =>
-      buildFciModuleSummary({
-        appelOffres: input.appelOffres,
-        module,
-        latestData: latestDataByModuleId.get(module.id) ?? null,
-        latestJob: latestJobsByModuleId.get(module.id) ?? null,
-        sourceFiche: input.sourceFiche,
-        knowledgeBaseEnabled: input.knowledgeBaseEnabled,
-        currentUser: input.currentUser
-      })
-    )
+      .filter(
+        (module) =>
+          module.status !== "unavailable"
+          && isHumanVisibleFciModuleCode(module.moduleCode)
+      )
+      .map((module) => module.moduleCode as FciContributingModuleCode),
+    module_summaries: input.detail.modules
+      .filter((module) => isHumanVisibleFciModuleCode(module.moduleCode))
+      .map((module) =>
+        buildFciModuleSummary({
+          appelOffres: input.appelOffres,
+          module,
+          latestData: latestDataByModuleId.get(module.id) ?? null,
+          latestJob: latestJobsByModuleId.get(module.id) ?? null,
+          sourceFiche: input.sourceFiche,
+          knowledgeBaseEnabled: input.knowledgeBaseEnabled,
+          currentUser: input.currentUser
+        })
+      )
   };
 }
 

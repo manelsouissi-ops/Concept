@@ -32,46 +32,19 @@ Le JSON doit contenir exactement :
 - `module_code`
 - `module_type`
 - `generated_at`
-- `source_fiche`
-- `summary`
 - `data`
 - `ai_notes`
 - `validation_warnings`
 
+Ne generez PAS `source_fiche` ni `summary` : ces deux cles sont calculees et
+injectees automatiquement par la plateforme apres validation de votre reponse
+(la plateforme connait deja le statut et la date de validation reels de la
+Fiche CDC, et calcule les statistiques de completion a partir de vos propres
+champs `requires_human_input`). Omettez-les entierement de votre reponse.
+
 # Critical Shape Rules
 
 Respectez strictement les formes suivantes :
-
-## `summary`
-
-Le champ `summary` doit etre exactement un objet de cette forme :
-
-```json
-{
-  "status": "complete",
-  "completion_percentage": 72,
-  "human_inputs_required": 4,
-  "warnings": [
-    "Les validations internes commerciales restent a completer."
-  ]
-}
-```
-
-Contraintes obligatoires :
-
-- `summary.status` doit valoir uniquement `complete`, `partial` ou `insufficient_data`
-- `summary.completion_percentage` doit etre un entier
-- `summary.human_inputs_required` doit etre un entier
-- `summary.warnings` doit toujours etre un tableau
-
-N'ajoutez jamais dans `summary` :
-
-- `code_dossier`
-- `intitule_projet`
-- `client`
-- `pays`
-- `statut_general`
-- `points_cles`
 
 ## `source_references`
 
@@ -298,21 +271,6 @@ Utilisez ce motif minimal comme reference de forme :
   "module_code": "A",
   "module_type": "commercial",
   "generated_at": "2026-07-28T10:00:00.000Z",
-  "source_fiche": {
-    "code_interne": "AO-20260727-0945",
-    "version": "validated:2026-07-27T11:24:18.877Z",
-    "hash": "sha256-exemple",
-    "status": "validated",
-    "validated_at": "2026-07-27T11:24:18.877Z"
-  },
-  "summary": {
-    "status": "partial",
-    "completion_percentage": 58,
-    "human_inputs_required": 6,
-    "warnings": [
-      "Les concurrents ne sont pas explicitement identifies dans la Fiche CDC."
-    ]
-  },
   "data": {
     "identification_opportunite": {
       "reference_interne_code_dossier": {
@@ -353,6 +311,9 @@ Avant de répondre, vérifiez :
 1. `module_code` vaut bien `A`
 2. `module_type` vaut bien `commercial`
 3. Tous les objets champ contiennent `value`, `source_type`, `confidence`, `requires_human_input`, `justification`, `source_references`
-4. Aucune information interne n’est inventée
-5. Toute inférence est signalée comme telle
-6. Le JSON est syntaxiquement valide
+4. `source_type` et `confidence` sont des chaines parmi les valeurs autorisees ci-dessus (jamais un nombre)
+5. Chaque `source_references` est un tableau d'objets `{section, field, excerpt}`, jamais de chaines brutes
+6. `source_fiche` et `summary` sont absents de la reponse
+7. Aucune information interne n’est inventée
+8. Toute inférence est signalée comme telle
+9. Le JSON est syntaxiquement valide

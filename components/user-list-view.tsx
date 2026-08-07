@@ -10,7 +10,11 @@ import { UserStatusBadge } from "./user-status-badge.tsx";
 import type { DepartmentRecord, UserRecord } from "@/lib/users/types.ts";
 import { getUserRoleLabel, USER_ROLES } from "@/lib/auth/rbac.ts";
 import { USER_STATUSES } from "@/lib/users/types.ts";
-import { setUserStatus, UsersClientError } from "@/lib/users/client.ts";
+import {
+  getUserOwnershipImpact,
+  setUserStatus,
+  UsersClientError
+} from "@/lib/users/client.ts";
 import { getUserStatusLabel } from "@/lib/users/presentation.ts";
 
 function formatDate(value: string) {
@@ -77,6 +81,24 @@ export function UserListView({
         setError(null);
         setFeedback(null);
         try {
+          if (user.role === "COMMERCIAL" && user.status === "ACTIVE") {
+            const ownershipImpact = await getUserOwnershipImpact(user.id);
+            if (ownershipImpact.activeOwnedCount > 0) {
+              const dossierCount = ownershipImpact.activeOwnedCount;
+              const preview = ownershipImpact.ownedTenderCodes.slice(0, 3).join(", ");
+              const suffix =
+                ownershipImpact.ownedTenderCodes.length > 3 ? ", ..." : "";
+              const confirmed = window.confirm(
+                `Ce Commercial possede ${dossierCount} dossier(s) actif(s) (${preview}${suffix}). `
+                + "La desactivation placera ces dossiers dans la file de reaffectation. Continuer ?"
+              );
+
+              if (!confirmed) {
+                return;
+              }
+            }
+          }
+
           await setUserStatus(user.id, user.status === "ACTIVE" ? "INACTIVE" : "ACTIVE");
           setFeedback(
             user.status === "ACTIVE"

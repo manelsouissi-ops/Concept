@@ -7,7 +7,8 @@ import type {
   FciAiSupportedModuleCode
 } from "./ai-contracts.ts";
 import type { FicheStatus } from "@/lib/types.ts";
-import type { FciModuleType } from "./types.ts";
+import type { FciHumanVisibleModuleCode, FciModuleType } from "./types.ts";
+import { FCI_HUMAN_VISIBLE_MODULE_CODES } from "./types.ts";
 
 export const FCI_FORM_CONTRACT_VERSION = "2.0" as const;
 export const FCI_FORM_PAYLOAD_KIND = "departmental_fci_form" as const;
@@ -1035,8 +1036,16 @@ function createModuleDefinitions(): Record<FciAiSupportedModuleCode, FciModuleDe
 
 const MODULE_DEFINITIONS = createModuleDefinitions();
 
-export function getFciModuleDefinitions() {
-  return Object.values(MODULE_DEFINITIONS);
+export function getFciModuleDefinitions(input?: {
+  includeHidden?: boolean;
+}) {
+  if (input?.includeHidden) {
+    return Object.values(MODULE_DEFINITIONS);
+  }
+
+  return FCI_HUMAN_VISIBLE_MODULE_CODES.map(
+    (moduleCode) => MODULE_DEFINITIONS[moduleCode as FciHumanVisibleModuleCode]
+  );
 }
 
 export function getFciModuleDefinition(moduleCode: FciAiSupportedModuleCode) {

@@ -3,6 +3,7 @@ import path from "node:path";
 import type { FciAiSupportedModuleCode } from "./ai-contracts.ts";
 import { getFciContractRegistry } from "./contract-registry.ts";
 import { getFciModuleTypeFromCode } from "./validation.ts";
+import { dereferenceFciModuleSchema } from "./schema-bundle.ts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -22,6 +23,7 @@ const SCHEMA_FILE_BY_CODE = {
 
 const PROMPT_ROOT = path.join(process.cwd(), "ai", "prompts");
 const SCHEMA_ROOT = path.join(process.cwd(), "ai", "schemas");
+const COMMON_SCHEMA_PATH = path.join(SCHEMA_ROOT, "fci-common.schema.json");
 
 function readTextFile(filePath: string) {
   return readFileSync(filePath, "utf8").trim();
@@ -29,6 +31,15 @@ function readTextFile(filePath: string) {
 
 function readJsonFile(filePath: string) {
   return JSON.parse(readFileSync(filePath, "utf8")) as JsonSchema;
+}
+
+let commonSchemaCache: JsonSchema | null = null;
+
+function getCommonSchema() {
+  if (!commonSchemaCache) {
+    commonSchemaCache = readJsonFile(COMMON_SCHEMA_PATH);
+  }
+  return commonSchemaCache;
 }
 
 const runtimeContractCache = new Map<
@@ -58,7 +69,7 @@ export function getFciAiRuntimeContract(moduleCode: FciAiSupportedModuleCode) {
     moduleCode,
     moduleType: getFciModuleTypeFromCode(moduleCode),
     promptText: readTextFile(promptPath),
-    schemaJson: readJsonFile(schemaPath),
+    schemaJson: dereferenceFciModuleSchema(readJsonFile(schemaPath), getCommonSchema()),
     promptVersion: registry.promptVersion,
     schemaVersion: registry.schemaVersion,
     contractVersion: registry.contractVersion

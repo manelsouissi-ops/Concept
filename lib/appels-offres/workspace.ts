@@ -6,6 +6,7 @@ export type WorkspaceTabKey =
   | "processing"
   | "fiche"
   | "fci"
+  | "go-no-go"
   | "documents"
   | "history";
 

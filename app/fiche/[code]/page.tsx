@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { FicheEditor } from "@/components/fiche-editor.tsx";
 import { PageHeader } from "@/components/page-header.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import {
   getAppelOffresDetailByCode,
   syncStoredDocumentsMetadata
@@ -11,6 +12,7 @@ export default async function FichePage({
 }: {
   params: Promise<{ code: string }>;
 }) {
+  await requireAreaAccessForPage("appels_offres");
   const { code } = await params;
   await syncStoredDocumentsMetadata(code).catch(() => undefined);
   const appel = await getAppelOffresDetailByCode(code);

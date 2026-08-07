@@ -6,11 +6,10 @@ import {
   FciClientError,
   getFciWorkspace,
   initializeFci,
-  prepareFciGeneration,
   prepareFciRegeneration
 } from "@/lib/appels-offres/fci/client.ts";
 import type { FciWorkspacePresentation } from "@/lib/appels-offres/fci/presentation.ts";
-import type { FciAiSupportedModuleCode } from "@/lib/appels-offres/fci/ai-contracts.ts";
+import type { FciHumanVisibleModuleCode } from "@/lib/appels-offres/fci/types.ts";
 import { formatFciClientErrorMessage } from "@/lib/appels-offres/fci/ui.ts";
 import { FciHeader } from "./fci-header.tsx";
 import { FciOverview } from "./fci-overview.tsx";
@@ -21,8 +20,8 @@ import { FciModuleView } from "./fci-module-view.tsx";
 const FCI_POLL_INTERVAL_MS = 4_000;
 const FCI_MAX_POLL_ATTEMPTS = 30;
 
-function isModuleCode(value: string | null): value is FciAiSupportedModuleCode {
-  return value === "A" || value === "B" || value === "C" || value === "D";
+function isHumanVisibleModuleCode(value: string | null): value is FciHumanVisibleModuleCode {
+  return value === "A" || value === "B" || value === "C";
 }
 
 export function FciWorkspace({
@@ -42,13 +41,13 @@ export function FciWorkspace({
   const [pollAttempts, setPollAttempts] = useState(0);
   const [isPending, startTransition] = useTransition();
   const [pendingAction, setPendingAction] = useState<{
-    moduleCode: FciAiSupportedModuleCode;
-    kind: "generate" | "regenerate";
+    moduleCode: FciHumanVisibleModuleCode;
+    kind: "regenerate";
   } | null>(null);
 
   const selectedModule = useMemo(() => {
     const moduleParam = searchParams.get("fciModule");
-    return isModuleCode(moduleParam) ? moduleParam : null;
+    return isHumanVisibleModuleCode(moduleParam) ? moduleParam : null;
   }, [searchParams]);
 
   async function loadWorkspace() {
@@ -90,7 +89,7 @@ export function FciWorkspace({
     if (pollAttempts >= FCI_MAX_POLL_ATTEMPTS) {
       setInfoMessage((current) =>
         current
-        ?? "La génération FCI est toujours en cours. Actualisez le workspace pour vérifier l’avancement."
+        ?? "La generation FCI est toujours en cours. Actualisez le workspace pour verifier l'avancement."
       );
       return;
     }
@@ -106,7 +105,7 @@ export function FciWorkspace({
     };
   }, [code, isPollingGeneration, pollAttempts]);
 
-  function updateModuleParam(moduleCode: FciAiSupportedModuleCode | null) {
+  function updateModuleParam(moduleCode: FciHumanVisibleModuleCode | null) {
     const params = new URLSearchParams(searchParams.toString());
     if (moduleCode) {
       params.set("fciModule", moduleCode);
@@ -124,7 +123,7 @@ export function FciWorkspace({
           const nextWorkspace = await initializeFci(code);
           setWorkspace(nextWorkspace);
           setError(null);
-          setInfoMessage("Workspace FCI initialisé.");
+          setInfoMessage("Workspace FCI initialise.");
         } catch (nextError) {
           setError(
             nextError instanceof FciClientError
@@ -141,8 +140,8 @@ export function FciWorkspace({
   }
 
   function handlePrepareAction(
-    moduleCode: FciAiSupportedModuleCode,
-    action: "generate" | "regenerate" | "validate"
+    moduleCode: FciHumanVisibleModuleCode,
+    action: "regenerate" | "validate"
   ) {
     if (action === "validate") {
       updateModuleParam(moduleCode);
@@ -154,13 +153,8 @@ export function FciWorkspace({
         setActionErrorMessage(null);
         setPendingAction({ moduleCode, kind: action });
         try {
-          if (action === "generate") {
-            await prepareFciGeneration(code, moduleCode);
-            setInfoMessage("Génération lancée. Le module sera actualisé automatiquement.");
-          } else {
-            await prepareFciRegeneration(code, moduleCode);
-            setInfoMessage("Régénération lancée. Le module sera actualisé automatiquement.");
-          }
+          await prepareFciRegeneration(code, moduleCode);
+          setInfoMessage("Regeneration lancee. Le module sera actualise automatiquement.");
           setPollAttempts(0);
           await loadWorkspace();
         } catch (nextError) {
@@ -207,7 +201,10 @@ export function FciWorkspace({
 
   if (error && !workspace) {
     return (
-      <FciErrorState message={formatFciClientErrorMessage(error)} onRetry={() => void loadWorkspace()} />
+      <FciErrorState
+        message={formatFciClientErrorMessage(error)}
+        onRetry={() => void loadWorkspace()}
+      />
     );
   }
 
@@ -215,9 +212,7 @@ export function FciWorkspace({
     <div className="workspace-stack">
       {pendingAction ? (
         <div className="callout info" aria-live="polite">
-          {pendingAction.kind === "generate"
-            ? `Lancement de la génération du module ${pendingAction.moduleCode}…`
-            : `Lancement de la régénération du module ${pendingAction.moduleCode}…`}
+          {`Lancement de la regeneration du module ${pendingAction.moduleCode}...`}
         </div>
       ) : null}
       {actionErrorMessage ? (
@@ -245,9 +240,7 @@ export function FciWorkspace({
           isBusy={pendingAction != null}
           busyMessage={
             pendingAction
-              ? pendingAction.kind === "generate"
-                ? `Génération du module ${pendingAction.moduleCode} en cours de lancement.`
-                : `Régénération du module ${pendingAction.moduleCode} en cours de lancement.`
+              ? `Regeneration du module ${pendingAction.moduleCode} en cours de lancement.`
               : undefined
           }
           onOpenModule={(moduleCode) => updateModuleParam(moduleCode)}

@@ -1,11 +1,15 @@
 import {
+  FCI_CONTRIBUTING_MODULE_CODES,
   FCI_GENERATABLE_MODULE_CODES,
+  FCI_HUMAN_VISIBLE_MODULE_CODES,
   FCI_GENERATION_JOB_STATUSES,
   FCI_GENERATION_TRIGGER_TYPES,
+  type FciContributingModuleCode,
   FCI_MODULE_CODES,
   FCI_MODULE_STATUSES,
   FCI_MODULE_TYPES,
   FCI_SET_OVERALL_STATUSES,
+  type FciHumanVisibleModuleCode,
   type FciGenerationJobStatus,
   type FciGenerationTriggerType,
   type FciGeneratableModuleCode,
@@ -104,6 +108,22 @@ export function getEnabledFciModuleCodes(input?: {
 
   return FCI_MODULE_CODES.filter((code) =>
     code === "E" ? knowledgeBaseEnabled : true
+  );
+}
+
+export function isFciContributingModuleCode(
+  moduleCode: FciModuleCode
+): moduleCode is FciContributingModuleCode {
+  return FCI_CONTRIBUTING_MODULE_CODES.includes(
+    moduleCode as FciContributingModuleCode
+  );
+}
+
+export function isHumanVisibleFciModuleCode(
+  moduleCode: FciModuleCode
+): moduleCode is FciHumanVisibleModuleCode {
+  return FCI_HUMAN_VISIBLE_MODULE_CODES.includes(
+    moduleCode as FciHumanVisibleModuleCode
   );
 }
 

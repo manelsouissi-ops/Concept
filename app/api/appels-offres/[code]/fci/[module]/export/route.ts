@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateFciExportArtifact, parseFciExportFormat, FciExportError } from "@/lib/appels-offres/fci/export/index.ts";
 import { getFciModule, parseRequestedModule, toFciErrorResponse } from "@/lib/appels-offres/fci/service.ts";
-import { resolveCurrentUserFromRequest } from "@/lib/auth/current-user.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -10,13 +10,18 @@ export async function GET(
   { params }: { params: Promise<{ code: string; module: string }> }
 ) {
   try {
+    const { currentUser, deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse || !currentUser) {
+      return deniedResponse;
+    }
+
     const { code, module } = await params;
     const url = new URL(request.url);
     const format = parseFciExportFormat(url.searchParams.get("format"));
     const modulePresentation = await getFciModule(
       code,
       parseRequestedModule(module),
-      await resolveCurrentUserFromRequest(request)
+      currentUser
     );
     const artifact = await generateFciExportArtifact(modulePresentation, format);
 

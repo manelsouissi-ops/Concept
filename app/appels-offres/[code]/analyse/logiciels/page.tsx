@@ -3,12 +3,14 @@ import { SoftwareAnalysisWorkspace } from "@/components/software-analysis-worksp
 import { listSoftware } from "@/lib/administration/logiciels/repository.ts";
 import { getAppelOffresDetailByCode } from "@/lib/appels-offres/repository.ts";
 import { getSoftwareAnalysisDetailByCode } from "@/lib/appels-offres/software-analysis-repository.ts";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 
 export default async function AppelOffresSoftwareAnalysisPage({
   params
 }: {
   params: Promise<{ code: string }>;
 }) {
+  await requireAreaAccessForPage("appels_offres");
   const { code } = await params;
   const [appel, detail, catalogue] = await Promise.all([
     getAppelOffresDetailByCode(code, { includeArchived: true }),

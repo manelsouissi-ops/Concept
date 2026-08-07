@@ -2,6 +2,16 @@ export const FCI_MODULE_CODES = ["A", "B", "C", "D", "E"] as const;
 
 export type FciModuleCode = (typeof FCI_MODULE_CODES)[number];
 
+export const FCI_CONTRIBUTING_MODULE_CODES = ["A", "B", "C"] as const;
+
+export type FciContributingModuleCode =
+  (typeof FCI_CONTRIBUTING_MODULE_CODES)[number];
+
+export const FCI_HUMAN_VISIBLE_MODULE_CODES = ["A", "B", "C"] as const;
+
+export type FciHumanVisibleModuleCode =
+  (typeof FCI_HUMAN_VISIBLE_MODULE_CODES)[number];
+
 export const FCI_GENERATABLE_MODULE_CODES = ["A", "B", "C", "D"] as const;
 
 export type FciGeneratableModuleCode =

@@ -1,11 +1,16 @@
 import { Pool, type PoolClient } from "pg";
-import { ensureAppelsOffresSchema, getAppelOffresRecordByCode } from "../repository.ts";
+import {
+  ensureAppelsOffresSchema,
+  getAppelOffresRecordByCode,
+  getProcessingJobTimeoutMinutes
+} from "../repository.ts";
 import type { AppelOffresRecord } from "../types.ts";
 import {
   getEnabledFciModuleCodes,
   getFciModuleTypeFromCode,
   isKnowledgeBaseEnabled
 } from "./validation.ts";
+import { calculateFciOverallStatus, indexLatestModuleData } from "./presentation.ts";
 import type {
   AppendFciAuditEventInput,
   CreateFciGenerationJobInput,
@@ -14,8 +19,10 @@ import type {
   FciGenerationJobRecord,
   FciGenerationJobStatus,
   FciJsonObject,
+  FciModuleCode,
   FciModuleDataRecord,
   FciModuleRecord,
+  FciModuleStatus,
   FciSetOverallStatus,
   FciSetRecord,
   InitializeFciSetInput,
@@ -337,23 +344,30 @@ async function ensureSchemaInternal(pool: Pool) {
       on ${FCI_MODULE_DATA_TABLE} (fci_module_id, created_at desc, id desc)
     `);
     await client.query(`
-      alter table ${FCI_GENERATION_JOBS_TABLE}
-      drop constraint if exists fci_generation_jobs_status_check
-    `);
-    await client.query(`
-      alter table ${FCI_GENERATION_JOBS_TABLE}
-      add constraint fci_generation_jobs_status_check
-      check (
-        status in (
-          'pending_integration',
-          'created',
-          'queued',
-          'running',
-          'completed',
-          'failed',
-          'cancelled'
-        )
-      )
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conname = 'fci_generation_jobs_status_check'
+            and conrelid = '${FCI_GENERATION_JOBS_TABLE}'::regclass
+        ) then
+          alter table ${FCI_GENERATION_JOBS_TABLE}
+          add constraint fci_generation_jobs_status_check
+          check (
+            status in (
+              'pending_integration',
+              'created',
+              'queued',
+              'running',
+              'completed',
+              'failed',
+              'cancelled'
+            )
+          );
+        end if;
+      end
+      $$;
     `);
     await client.query(`
       create table if not exists ${FCI_AUDIT_EVENTS_TABLE} (
@@ -490,6 +504,12 @@ export async function listFciOverallStatusesByAppelOffresCodes(
     return new Map();
   }
 
+  // Self-heals here because this is the single shared read path for both the
+  // dashboard and the /appels-offres list - the two views that would otherwise
+  // keep showing "En cours d'analyse" forever for a tender stuck on a dead FCI
+  // generation job.
+  await reapStaleFciGenerationJobs();
+
   const pool = await requirePool();
   const result = await pool.query<{ code: string; overall_status: FciSetOverallStatus }>(
     `
@@ -504,6 +524,38 @@ export async function listFciOverallStatusesByAppelOffresCodes(
   const statusByCode = new Map<string, FciSetOverallStatus>();
   for (const row of result.rows) {
     statusByCode.set(row.code, row.overall_status);
+  }
+
+  return statusByCode;
+}
+
+// Per-module counterpart of listFciOverallStatusesByAppelOffresCodes: used to build
+// each department's own FCI queue (for the active human workflow, modules A/B/C)
+// instead of the tender's overall FCI status across all modules.
+export async function listFciModuleStatusesByAppelOffresCodes(
+  codes: string[],
+  moduleCode: FciModuleCode
+): Promise<Map<string, FciModuleStatus>> {
+  if (codes.length === 0) {
+    return new Map();
+  }
+
+  const pool = await requirePool();
+  const result = await pool.query<{ code: string; status: FciModuleStatus }>(
+    `
+      select appels.code as code, modules.status as status
+      from ${FCI_MODULES_TABLE} modules
+      inner join ${FCI_SETS_TABLE} sets on sets.id = modules.fci_set_id
+      inner join public.appels_offres appels on appels.id = sets.appel_offres_id
+      where appels.code = any($1::text[])
+        and modules.module_code = $2
+    `,
+    [codes, moduleCode]
+  );
+
+  const statusByCode = new Map<string, FciModuleStatus>();
+  for (const row of result.rows) {
+    statusByCode.set(row.code, row.status);
   }
 
   return statusByCode;
@@ -1005,6 +1057,163 @@ export async function listFciGenerationJobsForModule(fciModuleId: number) {
 export async function getLatestFciGenerationJob(fciModuleId: number) {
   const jobs = await listFciGenerationJobsForModule(fciModuleId);
   return jobs[0] ?? null;
+}
+
+type StaleFciGenerationJobRow = {
+  job_id: number;
+  generation_parameters: FciJsonObject | null;
+  fci_module_id: number;
+  module_code: FciModuleCode;
+  appel_offres_id: number;
+  appel_offres_code: string;
+};
+
+async function listStaleFciGenerationJobRows(
+  timeoutMinutes: number
+): Promise<StaleFciGenerationJobRow[]> {
+  const pool = await requirePool();
+  const result = await pool.query<StaleFciGenerationJobRow>(
+    `
+      select
+        j.id as job_id,
+        j.generation_parameters,
+        m.id as fci_module_id,
+        m.module_code,
+        s.appel_offres_id,
+        a.code as appel_offres_code
+      from ${FCI_GENERATION_JOBS_TABLE} j
+      inner join ${FCI_MODULES_TABLE} m on m.id = j.fci_module_id
+      inner join ${FCI_SETS_TABLE} s on s.id = m.fci_set_id
+      inner join public.appels_offres a on a.id = s.appel_offres_id
+      where j.status in ('created', 'queued', 'running')
+        and coalesce(j.started_at, j.created_at) < now() - (interval '1 minute' * $1::int)
+    `,
+    [timeoutMinutes]
+  );
+
+  return result.rows;
+}
+
+function getRestoredModuleStatusFromGenerationParameters(
+  generationParameters: FciJsonObject | null
+): FciModuleRecord["status"] {
+  // Mirrors getPreviousModuleStatusFromJob in fci/service.ts (the real n8n
+  // failure-callback path): previous_module_status is captured on every
+  // launch (see prepareFciGeneration/prepareFciRegeneration) precisely so a
+  // failed/timed-out attempt can restore the module to what it was before,
+  // rather than leaving it stuck "generating" or guessing a new state.
+  const rawStatus = generationParameters?.previous_module_status;
+  if (
+    rawStatus === "not_started"
+    || rawStatus === "needs_review"
+    || rawStatus === "validated"
+    || rawStatus === "generated"
+    || rawStatus === "failed"
+  ) {
+    return rawStatus === "generated" ? "needs_review" : rawStatus;
+  }
+
+  return "not_started";
+}
+
+export type ReapedFciGenerationJob = {
+  jobId: number;
+  fciModuleId: number;
+  moduleCode: FciModuleCode;
+  appelOffresCode: string;
+  restoredStatus: FciModuleRecord["status"];
+};
+
+// Mirrors reapStaleProcessingJobs (lib/appels-offres/repository.ts) - same
+// PROCESSING_JOB_TIMEOUT_MINUTES env var and lazy-on-read pattern - but for FCI
+// generation jobs. These live in fci_generation_jobs/fci_modules, a separate
+// pipeline from the CDC-side processing_jobs, so the CDC reaper never covers
+// them: a module stuck "generating" with no callback keeps the tender's
+// dashboard row reading "En cours d'analyse" (fiche_validee + FCI
+// overall_status in_progress) even after the CDC reaper has already run.
+export async function reapStaleFciGenerationJobs(): Promise<ReapedFciGenerationJob[]> {
+  const timeoutMinutes = getProcessingJobTimeoutMinutes();
+  const staleRows = await listStaleFciGenerationJobRows(timeoutMinutes);
+  if (staleRows.length === 0) {
+    return [];
+  }
+
+  const pool = await requirePool();
+  const errorMessage = `Aucun callback recu dans le delai imparti (${timeoutMinutes} minutes).`;
+  const reaped: ReapedFciGenerationJob[] = [];
+  const affectedCodes = new Set<string>();
+
+  for (const row of staleRows) {
+    // pg returns bigint/bigserial columns as strings, not numbers - normalize
+    // here so the returned ReapedFciGenerationJob entries actually match the
+    // numeric ids callers compare them against.
+    const jobId = Number(row.job_id);
+    const fciModuleId = Number(row.fci_module_id);
+    const appelOffresId = Number(row.appel_offres_id);
+    const restoredStatus = getRestoredModuleStatusFromGenerationParameters(
+      row.generation_parameters
+    );
+
+    await pool.query(
+      `
+        update ${FCI_GENERATION_JOBS_TABLE}
+        set
+          status = 'failed',
+          completed_at = now(),
+          error_code = 'FCI_GENERATION_TIMEOUT',
+          error_message = $2
+        where id = $1
+      `,
+      [jobId, errorMessage]
+    );
+
+    await updateFciModule(fciModuleId, {
+      status: restoredStatus,
+      errorCode: "FCI_GENERATION_TIMEOUT",
+      errorMessage
+    });
+
+    await appendFciAuditEvent({
+      appelOffresId,
+      fciModuleId,
+      eventType: "fci.generation.failed",
+      payloadJson: {
+        generationJobId: jobId,
+        moduleCode: row.module_code,
+        errorCode: "FCI_GENERATION_TIMEOUT",
+        errorMessage,
+        reason: "timeout",
+        timeoutMinutes
+      }
+    });
+
+    affectedCodes.add(row.appel_offres_code);
+    reaped.push({
+      jobId,
+      fciModuleId,
+      moduleCode: row.module_code,
+      appelOffresCode: row.appel_offres_code,
+      restoredStatus
+    });
+  }
+
+  for (const code of affectedCodes) {
+    const detail = await getFciDetailByAppelOffresCode(code);
+    if (!detail) {
+      continue;
+    }
+
+    const overallStatus = calculateFciOverallStatus({
+      modules: detail.modules,
+      latestDataByModuleId: indexLatestModuleData(detail.moduleData)
+    });
+
+    if (overallStatus !== detail.set.overallStatus) {
+      await updateFciSet(detail.set.id, { overallStatus });
+    }
+  }
+
+  return reaped;
 }
 
 export async function updateFciGenerationJob(

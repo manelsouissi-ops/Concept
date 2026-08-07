@@ -1,7 +1,11 @@
-import { buildAppelOffresSummary, isNearDeadline } from "./presentation.ts";
+import { buildAppelOffresSummary, isNearDeadline, isTestTenderCode } from "./presentation.ts";
 import { listAppelOffresDetails } from "./repository.ts";
 import { buildWorkspaceActivityFeed, buildWorkspaceIdentity, isPlaceholderProjectTitle } from "./workspace.ts";
-import { listFciOverallStatusesByAppelOffresCodes } from "./fci/repository.ts";
+import {
+  listFciModuleStatusesByAppelOffresCodes,
+  listFciOverallStatusesByAppelOffresCodes
+} from "./fci/repository.ts";
+import type { FciModuleCode } from "./fci/types.ts";
 import {
   buildDashboardRowAction,
   buildDashboardStatusDisplay,
@@ -24,7 +28,9 @@ function compareRecent(left: { updatedAt: string }, right: { updatedAt: string }
 }
 
 export async function getDashboardData() {
-  const details = await listAppelOffresDetails({ archived: "all" });
+  const details = (await listAppelOffresDetails({ archived: "all" })).filter(
+    (detail) => !isTestTenderCode(detail.code)
+  );
   const summaries = details.map(buildAppelOffresSummary);
 
   const activeSummaries = summaries.filter((item) => item.statusKey !== "archive");
@@ -152,4 +158,50 @@ export async function getDashboardData() {
     },
     recent_activity: recentActivity
   };
+}
+
+export type DepartmentFciQueueItem = {
+  code: string;
+  title: string;
+};
+
+export type DepartmentFciQueue = {
+  moduleCode: FciModuleCode;
+  /** Tenders with a validated Fiche CDC where this department's module is not yet validated. */
+  pending: DepartmentFciQueueItem[];
+  /** Tenders where this department's module is validated. */
+  validatedCount: number;
+};
+
+// Non-Commercial departments that still complete an FCI module (FINANCE/OPERATIONS)
+// do not own the Fiche CDC validation step; their dashboard priority is their own
+// FCI module's completion status, not the cross-department signals getDashboardData()
+// computes.
+export async function getDepartmentFciQueue(moduleCode: FciModuleCode): Promise<DepartmentFciQueue> {
+  const details = await listAppelOffresDetails({ archived: "all" });
+  const activeDetails = details.filter(
+    (detail) => detail.archivedAt == null && !isTestTenderCode(detail.code)
+  );
+  const eligibleDetails = activeDetails.filter(
+    (detail) => buildAppelOffresSummary(detail).statusKey === "fiche_validee"
+  );
+
+  const moduleStatusByCode = await listFciModuleStatusesByAppelOffresCodes(
+    eligibleDetails.map((detail) => detail.code),
+    moduleCode
+  );
+
+  const pending: DepartmentFciQueueItem[] = [];
+  let validatedCount = 0;
+
+  for (const detail of eligibleDetails) {
+    const status = moduleStatusByCode.get(detail.code) ?? "not_started";
+    if (status === "validated") {
+      validatedCount += 1;
+    } else {
+      pending.push({ code: detail.code, title: detail.title });
+    }
+  }
+
+  return { moduleCode, pending, validatedCount };
 }

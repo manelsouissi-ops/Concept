@@ -321,10 +321,12 @@
           "format": "date-time"
         },
         "source_fiche": {
-          "$ref": "#/$defs/source_fiche"
+          "description": "Platform-owned: computed and injected by the platform after AI validation, not requested from or validated against the model output.",
+          "$comment": "Intentionally unconstrained - see lib/appels-offres/fci/callback-derivation.ts"
         },
         "summary": {
-          "$ref": "#/$defs/summary"
+          "description": "Platform-owned: computed and injected by the platform after AI validation, not requested from or validated against the model output.",
+          "$comment": "Intentionally unconstrained - see lib/appels-offres/fci/callback-derivation.ts"
         },
         "data": {
           "type": "object"
@@ -347,8 +349,6 @@
         "module_code",
         "module_type",
         "generated_at",
-        "source_fiche",
-        "summary",
         "data",
         "ai_notes",
         "validation_warnings"

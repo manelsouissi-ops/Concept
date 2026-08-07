@@ -5,6 +5,7 @@ import {
 } from "@/lib/appels-offres/repository.ts";
 import { launchAnalysisForAppelOffres, AnalysisRequestError } from "@/lib/appels-offres/analysis.ts";
 import { toBusinessSafeAnalysisError } from "@/lib/appels-offres/user-errors.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -59,6 +60,11 @@ async function ensureCompatibilityAppelOffres(code: string, hasFile: boolean) {
 
 export async function POST(request: Request) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const formData = await request.formData();
     const code = asNonEmptyString(formData.get("code_interne"));
     const forceRegenerate = asTruthyFlag(formData.get("force_regenerate"));

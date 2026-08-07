@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header.tsx";
 import { ProfileForm } from "@/components/profile-form.tsx";
-import { resolveCurrentUserFromServerHeaders } from "@/lib/auth/current-user.ts";
+import { requireAuthenticatedUserForPage } from "@/lib/auth/current-user.ts";
 import { getUserById, listDepartments } from "@/lib/users/repository.ts";
 
 export default async function ProfilePage() {
-  const currentUser = await resolveCurrentUserFromServerHeaders();
+  const currentUser = await requireAuthenticatedUserForPage();
   const userId = Number(currentUser.id);
 
   if (!Number.isInteger(userId) || userId <= 0) {

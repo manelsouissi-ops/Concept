@@ -165,24 +165,30 @@ Tous les modules suivent la même enveloppe :
 - `module_code`
 - `module_type`
 - `generated_at`
-- `source_fiche`
-- `summary`
+- `source_fiche` *(voir ci-dessous — non produit par Gemini)*
+- `summary` *(voir ci-dessous — non produit par Gemini)*
 - `data`
 - `ai_notes`
 - `validation_warnings`
 
 ## Métadonnées fournies par CONCEPT
 
-Ces données ne doivent pas être inventées par Gemini :
+`source_fiche` et `summary` sont des métadonnées plateforme, pas une sortie
+du modèle : Gemini n'a aucun moyen fiable de connaître le `validated_at`
+réel de la fiche, et lui demander de recalculer un résumé de complétion
+produisait des violations de schéma systématiques (champs manquants, clés
+en trop, énumération invalide) sans jamais apporter d'information que la
+plateforme n'avait pas déjà.
 
-- `source_fiche.code_interne`
-- `source_fiche.version`
-- `source_fiche.hash`
-- `source_fiche.status`
-- `source_fiche.validated_at`
-- `generated_at`
-
-Le contrat autorise leur présence dans le JSON final, mais elles doivent être injectées ou préservées par l’orchestration CONCEPT.
+Depuis la Phase 2.5.1, les prompts demandent explicitement à Gemini
+d'omettre ces deux clés, et `ai-validation.ts` ne les exige plus ni ne les
+valide dans la réponse brute du modèle (`fci-common.schema.json` -
+`module_envelope_base`). `applyFciSuccessCallback`
+(`lib/appels-offres/fci/service.ts`) reconstruit `source_fiche` à partir du
+job de génération et calcule `summary` à partir des `requires_human_input`
+déjà validés dans `data` (voir `lib/appels-offres/fci/callback-derivation.ts`)
+avant persistance - ce qui est envoyé par Gemini pour ces deux clés, s'il y
+en a, est ignoré.
 
 ## Validation de schéma
 

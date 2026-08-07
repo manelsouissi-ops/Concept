@@ -3,7 +3,6 @@ import type { FciModulePresentation } from "@/lib/appels-offres/fci/presentation
 export type FciModuleActionKind =
   | "save"
   | "validate"
-  | "generate"
   | "regenerate"
   | "download-docx"
   | "download-pdf"
@@ -32,7 +31,7 @@ const ACTION_GROUPS: Array<{
   {
     key: "primary",
     label: "Actions principales",
-    actions: ["save", "validate", "generate", "regenerate"]
+    actions: ["save", "validate", "regenerate"]
   },
   {
     key: "secondary",
@@ -54,7 +53,6 @@ function getActionDefinition(
     pendingAction: FciModuleActionKind | null;
     canEdit: boolean;
     canValidate: boolean;
-    canGenerate: boolean;
     canRegenerate: boolean;
     canExport: boolean;
   }
@@ -79,16 +77,6 @@ function getActionDefinition(
         label: input.pendingAction === "validate" ? "Validation..." : "Marquer comme termine",
         className: "button button-secondary",
         disabled: input.isBusy || input.isDirty
-      };
-    case "generate":
-      if (!input.canGenerate) {
-        return null;
-      }
-      return {
-        action,
-        label: input.pendingAction === "generate" ? "Lancement..." : "Lancer la generation",
-        className: "button button-ai",
-        disabled: input.isBusy
       };
     case "regenerate":
       if (!input.canRegenerate) {
@@ -157,9 +145,6 @@ export function buildFciModuleActionGroups(input: {
   const canValidate =
     input.modulePresentation.permissions.can_validate
     && input.modulePresentation.allowed_actions.includes("validate");
-  const canGenerate =
-    input.modulePresentation.permissions.can_generate
-    && input.modulePresentation.allowed_actions.includes("generate");
   const canRegenerate =
     input.modulePresentation.permissions.can_regenerate
     && input.modulePresentation.allowed_actions.includes("regenerate");
@@ -176,7 +161,6 @@ export function buildFciModuleActionGroups(input: {
           pendingAction: input.pendingAction,
           canEdit,
           canValidate,
-          canGenerate,
           canRegenerate,
           canExport
         })

@@ -13,6 +13,16 @@ export type UsersApiErrorPayload = {
   details?: Record<string, unknown>;
 };
 
+export type UserOwnershipImpact = {
+  activeOwnedCount: number;
+  ownedTenderCodes: string[];
+  ownedTenders: Array<{
+    code: string;
+    title: string;
+    updatedAt: string;
+  }>;
+};
+
 type UsersApiSuccessResponse<TData> = {
   ok: true;
   data: TData;
@@ -31,6 +41,7 @@ export type UserListResponse = {
 export type UserResponse = {
   user: UserRecord;
   departments?: DepartmentRecord[];
+  ownershipImpact?: UserOwnershipImpact;
 };
 
 export class UsersClientError extends Error {
@@ -89,6 +100,19 @@ export async function updateUser(id: number, input: UserMutationInput) {
   });
 
   return parseResponse<UserResponse>(response);
+}
+
+export async function getUserOwnershipImpact(id: number) {
+  const response = await fetch(`/api/administration/utilisateurs/${id}`, {
+    cache: "no-store"
+  });
+
+  const data = await parseResponse<UserResponse>(response);
+  return data.ownershipImpact ?? {
+    activeOwnedCount: 0,
+    ownedTenderCodes: [],
+    ownedTenders: []
+  };
 }
 
 export async function updateProfile(input: ProfileUpdateInput) {

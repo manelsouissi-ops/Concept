@@ -10,6 +10,7 @@ import {
   initializeFciSetByAppelOffresCode,
   listFciGenerationJobsForModule,
   listFciModuleDataVersions,
+  reapStaleFciGenerationJobs,
   updateFciGenerationJob,
   updateFciModule,
   updateFciSet,
@@ -35,7 +36,11 @@ import {
   validateFciLaunchAcceptance
 } from "./n8n-contract.ts";
 import { parseFciModuleCode } from "./validation.ts";
-import { isKnowledgeBaseEnabled, isFciModuleGeneratable } from "./validation.ts";
+import {
+  isFciContributingModuleCode,
+  isKnowledgeBaseEnabled,
+  isFciModuleGeneratable
+} from "./validation.ts";
 import {
   buildFciModulePresentation,
   buildFciWorkspacePresentation,
@@ -47,6 +52,7 @@ import {
   isModuleSourceStale
 } from "./presentation.ts";
 import { readSourceFicheSnapshot, type SourceFicheSnapshot } from "./source-fiche.ts";
+import { buildAuthoritativeSourceFiche, computeFciModuleSummary } from "./callback-derivation.ts";
 import {
   calculateFciPayloadCompletion,
   markFciPayloadReviewed,
@@ -58,14 +64,29 @@ import {
 } from "./rendering.ts";
 import type { FicheStatus } from "../../types.ts";
 import {
+  canAccess,
   canEditFciModule,
   canGenerateFciModule,
+  canViewFciModule,
   canValidateFciModule,
+  getAreaAccessDeniedMessage,
   getFciEditDeniedMessage,
   getFciGenerateDeniedMessage,
   type CurrentUser
 } from "../../auth/rbac.ts";
 import { getFallbackDevelopmentUser } from "../../auth/current-user.ts";
+import { AuthError } from "../../auth/errors.ts";
+import {
+  assertAssignmentAccess,
+  assertTenderWorkflowAccess,
+  emitReadyForGoNoGoNotifications,
+  markAssignmentCompleted,
+  markAssignmentStarted,
+  markAssignmentValidated,
+  recordFciGeneratedWorkflowState,
+  WorkflowServiceError
+} from "../workflow/service.ts";
+import { canCoordinateTender } from "../ownership.ts";
 
 export type FciServiceErrorCode =
   | "AO_NOT_FOUND"
@@ -133,6 +154,38 @@ function assertCanEditModule(currentUser: CurrentUser, moduleCode: FciModuleCode
   throw new FciServiceError(
     "RBAC_FORBIDDEN",
     getFciEditDeniedMessage(moduleCode),
+    403,
+    {
+      module_code: moduleCode,
+      role: currentUser.role
+    }
+  );
+}
+
+function assertCanViewBusinessWorkspace(currentUser: CurrentUser) {
+  if (canAccess(currentUser.role, "appels_offres")) {
+    return;
+  }
+
+  throw new FciServiceError(
+    "RBAC_FORBIDDEN",
+    getAreaAccessDeniedMessage("appels_offres", currentUser.role),
+    403,
+    {
+      area: "appels_offres",
+      role: currentUser.role
+    }
+  );
+}
+
+function assertCanViewModule(currentUser: CurrentUser, moduleCode: FciModuleCode) {
+  if (canViewFciModule(currentUser.role, moduleCode)) {
+    return;
+  }
+
+  throw new FciServiceError(
+    "RBAC_FORBIDDEN",
+    getAreaAccessDeniedMessage("appels_offres", currentUser.role),
     403,
     {
       module_code: moduleCode,
@@ -414,6 +467,85 @@ async function requireValidatedSourceFiche(code: string) {
   );
 }
 
+async function ensureInitializedWorkspaceDetail(
+  code: string,
+  input?: {
+    appelOffres?: AppelOffresRecord;
+    sourceFiche?: SourceFicheSnapshot | null;
+    knowledgeBaseEnabled?: boolean;
+  }
+) {
+  const appelOffres = input?.appelOffres ?? await requireAppelOffres(code);
+  const sourceFiche = input?.sourceFiche ?? await readCurrentSourceForWorkspace(code);
+  const knowledgeBaseEnabled = input?.knowledgeBaseEnabled ?? isKnowledgeBaseEnabled();
+  const existingSet = await getFciSetByAppelOffresCode(code);
+
+  const sourceMetadata = sourceFiche
+    ? {
+        sourceFicheVersion: sourceFiche.version,
+        sourceFicheHash: sourceFiche.hash,
+        sourceFicheUpdatedAt: sourceFiche.updatedAt
+      }
+    : existingSet
+      ? {
+          sourceFicheVersion: existingSet.sourceFicheVersion,
+          sourceFicheHash: existingSet.sourceFicheHash,
+          sourceFicheUpdatedAt: existingSet.sourceFicheUpdatedAt
+        }
+      : buildUnavailableSourceMetadata(appelOffres);
+
+  const initialized = await initializeFciSetByAppelOffresCode(code, {
+    ...sourceMetadata,
+    overallStatus: existingSet?.overallStatus ?? "not_started",
+    knowledgeBaseEnabled
+  });
+
+  if (!existingSet) {
+    await appendFciAuditEvent({
+      appelOffresId: appelOffres.id,
+      eventType: "fci.initialized",
+      payloadJson: {
+        modules: initialized.modules.map((module) => module.moduleCode),
+        sourceVersion: sourceMetadata.sourceFicheVersion,
+        sourceAvailable: sourceFiche != null
+      }
+    });
+  } else if (
+    sourceFiche &&
+    (
+      existingSet.sourceFicheVersion !== sourceFiche.version
+      || existingSet.sourceFicheHash !== sourceFiche.hash
+    )
+  ) {
+    await appendFciAuditEvent({
+      appelOffresId: appelOffres.id,
+      eventType: "fci.source_metadata_refreshed",
+      payloadJson: {
+        previousVersion: existingSet.sourceFicheVersion,
+        nextVersion: sourceFiche.version
+      }
+    });
+  }
+
+  const detail = await recalculateAndPersistOverallStatus(code);
+  if (!detail) {
+    throw new FciServiceError(
+      "FCI_NOT_INITIALIZED",
+      "Impossible de relire le workspace FCI apres initialisation.",
+      404,
+      { code }
+    );
+  }
+
+  return {
+    appelOffres,
+    detail,
+    sourceFiche,
+    knowledgeBaseEnabled,
+    initialized: !existingSet
+  };
+}
+
 async function recalculateAndPersistOverallStatus(code: string) {
   const detail = await getFciDetailByAppelOffresCode(code);
   if (!detail) {
@@ -498,6 +630,65 @@ async function buildModulePresentationOrThrow(
   });
 }
 
+function applyCommercialOwnershipReadOnlyToModulePresentation(
+  actor: CurrentUser,
+  appelOffres: AppelOffresRecord,
+  presentation: ReturnType<typeof buildFciModulePresentation>
+) {
+  if (
+    actor.role !== "COMMERCIAL"
+    || presentation.module.module_code !== "A"
+    || canCoordinateTender(actor, appelOffres)
+  ) {
+    return presentation;
+  }
+
+  return {
+    ...presentation,
+    allowed_actions: presentation.allowed_actions.filter((action) => action === "view_history"),
+    permissions: {
+      ...presentation.permissions,
+      can_edit: false,
+      can_generate: false,
+      can_regenerate: false,
+      can_validate: false,
+      read_only: true,
+      read_only_message: "Ce dossier est coordonne par un autre responsable commercial."
+    }
+  };
+}
+
+function applyCommercialOwnershipReadOnlyToWorkspace(
+  actor: CurrentUser,
+  appelOffres: AppelOffresRecord,
+  presentation: ReturnType<typeof buildFciWorkspacePresentation>
+) {
+  if (actor.role !== "COMMERCIAL" || canCoordinateTender(actor, appelOffres)) {
+    return presentation;
+  }
+
+  return {
+    ...presentation,
+    module_summaries: presentation.module_summaries.map((module) =>
+      module.module_code !== "A"
+        ? module
+        : {
+            ...module,
+            available_actions: module.available_actions.filter((action) => action === "view_history"),
+            permissions: {
+              ...module.permissions,
+              can_edit: false,
+              can_generate: false,
+              can_regenerate: false,
+              can_validate: false,
+              read_only: true,
+              read_only_message: "Ce dossier est coordonne par un autre responsable commercial."
+            }
+          }
+    )
+  };
+}
+
 export function parseRequestedModule(rawModule: unknown) {
   try {
     return parseFciModuleCode(rawModule);
@@ -546,7 +737,35 @@ export function parseFciValidatePayload(body: unknown): FciValidateModulePayload
 }
 
 export function toFciErrorResponse(error: unknown) {
+  if (error instanceof AuthError) {
+    return {
+      status: error.status,
+      body: {
+        ok: false,
+        error: {
+          code: error.code,
+          message: error.message,
+          details: {}
+        }
+      }
+    };
+  }
+
   if (error instanceof FciServiceError) {
+    return {
+      status: error.status,
+      body: {
+        ok: false,
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details ?? {}
+        }
+      }
+    };
+  }
+
+  if (error instanceof WorkflowServiceError) {
     return {
       status: error.status,
       body: {
@@ -578,88 +797,42 @@ export function toFciErrorResponse(error: unknown) {
 
 export async function initializeFciWorkspace(code: string, currentUser?: CurrentUser | null) {
   const actor = normalizeCurrentUser(currentUser);
-  const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
-  const appelOffres = await requireAppelOffres(code);
-  const existingSet = await getFciSetByAppelOffresCode(code);
+  assertCanViewBusinessWorkspace(actor);
+  await assertTenderWorkflowAccess(code, actor);
   const sourceFiche = await readCurrentSourceForWorkspace(code);
-
-  const sourceMetadata = sourceFiche
-    ? {
-        sourceFicheVersion: sourceFiche.version,
-        sourceFicheHash: sourceFiche.hash,
-        sourceFicheUpdatedAt: sourceFiche.updatedAt
-      }
-    : existingSet
-      ? {
-          sourceFicheVersion: existingSet.sourceFicheVersion,
-          sourceFicheHash: existingSet.sourceFicheHash,
-          sourceFicheUpdatedAt: existingSet.sourceFicheUpdatedAt
-        }
-      : buildUnavailableSourceMetadata(appelOffres);
-
-  const initialized = await initializeFciSetByAppelOffresCode(code, {
-    ...sourceMetadata,
-    overallStatus: existingSet?.overallStatus ?? "not_started",
+  const {
+    appelOffres,
+    detail,
     knowledgeBaseEnabled
-  });
+  } = await ensureInitializedWorkspaceDetail(code, { sourceFiche });
+  await recordFciGeneratedWorkflowState(code, actor);
 
-  if (!existingSet) {
-    await appendFciAuditEvent({
-      appelOffresId: appelOffres.id,
-      eventType: "fci.initialized",
-      payloadJson: {
-        modules: initialized.modules.map((module) => module.moduleCode),
-        sourceVersion: sourceMetadata.sourceFicheVersion,
-        sourceAvailable: sourceFiche != null
-      }
-    });
-  } else if (
-    sourceFiche &&
-    (existingSet.sourceFicheVersion !== sourceFiche.version ||
-      existingSet.sourceFicheHash !== sourceFiche.hash)
-  ) {
-    await appendFciAuditEvent({
-      appelOffresId: appelOffres.id,
-      eventType: "fci.source_metadata_refreshed",
-      payloadJson: {
-        previousVersion: existingSet.sourceFicheVersion,
-        nextVersion: sourceFiche.version
-      }
-    });
-  }
-
-  const detail = await recalculateAndPersistOverallStatus(code);
-  if (!detail) {
-    throw new FciServiceError(
-      "FCI_NOT_INITIALIZED",
-      "Impossible de relire le workspace FCI apres initialisation.",
-      404,
-      { code }
-    );
-  }
-
-  return buildFciWorkspacePresentation({
+  return applyCommercialOwnershipReadOnlyToWorkspace(actor, appelOffres, buildFciWorkspacePresentation({
     appelOffres,
     detail,
     sourceFiche,
     knowledgeBaseEnabled,
     currentUser: actor
-  });
+  }));
 }
 
 export async function getFciWorkspace(code: string, currentUser?: CurrentUser | null) {
   const actor = normalizeCurrentUser(currentUser);
+  assertCanViewBusinessWorkspace(actor);
+  await assertTenderWorkflowAccess(code, actor);
+  await reapStaleFciGenerationJobs();
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const sourceFiche = await readCurrentSourceForWorkspace(code);
+  await recordFciGeneratedWorkflowState(code, actor);
 
-  return buildFciWorkspacePresentation({
+  return applyCommercialOwnershipReadOnlyToWorkspace(actor, appelOffres, buildFciWorkspacePresentation({
     appelOffres,
     detail,
     sourceFiche,
     knowledgeBaseEnabled,
     currentUser: actor
-  });
+  }));
 }
 
 export async function getFciModule(
@@ -667,11 +840,21 @@ export async function getFciModule(
   moduleCode: FciModuleCode,
   currentUser?: CurrentUser | null
 ) {
-  return buildModulePresentationOrThrow(
+  const actor = normalizeCurrentUser(currentUser);
+  assertCanViewModule(actor, moduleCode);
+  await assertAssignmentAccess({
     code,
     moduleCode,
-    normalizeCurrentUser(currentUser)
+    currentUser: actor
+  });
+  await reapStaleFciGenerationJobs();
+  const presentation = await buildModulePresentationOrThrow(
+    code,
+    moduleCode,
+    actor
   );
+  const appelOffres = await requireAppelOffres(code);
+  return applyCommercialOwnershipReadOnlyToModulePresentation(actor, appelOffres, presentation);
 }
 
 export async function saveFciModuleEdits(
@@ -681,6 +864,12 @@ export async function saveFciModuleEdits(
   currentUser?: CurrentUser | null
 ) {
   const actor = normalizeCurrentUser(currentUser);
+  await assertAssignmentAccess({
+    code,
+    moduleCode,
+    currentUser: actor,
+    requireAssignedUser: true
+  });
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
@@ -707,6 +896,13 @@ export async function saveFciModuleEdits(
   }
 
   assertCanEditModule(actor, moduleCode);
+  if (moduleCode === "B" || moduleCode === "C") {
+    await markAssignmentStarted({
+      code,
+      moduleCode,
+      currentUser: actor
+    });
+  }
 
   const sourceFiche = await readCurrentSourceForWorkspace(code);
   const normalizedPayload = normalizeStoredFciModulePayload(
@@ -715,6 +911,15 @@ export async function saveFciModuleEdits(
     buildFciPayloadDefaults(appelOffres, sourceFiche, detail)
   );
   const storedAuxiliaryPayload = buildStoredAuxiliaryPayload(normalizedPayload);
+  const completion = calculateFciPayloadCompletion(normalizedPayload, moduleCode);
+  const validationErrors = validateFciModulePayloadForCompletion(
+    normalizedPayload,
+    moduleCode
+  );
+  const assignmentReadyForCompletion =
+    completion.total > 0
+    && completion.filled === completion.total
+    && validationErrors.length === 0;
   const nextVersion = (latestData?.version ?? 0) + 1;
   const sourceVersion =
     latestData?.generatedFromFicheVersion ??
@@ -755,7 +960,18 @@ export async function saveFciModuleEdits(
   });
 
   await recalculateAndPersistOverallStatus(code);
-  return buildModulePresentationOrThrow(code, moduleCode, actor);
+  if (
+    assignmentReadyForCompletion
+    && (moduleCode === "B" || moduleCode === "C")
+  ) {
+    await markAssignmentCompleted({
+      code,
+      moduleCode,
+      currentUser: actor
+    });
+  }
+  const refreshed = await buildModulePresentationOrThrow(code, moduleCode, actor);
+  return applyCommercialOwnershipReadOnlyToModulePresentation(actor, appelOffres, refreshed);
 }
 
 function isEnvironmentConfigurationError(error: unknown): error is Error {
@@ -976,7 +1192,7 @@ async function launchFciGenerationJob(input: {
   fciSetId: number;
   module: FciModuleRecord;
   moduleCode: FciModuleCode;
-  triggerType: "manual" | "regeneration";
+  triggerType: "manual" | "automatic" | "regeneration";
   sourceFiche: SourceFicheSnapshot;
   requireExistingData?: boolean;
 }) {
@@ -1251,16 +1467,109 @@ async function launchFciGenerationJob(input: {
   }
 }
 
+export async function autoInitializeAndLaunchFciModulesForValidatedFiche(code: string) {
+  const appelOffres = await requireAppelOffres(code);
+  const sourceFiche = await requireValidatedSourceFiche(code);
+  const {
+    detail
+  } = await ensureInitializedWorkspaceDetail(code, {
+    appelOffres,
+    sourceFiche
+  });
+  await recordFciGeneratedWorkflowState(code, null);
+
+  const launchedModules: FciModuleCode[] = [];
+  const skippedModules: Array<{ moduleCode: FciModuleCode; reason: string }> = [];
+  const failedModules: Array<{
+    moduleCode: FciModuleCode;
+    code: string;
+    message: string;
+  }> = [];
+
+  for (const module of detail.modules) {
+    if (!isFciContributingModuleCode(module.moduleCode)) {
+      continue;
+    }
+
+    if (module.status !== "not_started") {
+      skippedModules.push({
+        moduleCode: module.moduleCode,
+        reason: `status:${module.status}`
+      });
+      continue;
+    }
+
+    const latestData = (await listFciModuleDataVersions(module.id))[0] ?? null;
+    if (latestData) {
+      skippedModules.push({
+        moduleCode: module.moduleCode,
+        reason: "has_data"
+      });
+      continue;
+    }
+
+    const latestJob = getLatestJob(await listFciGenerationJobsForModule(module.id));
+    if (hasBlockingGenerationJob(latestJob)) {
+      skippedModules.push({
+        moduleCode: module.moduleCode,
+        reason: `job:${latestJob?.status ?? "unknown"}`
+      });
+      continue;
+    }
+
+    try {
+      await launchFciGenerationJob({
+        code,
+        appelOffresId: appelOffres.id,
+        fciSetId: detail.set.id,
+        module,
+        moduleCode: module.moduleCode,
+        triggerType: "automatic",
+        sourceFiche
+      });
+      launchedModules.push(module.moduleCode);
+    } catch (error) {
+      failedModules.push({
+        moduleCode: module.moduleCode,
+        code: error instanceof FciServiceError ? error.code : "FCI_LAUNCH_FAILED",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return {
+    launchedModules,
+    skippedModules,
+    failedModules
+  };
+}
+
 export async function prepareFciGeneration(
   code: string,
   moduleCode: FciModuleCode,
   currentUser?: CurrentUser | null
 ) {
   const actor = normalizeCurrentUser(currentUser);
+  await assertAssignmentAccess({
+    code,
+    moduleCode,
+    currentUser: actor,
+    requireAssignedUser: true
+  });
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
   const sourceFiche = await requireValidatedSourceFiche(code);
+
+  if (!isFciModuleGeneratable(moduleCode)) {
+    throw new FciServiceError(
+      "FCI_MODULE_NOT_GENERATABLE",
+      "Ce module FCI n'est pas generatable dans cette phase.",
+      409,
+      { module_code: moduleCode }
+    );
+  }
+
   assertCanGenerateModule(actor, moduleCode);
 
   return launchFciGenerationJob({
@@ -1280,10 +1589,26 @@ export async function prepareFciRegeneration(
   currentUser?: CurrentUser | null
 ) {
   const actor = normalizeCurrentUser(currentUser);
+  await assertAssignmentAccess({
+    code,
+    moduleCode,
+    currentUser: actor,
+    requireAssignedUser: true
+  });
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
   const sourceFiche = await requireValidatedSourceFiche(code);
+
+  if (!isFciModuleGeneratable(moduleCode)) {
+    throw new FciServiceError(
+      "FCI_MODULE_NOT_GENERATABLE",
+      "Ce module FCI n'est pas generatable dans cette phase.",
+      409,
+      { module_code: moduleCode }
+    );
+  }
+
   assertCanGenerateModule(actor, moduleCode);
 
   return launchFciGenerationJob({
@@ -1545,7 +1870,9 @@ async function applyFciSuccessCallback(
       callbackEvent: payload.event,
       extraParameters: {
         callback_validation_errors: validatedPayload.errors,
-        execution_id: payload.execution_id
+        execution_id: payload.execution_id,
+        callback_finish_reason: payload.generation_parameters?.finish_reason ?? null,
+        callback_usage: payload.generation_parameters?.usage ?? null
       }
     });
     return {
@@ -1557,17 +1884,30 @@ async function applyFciSuccessCallback(
     };
   }
 
+  // source_fiche and summary are platform-owned metadata: the AI is not
+  // asked to produce them (see callback-derivation.ts), so whatever it did
+  // or didn't send for those two keys is discarded and replaced here with
+  // the authoritative, deterministically-computed values.
+  const finalPayload = {
+    ...validatedPayload.data,
+    source_fiche: buildAuthoritativeSourceFiche(context.appelOffres.code, {
+      sourceFicheVersion: payload.source_fiche.version,
+      sourceFicheHash: payload.source_fiche.hash
+    }),
+    summary: computeFciModuleSummary(validatedPayload.data.data)
+  };
+
   const versions = await listFciModuleDataVersions(context.module.id);
   const nextVersion = (versions[0]?.version ?? 0) + 1;
   await upsertFciModuleData(context.module.id, {
-    dataJson: validatedPayload.data as unknown as FciJsonObject,
+    dataJson: finalPayload as unknown as FciJsonObject,
     sourceSummaryJson: payload.source_fiche,
     confidenceJson: {
-      summary: validatedPayload.data.summary
+      summary: finalPayload.summary
     },
     aiNotesJson: {
-      ai_notes: validatedPayload.data.ai_notes,
-      validation_warnings: validatedPayload.data.validation_warnings
+      ai_notes: finalPayload.ai_notes,
+      validation_warnings: finalPayload.validation_warnings
     },
     version: nextVersion,
     generatedFromFicheVersion: payload.source_fiche.version,
@@ -1720,7 +2060,13 @@ async function applyFciFailureCallback(
       callback_event: payload.event,
       callback_idempotency_key: expectedCallbackKey,
       callback_error_stage: payload.error.stage,
-      callback_validation_errors: payload.error.validation_errors ?? []
+      callback_validation_errors: payload.error.validation_errors ?? [],
+      // n8n reports Gemini's finish_reason/usage on every callback (see
+      // n8n/workflows/fci-module-generation.json). Keeping them lets us tell
+      // a real truncation (finish_reason: "length") apart from a genuine
+      // malformed-response failure without having to re-run generation.
+      callback_finish_reason: payload.generation_parameters?.finish_reason ?? null,
+      callback_usage: payload.generation_parameters?.usage ?? null
     })
   });
   await updateFciModule(context.module.id, {
@@ -1769,6 +2115,12 @@ export async function validateFciModule(
   currentUser?: CurrentUser | null
 ) {
   const actor = normalizeCurrentUser(currentUser);
+  await assertAssignmentAccess({
+    code,
+    moduleCode,
+    currentUser: actor,
+    requireAssignedUser: true
+  });
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { appelOffres, detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
@@ -1903,13 +2255,30 @@ export async function validateFciModule(
     });
 
   await recalculateAndPersistOverallStatus(code);
+  if (moduleCode === "B" || moduleCode === "C") {
+    await markAssignmentValidated({
+      code,
+      moduleCode,
+      currentUser: actor
+    });
+  } else {
+    await emitReadyForGoNoGoNotifications(code, actor);
+  }
   return buildModulePresentationOrThrow(code, moduleCode, actor);
 }
 
 export async function getFciModuleHistory(
   code: string,
-  moduleCode: FciModuleCode
+  moduleCode: FciModuleCode,
+  currentUser?: CurrentUser | null
 ) {
+  const actor = normalizeCurrentUser(currentUser);
+  assertCanViewModule(actor, moduleCode);
+  await assertAssignmentAccess({
+    code,
+    moduleCode,
+    currentUser: actor
+  });
   const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
   const { detail } = await requireInitializedDetail(code);
   const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);

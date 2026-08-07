@@ -12,7 +12,7 @@ function createModulePresentationFixture(input?: {
   canRegenerate?: boolean;
 }) {
   return {
-    allowed_actions: input?.actions ?? ["generate", "validate", "regenerate", "view_history"],
+    allowed_actions: input?.actions ?? ["validate", "regenerate", "view_history"],
     permissions: {
       can_view: true,
       can_edit: input?.canEdit ?? true,
@@ -94,4 +94,21 @@ test("read-only modules hide save and reset actions", () => {
   const actions = groups.flatMap((group) => group.buttons.map((button) => button.action));
   assert.equal(actions.includes("save"), false);
   assert.equal(actions.includes("reset"), false);
+});
+
+test("initial generate action is no longer exposed in module action groups", () => {
+  const groups = buildFciModuleActionGroups({
+    modulePresentation: createModulePresentationFixture({
+      latestData: false,
+      actions: ["view_history"],
+      canGenerate: true,
+      canRegenerate: false
+    }),
+    isDirty: false,
+    isBusy: false,
+    pendingAction: null
+  });
+
+  const labels = groups.flatMap((group) => group.buttons.map((button) => button.label));
+  assert.equal(labels.includes("Lancer la generation"), false);
 });

@@ -372,7 +372,7 @@ const geminiRequest = {
       content: userPrompt,
     }
   ],
-  max_completion_tokens: 12000,
+  max_completion_tokens: 32000,
 };
 
 const launchResponse = {
@@ -629,6 +629,9 @@ if (item.parse_valid === false) {
   errorMessage = String(item.error_message || errorMessage);
   retryable = typeof item.retryable === 'boolean' ? item.retryable : true;
   validationErrors = Array.isArray(item.validation_errors) ? item.validation_errors : [];
+  if (item.ai_preview) {
+    errorMessage = errorMessage + ' | apercu reponse IA: ' + String(item.ai_preview).slice(0, 150);
+  }
 } else if (item.ok === true && item.valid === false) {
   errorCode = 'AI_SCHEMA_VALIDATION_FAILED';
   errorStage = 'schema_validation';

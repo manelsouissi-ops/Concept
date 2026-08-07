@@ -20,7 +20,9 @@ export type BusinessStatusKey =
   | "fiche_a_valider"
   | "fiche_validee"
   | "erreur"
-  | "archive";
+  | "archive"
+  | "offre_autorisee"
+  | "offre_rejetee";
 
 export type ProgressStep = {
   key: string;
@@ -70,7 +72,9 @@ const STATUS_LABELS: Record<BusinessStatusKey, string> = {
   fiche_a_valider: "Fiche CDC a valider",
   fiche_validee: "Fiche CDC validee",
   erreur: "Erreur",
-  archive: "Archive"
+  archive: "Archive",
+  offre_autorisee: "Offre autorisee (Go)",
+  offre_rejetee: "Offre rejetee (No-Go)"
 };
 
 const STATUS_TONES: Record<BusinessStatusKey, BadgeTone> = {
@@ -81,7 +85,9 @@ const STATUS_TONES: Record<BusinessStatusKey, BadgeTone> = {
   fiche_a_valider: "warning",
   fiche_validee: "success",
   erreur: "danger",
-  archive: "neutral"
+  archive: "neutral",
+  offre_autorisee: "success",
+  offre_rejetee: "neutral"
 };
 
 const PROCESSING_JOB_LABELS: Record<ProcessingJobRecord["jobType"], string> = {
@@ -177,6 +183,10 @@ function getStatusDescription(status: BusinessStatusKey) {
       return "Une erreur bloque actuellement le traitement.";
     case "archive":
       return "Le dossier est archive et hors du circuit actif.";
+    case "offre_autorisee":
+      return "Le Go a ete decide : l'offre est autorisee.";
+    case "offre_rejetee":
+      return "Le No-Go a ete decide : le dossier est archive.";
   }
 }
 
@@ -197,6 +207,10 @@ function getCurrentStep(status: BusinessStatusKey) {
       return "Traitement en erreur";
     case "archive":
       return "Appel d'offres archive";
+    case "offre_autorisee":
+      return "Go/No-Go : offre autorisee";
+    case "offre_rejetee":
+      return "Go/No-Go : offre rejetee";
   }
 }
 
@@ -216,6 +230,10 @@ function getNextAction(status: BusinessStatusKey) {
     case "erreur":
       return "Relancer l'analyse";
     case "archive":
+      return "Consulter l'historique";
+    case "offre_autorisee":
+      return "Consulter la decision Go/No-Go";
+    case "offre_rejetee":
       return "Consulter l'historique";
   }
 }
@@ -260,16 +278,16 @@ function buildProgressSteps(appel: AppelOffresDetail, status: BusinessStatusKey)
     {
       key: "fci",
       label: "FCI distribuees",
-      completed: false,
+      completed: status === "offre_autorisee" || status === "offre_rejetee",
       current: false,
-      disabled: true
+      disabled: !(status === "offre_autorisee" || status === "offre_rejetee")
     },
     {
       key: "decision",
       label: "Decision Go / No-Go",
-      completed: false,
-      current: false,
-      disabled: true
+      completed: status === "offre_autorisee" || status === "offre_rejetee",
+      current: status === "offre_autorisee" || status === "offre_rejetee",
+      disabled: !(status === "offre_autorisee" || status === "offre_rejetee")
     }
   ];
 }
@@ -290,6 +308,9 @@ function getProgressValue(status: BusinessStatusKey) {
     case "erreur":
       return 60;
     case "archive":
+      return 100;
+    case "offre_autorisee":
+    case "offre_rejetee":
       return 100;
   }
 }
@@ -322,6 +343,16 @@ function capitalize(value: string) {
 
 export function getDocumentLabel(kind: DocumentKind) {
   return DOCUMENT_LABELS[kind];
+}
+
+// Real tenders are created through the app and always get an AO-YYYYMMDD-NNNN
+// code (see suggestNewAppelOffresCode). Every "int-<year>-..." code in the
+// current data set traces back to an integration/verification test run (see
+// docs like BUSINESS_DATA_VERIFICATION_REPORT.md) - none are real client work.
+// Dashboards must not let these inflate real KPIs; the full /appels-offres
+// list intentionally still shows them so they stay manageable.
+export function isTestTenderCode(code: string) {
+  return /^int-\d{4}-/i.test(code);
 }
 
 export function buildAppelOffresSummary(appel: AppelOffresDetail): AppelOffresSummaryView {

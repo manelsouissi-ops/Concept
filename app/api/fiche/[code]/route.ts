@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 import {
   readFicheBundle,
   readFicheIndexSource,
@@ -11,10 +12,15 @@ import type { FichePayload } from "@/lib/types";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const fiche = await readFicheBundle(code);
     return NextResponse.json(fiche);
@@ -30,6 +36,11 @@ export async function PUT(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const payload = (await request.json()) as FichePayload;
     const fiche = await writeFicheBundle(code, payload);

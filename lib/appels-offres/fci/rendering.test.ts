@@ -8,8 +8,16 @@ import {
   getFciModuleDefinitions
 } from "./rendering.ts";
 
-test("A-D rendering definitions exist", () => {
+test("A-C are human-visible by default; D (DG-only) stays hidden until requested explicitly", () => {
   const definitions = getFciModuleDefinitions();
+  assert.deepEqual(
+    definitions.map((item) => item.moduleCode),
+    ["A", "B", "C"]
+  );
+});
+
+test("A-D rendering definitions all exist, including the hidden DG module D", () => {
+  const definitions = getFciModuleDefinitions({ includeHidden: true });
   assert.deepEqual(
     definitions.map((item) => item.moduleCode),
     ["A", "B", "C", "D"]
@@ -18,10 +26,7 @@ test("A-D rendering definitions exist", () => {
 
 test("E has no active editable definition", () => {
   assert.equal(getFciModuleDefinition("A")?.moduleCode, "A");
-  assert.deepEqual(
-    getFciModuleDefinitions().map((item) => item.moduleCode),
-    ["A", "B", "C", "D"]
-  );
+  assert.equal(getFciModuleDefinition("E" as never), null);
 });
 
 test("all sections are ordered and section-field paths are unique per module", () => {

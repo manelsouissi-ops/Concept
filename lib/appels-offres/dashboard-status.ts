@@ -55,11 +55,23 @@ export function buildDashboardRowAction(
       return { kind: "consult", label: "Consulter", href: `/appels-offres/${code}?view=fci`, tone: "ghost" };
     }
 
+    // FCI modules pre-fill automatically once the Fiche CDC is validated
+    // (autoInitializeAndLaunchFciModulesForValidatedFiche) - this is no longer
+    // a manual "generate" trigger, just a link to go follow/review progress.
     return {
       kind: "generate",
-      label: "Generer les analyses",
+      label: "Suivre les modules",
       href: `/appels-offres/${code}?view=fci`,
       tone: "secondary"
+    };
+  }
+
+  if (summary.statusKey === "offre_autorisee") {
+    return {
+      kind: "consult",
+      label: "Consulter la decision",
+      href: `/appels-offres/${code}?view=go-no-go`,
+      tone: "ghost"
     };
   }
 

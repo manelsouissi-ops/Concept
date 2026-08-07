@@ -16,6 +16,7 @@ import {
   validateSoftwareAnalysisTransitionAction,
   validateSourceMutationInput
 } from "@/lib/appels-offres/software-analysis-validation.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -50,10 +51,15 @@ type MutationRequest =
     };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const detail = await getSoftwareAnalysisDetailByCode(code);
     return NextResponse.json({ detail });
@@ -69,6 +75,11 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const body = (await request.json()) as MutationRequest;
 

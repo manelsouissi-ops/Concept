@@ -26,10 +26,10 @@
       "format": "date-time"
     },
     "source_fiche": {
-      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/source_fiche"
+      "description": "Platform-owned: injected by the platform, not validated against the model output."
     },
     "summary": {
-      "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/summary"
+      "description": "Platform-owned: injected by the platform, not validated against the model output."
     },
     "data": {
       "type": "object",
@@ -197,8 +197,6 @@
     "module_code",
     "module_type",
     "generated_at",
-    "source_fiche",
-    "summary",
     "data",
     "ai_notes",
     "validation_warnings"

@@ -1,14 +1,20 @@
 import { readFile } from "fs/promises";
 import { NextResponse } from "next/server";
 import { getAppelOffresPdfPath } from "@/lib/appels-offres/storage.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const filePath = await getAppelOffresPdfPath(code);
     const fileBuffer = await readFile(filePath);

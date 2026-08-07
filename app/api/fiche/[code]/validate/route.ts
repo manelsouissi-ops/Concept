@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   appendAuditLog,
+  applyValidatedExtractionIdentity,
   setAppelOffresBusinessStatus
 } from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
+import { autoInitializeAndLaunchFciModulesForValidatedFiche } from "@/lib/appels-offres/fci/service.ts";
 import {
   markFicheValidated,
   readFicheBundle,
@@ -19,10 +22,15 @@ const CONTROL_LABELS = {
 } as const;
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const current = await readFicheIndexSource(code);
     if (current.status.status !== "draft") {
@@ -71,9 +79,24 @@ export async function POST(
     await setAppelOffresBusinessStatus(code, "fiche_validee", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);
+    const extractedTitle =
+      indexed.fiche.extraction.find((field) => field.key === "intitule_mission")?.value ?? null;
+    const extractedBuyer =
+      indexed.fiche.extraction.find((field) => field.key === "client_maitre_ouvrage")?.value ?? null;
+    const extractedCountry =
+      indexed.fiche.extraction.find((field) => field.key === "pays")?.value ?? null;
+    const extractedDeadline =
+      indexed.fiche.extraction.find((field) => field.key === "date_limite_depot")?.value ?? null;
+    await applyValidatedExtractionIdentity(code, {
+      title: extractedTitle,
+      buyer: extractedBuyer,
+      country: extractedCountry,
+      deadline: extractedDeadline
+    }).catch(() => undefined);
     await appendAuditLog(code, "fiche_cdc.validated", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);
+    await autoInitializeAndLaunchFciModulesForValidatedFiche(code).catch(() => undefined);
     const fiche = await readFicheBundle(code);
     return NextResponse.json(fiche);
   } catch (error) {

@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import {
-  BellIcon,
   DashboardIcon,
   DatabaseIcon,
   FolderIcon,
@@ -14,49 +13,70 @@ import {
   UserCircleIcon
 } from "./app-icons.tsx";
 import { BrandLogo } from "./brand-logo.tsx";
+import { NotificationBell } from "./notification-bell.tsx";
 import { UserAvatar } from "./user-avatar.tsx";
-import { canAccess, type UserPresentation } from "@/lib/auth/rbac.ts";
+import { canAccess, type UserPresentation, type UserRole } from "@/lib/auth/rbac.ts";
+import {
+  filterNavigationByRole,
+  getAdminNavigationSections,
+  isActiveNavigationPath,
+  type NavigationIconKey
+} from "@/lib/administration/navigation.ts";
 import { switchDevelopmentUser, UsersClientError } from "@/lib/users/client.ts";
 import type { DevelopmentUserState } from "@/lib/users/types.ts";
 import { getUserRoleLabel } from "@/lib/auth/rbac.ts";
-
-type NavigationItem = {
-  label: string;
-  href?: string;
-  icon: ReactNode;
-  disabled?: boolean;
-};
-
-const primaryNavigation: NavigationItem[] = [
-  { label: "Tableau de bord", href: "/dashboard", icon: <DashboardIcon className="nav-icon" /> },
-  { label: "Appels d'offres", href: "/appels-offres", icon: <FolderIcon className="nav-icon" /> }
-];
-
-const upcomingNavigation: NavigationItem[] = [
-  {
-    label: "Base de connaissances",
-    icon: <DatabaseIcon className="nav-icon" />,
-    disabled: true
-  }
-];
+import type { NavigationItemDefinition as NavigationItem } from "@/lib/administration/navigation.ts";
+import { getRoleWorkspaceExperience } from "@/lib/appels-offres/role-workspace.ts";
+import type { AppNotificationRecord } from "@/lib/notifications/types.ts";
 
 const administrationNavigation: NavigationItem[] = [
-  { label: "Referentiels", icon: <LibraryIcon className="nav-icon" />, disabled: true },
-  { label: "Employes", icon: <LibraryIcon className="nav-icon" />, disabled: true },
-  { label: "Competences", icon: <LibraryIcon className="nav-icon" />, disabled: true },
+  {
+    label: "Administration",
+    href: "/administration",
+    iconKey: "settings"
+  },
+  { label: "Referentiels", iconKey: "library", disabled: true },
+  { label: "Employes", iconKey: "library", disabled: true },
+  { label: "Competences", iconKey: "library", disabled: true },
   {
     label: "Utilisateurs",
     href: "/administration/utilisateurs",
-    icon: <UserCircleIcon className="nav-icon" />
+    iconKey: "user"
   },
   {
     label: "Logiciels",
     href: "/administration/logiciels",
-    icon: <LibraryIcon className="nav-icon" />
+    iconKey: "library"
   }
 ];
 
+function renderNavigationIcon(iconKey: NavigationIconKey) {
+  switch (iconKey) {
+    case "dashboard":
+      return <DashboardIcon className="nav-icon" />;
+    case "folder":
+      return <FolderIcon className="nav-icon" />;
+    case "database":
+      return <DatabaseIcon className="nav-icon" />;
+    case "library":
+      return <LibraryIcon className="nav-icon" />;
+    case "settings":
+      return <SettingsIcon className="nav-icon" />;
+    case "user":
+      return <UserCircleIcon className="nav-icon" />;
+    default:
+      return <DashboardIcon className="nav-icon" />;
+  }
+}
+
 function getRouteMeta(pathname: string) {
+  if (pathname === "/administration") {
+    return {
+      title: "Administration",
+      breadcrumbs: ["Administration"]
+    };
+  }
+
   if (pathname === "/dashboard") {
     return {
       title: "Tableau de bord",
@@ -208,20 +228,20 @@ function getRouteMeta(pathname: string) {
 function SidebarItem({
   item,
   currentPath,
+  currentSearch,
   onNavigate
 }: {
   item: NavigationItem;
   currentPath: string;
+  currentSearch: string;
   onNavigate?: () => void;
 }) {
-  const isActive = item.href
-    ? currentPath === item.href || currentPath.startsWith(`${item.href}/`)
-    : false;
+  const isActive = isActiveNavigationPath(currentPath, item.href, currentSearch);
 
   if (!item.href || item.disabled) {
     return (
       <span className="sidebar-link disabled" aria-disabled="true">
-        {item.icon}
+        {renderNavigationIcon(item.iconKey)}
         <span className="sidebar-link-text">
           {item.label}
           <small>Bientot</small>
@@ -236,7 +256,7 @@ function SidebarItem({
       className={isActive ? "sidebar-link active" : "sidebar-link"}
       onClick={onNavigate}
     >
-      {item.icon}
+      {renderNavigationIcon(item.iconKey)}
       <span className="sidebar-link-text">{item.label}</span>
     </Link>
   );
@@ -244,21 +264,23 @@ function SidebarItem({
 
 function SidebarDisclosure({
   label,
-  icon,
+  iconKey,
   items,
   currentPath,
+  currentSearch,
   defaultOpen = true,
   onNavigate
 }: {
   label: string;
-  icon: ReactNode;
+  iconKey: NavigationIconKey;
   items: NavigationItem[];
   currentPath: string;
+  currentSearch: string;
   defaultOpen?: boolean;
   onNavigate?: () => void;
 }) {
   const hasActiveItem = items.some((item) =>
-    item.href ? currentPath === item.href || currentPath.startsWith(`${item.href}/`) : false
+    isActiveNavigationPath(currentPath, item.href, currentSearch)
   );
 
   return (
@@ -267,7 +289,7 @@ function SidebarDisclosure({
       open={defaultOpen || hasActiveItem}
     >
       <summary className="sidebar-disclosure-trigger">
-        {icon}
+        {renderNavigationIcon(iconKey)}
         <span className="sidebar-link-text">{label}</span>
       </summary>
       <div className="sidebar-disclosure-list">
@@ -276,6 +298,7 @@ function SidebarDisclosure({
             key={item.label}
             item={item}
             currentPath={currentPath}
+            currentSearch={currentSearch}
             onNavigate={onNavigate}
           />
         ))}
@@ -288,27 +311,73 @@ export function AppShell({
   children,
   currentUser,
   developmentUserState,
-  isDevelopmentMode
+  isDevelopmentMode,
+  initialNotifications = [],
+  initialUnreadNotificationCount = 0
 }: {
   children: ReactNode;
-  currentUser: UserPresentation;
+  currentUser: UserPresentation | null;
   developmentUserState?: DevelopmentUserState | null;
   isDevelopmentMode?: boolean;
+  initialNotifications?: AppNotificationRecord[];
+  initialUnreadNotificationCount?: number;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isSwitchPending, startSwitchTransition] = useTransition();
+  const [isLogoutPending, startLogoutTransition] = useTransition();
   const routeMeta = getRouteMeta(pathname);
   const showTopContext = routeMeta.breadcrumbs.length > 1;
-  const canAccessAdministration = canAccess(currentUser.role, "administration");
-  const administrationItems = administrationNavigation.map((item) =>
-    item.href && !canAccessAdministration ? { ...item, disabled: true } : item
-  );
+  const isAdminExperience = currentUser?.role === "ADMIN";
+  const canAccessAdministration = currentUser
+    ? canAccess(currentUser.role, "administration")
+    : false;
+  const adminSections = getAdminNavigationSections();
+  const currentSearch = searchParams.toString();
+  const workspaceExperience = currentUser
+    ? getRoleWorkspaceExperience(currentUser.role as UserRole)
+    : null;
+  const primaryNavigation: NavigationItem[] = currentUser
+    ? filterNavigationByRole(
+        workspaceExperience?.primaryNavigation ?? [],
+        currentUser.role as UserRole
+      )
+    : [];
+  const topbarAction =
+    pathname === "/dashboard"
+      ? workspaceExperience?.dashboardAction ?? null
+      : routeMeta.actionHref && routeMeta.actionLabel
+        ? {
+            href: routeMeta.actionHref,
+            label: routeMeta.actionLabel
+          }
+        : null;
+
+  function handleLogout() {
+    if (isLogoutPending) {
+      return;
+    }
+
+    startLogoutTransition(() => {
+      void (async () => {
+        setLogoutError(null);
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+          router.push("/login");
+          router.refresh();
+        } catch {
+          setLogoutError("La deconnexion a echoue.");
+        }
+      })();
+    });
+  }
 
   function handleSwitchUser(userId: number) {
-    if (!isDevelopmentMode || isSwitchPending) {
+    if (!isDevelopmentMode || isSwitchPending || !currentUser) {
       return;
     }
 
@@ -329,45 +398,68 @@ export function AppShell({
     });
   }
 
+  if (!currentUser) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="app-shell">
-      <aside className={sidebarOpen ? "app-sidebar open" : "app-sidebar"}>
+      <aside
+        className={[
+          "app-sidebar",
+          sidebarOpen ? "open" : "",
+          isAdminExperience ? "is-admin-experience" : ""
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="sidebar-brand">
           <BrandLogo compact priority />
         </div>
 
-        <nav className="sidebar-group" aria-label="Navigation principale">
-          {primaryNavigation.map((item) => (
-            <SidebarItem
-              key={item.label}
-              item={item}
-              currentPath={pathname}
-              onNavigate={() => setSidebarOpen(false)}
-            />
-          ))}
-        </nav>
-
-        <SidebarDisclosure
-          label="Administration"
-          icon={<SettingsIcon className="nav-icon" />}
-          items={administrationItems}
-          currentPath={pathname}
-          onNavigate={() => setSidebarOpen(false)}
-        />
-
-        <div className="sidebar-upcoming-group">
-          <span className="sidebar-upcoming-heading">Prochainement</span>
-          <nav className="sidebar-group" aria-label="Fonctionnalites a venir">
-            {upcomingNavigation.map((item) => (
+        {isAdminExperience ? (
+          <div className="sidebar-admin-sections" aria-label="Navigation administration">
+            {adminSections.map((section) => (
+              <section key={section.label} className="sidebar-section">
+                <span className="sidebar-section-title">{section.label}</span>
+                <nav className="sidebar-group" aria-label={section.label}>
+                  {section.items.map((item) => (
+                    <SidebarItem
+                      key={`${section.label}-${item.label}`}
+                      item={item}
+                      currentPath={pathname}
+                      currentSearch={currentSearch}
+                      onNavigate={() => setSidebarOpen(false)}
+                    />
+                  ))}
+                </nav>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <nav className="sidebar-group" aria-label="Navigation principale">
+            {primaryNavigation.map((item) => (
               <SidebarItem
                 key={item.label}
                 item={item}
                 currentPath={pathname}
+                currentSearch={currentSearch}
                 onNavigate={() => setSidebarOpen(false)}
               />
             ))}
           </nav>
-        </div>
+        )}
+
+        {!isAdminExperience && canAccessAdministration ? (
+          <SidebarDisclosure
+            label="Administration"
+            iconKey="settings"
+            items={administrationNavigation}
+            currentPath={pathname}
+            currentSearch={currentSearch}
+            onNavigate={() => setSidebarOpen(false)}
+          />
+        ) : null}
 
         <div className="sidebar-spacer" />
 
@@ -422,13 +514,10 @@ export function AppShell({
           </div>
 
           <div className="app-topbar-right">
-            <span
-              className="topbar-icon-button topbar-icon-button-disabled"
-              aria-disabled="true"
-              title="Notifications bientot disponibles"
-            >
-              <BellIcon className="topbar-action-icon" />
-            </span>
+            <NotificationBell
+              initialItems={initialNotifications}
+              initialUnreadCount={initialUnreadNotificationCount}
+            />
 
             <details className="topbar-user-menu">
               <summary className="topbar-user-button" aria-label="Menu utilisateur">
@@ -437,12 +526,12 @@ export function AppShell({
                   avatarUrl={currentUser.avatar_url}
                   size="sm"
                 />
-                <div className="topbar-user-copy">
+                <span className="topbar-user-copy">
                   <strong>{currentUser.name}</strong>
                   <span>
                     {currentUser.role_label} · {currentUser.department_label}
                   </span>
-                </div>
+                </span>
               </summary>
 
               <div className="topbar-user-menu-content">
@@ -468,16 +557,20 @@ export function AppShell({
                   <Link href="/settings" className="topbar-user-menu-link">
                     Parametres
                   </Link>
-                  <span className="topbar-user-menu-link disabled" aria-disabled="true">
-                    Deconnexion
-                    <small>Bientot</small>
-                  </span>
+                  <button
+                    type="button"
+                    className="topbar-user-menu-link topbar-user-menu-button"
+                    disabled={isLogoutPending}
+                    onClick={handleLogout}
+                  >
+                    {isLogoutPending ? "Deconnexion..." : "Deconnexion"}
+                  </button>
                 </div>
 
                 {isDevelopmentMode && developmentUserState ? (
                   <div className="topbar-dev-switcher">
                     <div className="topbar-dev-switcher-header">
-                      <strong>Mode developpement</strong>
+                      <strong>Changer d'utilisateur - developpement</strong>
                       <span>Changer immediatement d'utilisateur pour tester les permissions.</span>
                     </div>
 
@@ -509,12 +602,14 @@ export function AppShell({
                     ) : null}
                   </div>
                 ) : null}
+
+                {logoutError ? <div className="callout warning">{logoutError}</div> : null}
               </div>
             </details>
 
-            {routeMeta.actionHref && routeMeta.actionLabel ? (
-              <Link href={routeMeta.actionHref} className="button button-primary topbar-cta">
-                {routeMeta.actionLabel}
+            {!isAdminExperience && topbarAction ? (
+              <Link href={topbarAction.href} className="button button-primary topbar-cta">
+                {topbarAction.label}
               </Link>
             ) : null}
           </div>

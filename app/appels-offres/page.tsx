@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header.tsx";
 import { buildDashboardRowAction, buildDashboardStatusDisplay } from "@/lib/appels-offres/dashboard.ts";
 import { listFciOverallStatusesByAppelOffresCodes } from "@/lib/appels-offres/fci/repository.ts";
 import { buildAppelOffresSummary } from "@/lib/appels-offres/presentation.ts";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import {
   getAppelOffresDetailByCode,
   listAppelsOffres
@@ -14,6 +15,8 @@ export default async function AppelsOffresPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await requireAreaAccessForPage("appels_offres");
+
   try {
     const resolvedSearchParams = searchParams ? await searchParams : undefined;
     const statusValue = resolvedSearchParams?.status;

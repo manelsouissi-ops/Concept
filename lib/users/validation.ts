@@ -1,4 +1,9 @@
-import { parseUserRole, USER_ROLES, type UserRole } from "../auth/rbac.ts";
+import {
+  parseUserRole,
+  USER_ROLES,
+  type CurrentUser,
+  type UserRole
+} from "../auth/rbac.ts";
 import {
   DEPARTMENT_CODES,
   USER_STATUSES,
@@ -117,6 +122,27 @@ export function validateUserMutationInput(input: UserMutationInput) {
 
 export function validateProfileUpdateInput(input: ProfileUpdateInput) {
   return validateSharedProfileFields(input);
+}
+
+export function assertAdminCanUpdateUser(
+  actor: Pick<CurrentUser, "id" | "role">,
+  targetUserId: number,
+  payload: Pick<UserMutationInput, "role" | "departmentCode">
+) {
+  if (actor.role !== "ADMIN") {
+    return;
+  }
+
+  const actorUserId = Number(actor.id);
+  if (!Number.isInteger(actorUserId) || actorUserId !== targetUserId) {
+    return;
+  }
+
+  if (payload.role !== "ADMIN" || payload.departmentCode !== "ADMINISTRATION") {
+    throw new Error(
+      "Un administrateur ne peut pas se reattribuer un role metier depuis l'administration utilisateurs."
+    );
+  }
 }
 
 export function parseUserPayload(body: unknown): UserMutationInput {

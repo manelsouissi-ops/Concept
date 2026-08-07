@@ -1,6 +1,8 @@
 import { Pool } from "pg";
 import type {
   AppelOffresDetail,
+  AppelOffresCommercialOwnershipEventRecord,
+  AppelOffresCommercialOwnerView,
   AppelOffresInput,
   AppelOffresRecord,
   AppelOffresBusinessStatus,
@@ -17,6 +19,7 @@ import type {
   UpsertDocumentInput
 } from "./types.ts";
 import { isAppelOffresStatus } from "./status.ts";
+import type { UserStatus } from "../users/types.ts";
 import {
   getArtifactPresence,
   getAttachedFicheStatus,
@@ -27,6 +30,7 @@ const APPELS_OFFRES_TABLE = "public.appels_offres";
 const DOCUMENTS_TABLE = "public.documents";
 const PROCESSING_JOBS_TABLE = "public.processing_jobs";
 const AUDIT_LOGS_TABLE = "public.audit_logs";
+const COMMERCIAL_OWNERSHIP_EVENTS_TABLE = "public.appel_offre_commercial_ownership_events";
 
 type GlobalWithPool = typeof globalThis & {
   __appelsOffresPool?: Pool;
@@ -47,10 +51,49 @@ type AppelOffresRow = {
   status: AppelOffresStatus;
   business_status: AppelOffresBusinessStatus | null;
   source: AppelOffresSource;
+  commercial_owner_user_id: number | string | null;
+  commercial_owner_assigned_at: string | Date | null;
+  commercial_owner_assigned_by_user_id: number | string | null;
+  commercial_owner_previous_user_id: number | string | null;
+  commercial_owner_reason: string | null;
+  commercial_owner_updated_at: string | Date | null;
+  commercial_owner_status: UserStatus | null;
   created_at: string | Date;
   updated_at: string | Date;
   archived_at: string | Date | null;
   deleted_at: string | Date | null;
+};
+
+type CommercialOwnershipEventRow = {
+  id: number | string;
+  appel_offres_id: number | string;
+  appel_offres_code: string;
+  previous_owner_user_id: number | string | null;
+  previous_owner_name: string | null;
+  new_owner_user_id: number | string;
+  new_owner_name: string | null;
+  changed_by_user_id: number | string | null;
+  changed_by_name: string | null;
+  reason: string | null;
+  metadata_jsonb: Record<string, unknown> | null;
+  created_at: string | Date;
+};
+
+type CommercialOwnerViewRow = {
+  commercial_owner_user_id: number | string | null;
+  owner_display_name: string | null;
+  owner_email: string | null;
+  owner_job_title: string | null;
+  owner_role: "COMMERCIAL" | null;
+  owner_status: UserStatus | null;
+  commercial_owner_assigned_at: string | Date | null;
+  commercial_owner_assigned_by_user_id: number | string | null;
+  assigned_by_name: string | null;
+  commercial_owner_previous_user_id: number | string | null;
+  previous_owner_name: string | null;
+  commercial_owner_reason: string | null;
+  commercial_owner_updated_at: string | Date | null;
+  legacy_responsable_commercial: string | null;
 };
 
 type DocumentRow = {
@@ -154,6 +197,7 @@ function mapBusinessStatusToStoredStatus(
     case "erreur":
       return "error";
     case "archive":
+    case "offre_rejetee":
       return "archived";
     default:
       return "ready";
@@ -192,9 +236,76 @@ function mapAppelOffresRow(row: AppelOffresRow): AppelOffresRecord {
     status: row.status,
     businessStatus: row.business_status ?? null,
     source: row.source,
+    commercialOwnerUserId:
+      row.commercial_owner_user_id == null ? null : Number(row.commercial_owner_user_id),
+    commercialOwnerAssignedAt: normalizeTimestamp(row.commercial_owner_assigned_at),
+    commercialOwnerAssignedByUserId:
+      row.commercial_owner_assigned_by_user_id == null
+        ? null
+        : Number(row.commercial_owner_assigned_by_user_id),
+    commercialOwnerPreviousUserId:
+      row.commercial_owner_previous_user_id == null
+        ? null
+        : Number(row.commercial_owner_previous_user_id),
+    commercialOwnerReason: row.commercial_owner_reason ?? null,
+    commercialOwnerUpdatedAt: normalizeTimestamp(row.commercial_owner_updated_at),
+    commercialOwnerStatus: row.commercial_owner_status ?? null,
     createdAt: normalizeTimestamp(row.created_at) ?? new Date(0).toISOString(),
     updatedAt: normalizeTimestamp(row.updated_at) ?? new Date(0).toISOString(),
     archivedAt: normalizeTimestamp(row.archived_at) ?? normalizeTimestamp(row.deleted_at)
+  };
+}
+
+function mapCommercialOwnershipEventRow(
+  row: CommercialOwnershipEventRow
+): AppelOffresCommercialOwnershipEventRecord {
+  return {
+    id: Number(row.id),
+    appelOffresId: Number(row.appel_offres_id),
+    appelOffresCode: row.appel_offres_code,
+    previousOwnerUserId:
+      row.previous_owner_user_id == null ? null : Number(row.previous_owner_user_id),
+    previousOwnerName: row.previous_owner_name ?? null,
+    newOwnerUserId: Number(row.new_owner_user_id),
+    newOwnerName: row.new_owner_name ?? null,
+    changedByUserId:
+      row.changed_by_user_id == null ? null : Number(row.changed_by_user_id),
+    changedByName: row.changed_by_name ?? null,
+    reason: row.reason ?? null,
+    metadata: row.metadata_jsonb ?? null,
+    createdAt: normalizeTimestamp(row.created_at) ?? new Date(0).toISOString()
+  };
+}
+
+function mapCommercialOwnerViewRow(
+  row: CommercialOwnerViewRow
+): AppelOffresCommercialOwnerView {
+  const status = row.owner_status ?? null;
+  return {
+    userId: row.commercial_owner_user_id == null ? null : Number(row.commercial_owner_user_id),
+    displayName: row.owner_display_name ?? null,
+    email: row.owner_email ?? null,
+    jobTitle: row.owner_job_title ?? null,
+    role: row.owner_role ?? null,
+    status,
+    assignedAt: normalizeTimestamp(row.commercial_owner_assigned_at),
+    assignedByUserId:
+      row.commercial_owner_assigned_by_user_id == null
+        ? null
+        : Number(row.commercial_owner_assigned_by_user_id),
+    assignedByName: row.assigned_by_name ?? null,
+    previousOwnerUserId:
+      row.commercial_owner_previous_user_id == null
+        ? null
+        : Number(row.commercial_owner_previous_user_id),
+    previousOwnerName: row.previous_owner_name ?? null,
+    reason: row.commercial_owner_reason ?? null,
+    updatedAt: normalizeTimestamp(row.commercial_owner_updated_at),
+    isRecoveryRequired:
+      row.commercial_owner_user_id == null
+      || status === "INACTIVE"
+      || status === "LOCKED",
+    legacyResponsibleLabel: row.legacy_responsable_commercial ?? null
   };
 }
 
@@ -332,6 +443,12 @@ async function ensureSchemaInternal(pool: Pool) {
         notes text null,
         priorite text null,
         responsable_commercial text null,
+        commercial_owner_user_id bigint null references public.app_users(id) on delete set null,
+        commercial_owner_assigned_at timestamptz null,
+        commercial_owner_assigned_by_user_id bigint null references public.app_users(id) on delete set null,
+        commercial_owner_previous_user_id bigint null references public.app_users(id) on delete set null,
+        commercial_owner_reason text null,
+        commercial_owner_updated_at timestamptz null,
         status text not null check (status in ('draft', 'processing', 'ready', 'error', 'archived')),
         business_status text null,
         source text not null check (source in ('manual', 'fiche-flow')) default 'manual',
@@ -345,6 +462,12 @@ async function ensureSchemaInternal(pool: Pool) {
       alter table ${APPELS_OFFRES_TABLE}
       add column if not exists priorite text null,
       add column if not exists responsable_commercial text null,
+      add column if not exists commercial_owner_user_id bigint null references public.app_users(id) on delete set null,
+      add column if not exists commercial_owner_assigned_at timestamptz null,
+      add column if not exists commercial_owner_assigned_by_user_id bigint null references public.app_users(id) on delete set null,
+      add column if not exists commercial_owner_previous_user_id bigint null references public.app_users(id) on delete set null,
+      add column if not exists commercial_owner_reason text null,
+      add column if not exists commercial_owner_updated_at timestamptz null,
       add column if not exists business_status text null,
       add column if not exists archived_at timestamptz null,
       add column if not exists deleted_at timestamptz null
@@ -357,34 +480,50 @@ async function ensureSchemaInternal(pool: Pool) {
       where priorite is null or (archived_at is null and deleted_at is not null)
     `);
     await client.query(`
-      alter table ${APPELS_OFFRES_TABLE}
-      drop constraint if exists appels_offres_priorite_check
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conname = 'appels_offres_priorite_check'
+            and conrelid = '${APPELS_OFFRES_TABLE}'::regclass
+        ) then
+          alter table ${APPELS_OFFRES_TABLE}
+          add constraint appels_offres_priorite_check
+          check (priorite in ('basse', 'normale', 'haute', 'critique'));
+        end if;
+      end
+      $$;
     `);
     await client.query(`
-      alter table ${APPELS_OFFRES_TABLE}
-      add constraint appels_offres_priorite_check
-      check (priorite in ('basse', 'normale', 'haute', 'critique'))
-    `);
-    await client.query(`
-      alter table ${APPELS_OFFRES_TABLE}
-      drop constraint if exists appels_offres_business_status_check
-    `);
-    await client.query(`
-      alter table ${APPELS_OFFRES_TABLE}
-      add constraint appels_offres_business_status_check
-      check (
-        business_status is null
-        or business_status in (
-          'brouillon',
-          'cdc_importe',
-          'en_attente_analyse',
-          'analyse_en_cours',
-          'fiche_a_valider',
-          'fiche_validee',
-          'erreur',
-          'archive'
-        )
-      )
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conname = 'appels_offres_business_status_check'
+            and conrelid = '${APPELS_OFFRES_TABLE}'::regclass
+        ) then
+          alter table ${APPELS_OFFRES_TABLE}
+          add constraint appels_offres_business_status_check
+          check (
+            business_status is null
+            or business_status in (
+              'brouillon',
+              'cdc_importe',
+              'en_attente_analyse',
+              'analyse_en_cours',
+              'fiche_a_valider',
+              'fiche_validee',
+              'erreur',
+              'archive',
+              'offre_autorisee',
+              'offre_rejetee'
+            )
+          );
+        end if;
+      end
+      $$;
     `);
     await client.query(`
       create table if not exists ${DOCUMENTS_TABLE} (
@@ -453,47 +592,68 @@ async function ensureSchemaInternal(pool: Pool) {
       where public_id is null
     `);
     await client.query(`
-      alter table ${PROCESSING_JOBS_TABLE}
-      drop constraint if exists processing_jobs_status_check
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conname = 'processing_jobs_status_check'
+            and conrelid = '${PROCESSING_JOBS_TABLE}'::regclass
+        ) then
+          alter table ${PROCESSING_JOBS_TABLE}
+          add constraint processing_jobs_status_check
+          check (status in ('created', 'queued', 'running', 'completed', 'failed', 'cancelled', 'retrying'));
+        end if;
+      end
+      $$;
     `);
     await client.query(`
-      alter table ${PROCESSING_JOBS_TABLE}
-      add constraint processing_jobs_status_check
-      check (status in ('created', 'queued', 'running', 'completed', 'failed', 'cancelled', 'retrying'))
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conname = 'processing_jobs_callback_status_check'
+            and conrelid = '${PROCESSING_JOBS_TABLE}'::regclass
+        ) then
+          alter table ${PROCESSING_JOBS_TABLE}
+          add constraint processing_jobs_callback_status_check
+          check (
+            callback_status is null
+            or callback_status in ('completed', 'failed', 'cancelled')
+          );
+        end if;
+      end
+      $$;
     `);
     await client.query(`
-      alter table ${PROCESSING_JOBS_TABLE}
-      drop constraint if exists processing_jobs_callback_status_check
-    `);
-    await client.query(`
-      alter table ${PROCESSING_JOBS_TABLE}
-      add constraint processing_jobs_callback_status_check
-      check (
-        callback_status is null
-        or callback_status in ('completed', 'failed', 'cancelled')
-      )
-    `);
-    await client.query(`
-      alter table ${PROCESSING_JOBS_TABLE}
-      drop constraint if exists processing_jobs_error_stage_check
-    `);
-    await client.query(`
-      alter table ${PROCESSING_JOBS_TABLE}
-      add constraint processing_jobs_error_stage_check
-      check (
-        error_stage is null
-        or error_stage in (
-          'webhook',
-          'upload',
-          'marker',
-          'markdown',
-          'anonymization',
-          'llm',
-          'xml',
-          'callback',
-          'unknown'
-        )
-      )
+      do $$
+      begin
+        if not exists (
+          select 1
+          from pg_constraint
+          where conname = 'processing_jobs_error_stage_check'
+            and conrelid = '${PROCESSING_JOBS_TABLE}'::regclass
+        ) then
+          alter table ${PROCESSING_JOBS_TABLE}
+          add constraint processing_jobs_error_stage_check
+          check (
+            error_stage is null
+            or error_stage in (
+              'webhook',
+              'upload',
+              'marker',
+              'markdown',
+              'anonymization',
+              'llm',
+              'xml',
+              'callback',
+              'unknown'
+            )
+          );
+        end if;
+      end
+      $$;
     `);
     await client.query(`
       create unique index if not exists processing_jobs_public_id_uidx
@@ -543,6 +703,10 @@ async function ensureSchemaInternal(pool: Pool) {
       on ${APPELS_OFFRES_TABLE} (responsable_commercial)
     `);
     await client.query(`
+      create index if not exists appels_offres_commercial_owner_user_idx
+      on ${APPELS_OFFRES_TABLE} (commercial_owner_user_id, updated_at desc)
+    `);
+    await client.query(`
       create index if not exists appels_offres_deleted_at_idx
       on ${APPELS_OFFRES_TABLE} (deleted_at)
     `);
@@ -557,6 +721,26 @@ async function ensureSchemaInternal(pool: Pool) {
     await client.query(`
       create index if not exists audit_logs_appel_offres_id_created_at_idx
       on ${AUDIT_LOGS_TABLE} (appel_offres_id, created_at desc)
+    `);
+    await client.query(`
+      create table if not exists ${COMMERCIAL_OWNERSHIP_EVENTS_TABLE} (
+        id bigserial primary key,
+        appel_offres_id bigint not null references ${APPELS_OFFRES_TABLE}(id) on delete cascade,
+        previous_owner_user_id bigint null references public.app_users(id) on delete set null,
+        new_owner_user_id bigint not null references public.app_users(id) on delete restrict,
+        changed_by_user_id bigint null references public.app_users(id) on delete set null,
+        reason text null,
+        metadata_jsonb jsonb null,
+        created_at timestamptz not null default now()
+      )
+    `);
+    await client.query(`
+      create index if not exists appel_offre_commercial_ownership_events_appel_idx
+      on ${COMMERCIAL_OWNERSHIP_EVENTS_TABLE} (appel_offres_id, created_at desc)
+    `);
+    await client.query(`
+      create index if not exists appel_offre_commercial_ownership_events_new_owner_idx
+      on ${COMMERCIAL_OWNERSHIP_EVENTS_TABLE} (new_owner_user_id, created_at desc)
     `);
   } finally {
     client.release();
@@ -614,6 +798,7 @@ async function getLatestArchivePreviousStatus(appelOffresId: number) {
 }
 
 export async function listAppelsOffres(filters: ListAppelsOffresFilters = {}) {
+  await reapStaleProcessingJobs();
   const pool = await requirePool();
   const { whereClause, values } = buildListWhereClause(filters);
   const orderByClause = buildOrderByClause(filters.sort);
@@ -630,6 +815,13 @@ export async function listAppelsOffres(filters: ListAppelsOffresFilters = {}) {
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -693,6 +885,17 @@ export async function getAppelOffresRecordByCode(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        (
+          select status
+          from public.app_users owner_user
+          where owner_user.id = ${APPELS_OFFRES_TABLE}.commercial_owner_user_id
+        ) as commercial_owner_status,
         status,
         business_status,
         source,
@@ -731,6 +934,12 @@ export async function createAppelOffres(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
         status,
         business_status,
         source,
@@ -739,7 +948,30 @@ export async function createAppelOffres(
         archived_at,
         deleted_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now(), null, null)
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        $10,
+        $11,
+        $12,
+        now(),
+        now(),
+        null,
+        null
+      )
       returning
         id,
         code,
@@ -751,6 +983,13 @@ export async function createAppelOffres(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -798,6 +1037,12 @@ export async function ensureAppelOffresRecord(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
         status,
         business_status,
         source,
@@ -806,7 +1051,30 @@ export async function ensureAppelOffresRecord(
         archived_at,
         deleted_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now(), null, null)
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        $10,
+        $11,
+        $12,
+        now(),
+        now(),
+        null,
+        null
+      )
       on conflict (code)
       do update set
         title = excluded.title,
@@ -832,6 +1100,13 @@ export async function ensureAppelOffresRecord(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -889,6 +1164,13 @@ export async function updateAppelOffres(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -908,6 +1190,125 @@ export async function updateAppelOffres(
       patch.priorite,
       patch.responsableCommercial || null
     ]
+  );
+
+  return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
+}
+
+const FRENCH_MONTHS: Record<string, string> = {
+  janvier: "01",
+  fevrier: "02",
+  "février": "02",
+  mars: "03",
+  avril: "04",
+  mai: "05",
+  juin: "06",
+  juillet: "07",
+  aout: "08",
+  "août": "08",
+  septembre: "09",
+  octobre: "10",
+  novembre: "11",
+  decembre: "12",
+  "décembre": "12"
+};
+
+function isValidCalendarDate(year: string, month: string, day: string) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+// Extracts a clean YYYY-MM-DD out of a free-text deadline field
+// (e.g. "Lundi 20 avril 2026 a 12h00 precises, heure de Ouagadougou (GMT)"
+// or "2026-08-01 12:00 GMT"). Returns null on anything that isn't
+// confidently a single calendar date, rather than guessing.
+export function parseExtractedDeadline(raw: string | null | undefined) {
+  const value = raw?.trim();
+  if (!value) {
+    return null;
+  }
+
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return isValidCalendarDate(year, month, day) ? `${year}-${month}-${day}` : null;
+  }
+
+  const frenchMatch = value.match(
+    /(\d{1,2})\s+(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\s+(\d{4})/i
+  );
+  if (frenchMatch) {
+    const [, day, monthName, year] = frenchMatch;
+    const month = FRENCH_MONTHS[monthName.toLowerCase()];
+    const paddedDay = day.padStart(2, "0");
+    if (month && isValidCalendarDate(year, month, paddedDay)) {
+      return `${year}-${month}-${paddedDay}`;
+    }
+  }
+
+  return null;
+}
+
+// Fills the dossier's title/buyer/country/due date from the validated Fiche
+// CDC extraction (intitule_mission / client_maitre_ouvrage / pays /
+// date_limite_depot). Only overwrites when the extracted value is non-empty
+// (and, for the deadline, only when it parses to an unambiguous calendar
+// date), so a placeholder-title/empty-buyer/unset-country dossier never gets
+// blanked out again by a re-validation with missing or messy fields.
+export async function applyValidatedExtractionIdentity(
+  code: string,
+  identity: {
+    title: string | null;
+    buyer: string | null;
+    country?: string | null;
+    deadline?: string | null;
+  }
+) {
+  const pool = await requirePool();
+  const title = identity.title?.trim() || null;
+  const buyer = identity.buyer?.trim() || null;
+  const country = identity.country?.trim() || null;
+  const dueDate = parseExtractedDeadline(identity.deadline);
+  const result = await pool.query<AppelOffresRow>(
+    `
+      update ${APPELS_OFFRES_TABLE}
+      set
+        title = coalesce($2, title),
+        buyer = coalesce($3, buyer),
+        country = coalesce($4, country),
+        due_date = coalesce($5::date, due_date),
+        updated_at = now()
+      where code = $1
+      returning
+        id,
+        code,
+        title,
+        reference,
+        buyer,
+        country,
+        due_date::text,
+        notes,
+        priorite,
+        responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
+        status,
+        business_status,
+        source,
+        created_at,
+        updated_at,
+        archived_at,
+        deleted_at
+    `,
+    [code, title, buyer, country, dueDate]
   );
 
   return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
@@ -936,6 +1337,13 @@ export async function setAppelOffresStatus(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -987,6 +1395,13 @@ export async function setAppelOffresBusinessStatus(
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -1013,7 +1428,10 @@ export async function setAppelOffresBusinessStatus(
   return next;
 }
 
-export async function archiveAppelOffres(code: string) {
+export async function archiveAppelOffres(
+  code: string,
+  options?: { businessStatus?: AppelOffresBusinessStatus }
+) {
   const pool = await requirePool();
   const current = await getAppelOffresRecordByCode(code, { includeArchived: true });
 
@@ -1025,12 +1443,13 @@ export async function archiveAppelOffres(code: string) {
     return current;
   }
 
+  const businessStatus = options?.businessStatus ?? "archive";
   const result = await pool.query<AppelOffresRow>(
     `
       update ${APPELS_OFFRES_TABLE}
       set
         status = 'archived',
-        business_status = 'archive',
+        business_status = $2,
         archived_at = now(),
         deleted_at = now(),
         updated_at = now()
@@ -1046,6 +1465,13 @@ export async function archiveAppelOffres(code: string) {
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -1054,7 +1480,7 @@ export async function archiveAppelOffres(code: string) {
         archived_at,
         deleted_at
     `,
-    [code]
+    [code, businessStatus]
   );
 
   const next = result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
@@ -1107,6 +1533,13 @@ export async function unarchiveAppelOffres(code: string) {
         notes,
         priorite,
         responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        null::text as commercial_owner_status,
         status,
         business_status,
         source,
@@ -1640,6 +2073,92 @@ export async function getActiveProcessingJobByCode(
   return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
 }
 
+function readPositiveIntegerEnv(name: string, fallback: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+export function getProcessingJobTimeoutMinutes() {
+  return readPositiveIntegerEnv("PROCESSING_JOB_TIMEOUT_MINUTES", 15);
+}
+
+// Self-healing check, not a background worker: called from the main read paths
+// (listAppelsOffres, getAppelOffresDetailByCode) so a tender never spins in
+// "En cours d'analyse" forever just because its callback never arrived (wrong
+// PLATFORM_PUBLIC_BASE_URL, a downed pipeline service, etc.). Any job still
+// running/queued past PROCESSING_JOB_TIMEOUT_MINUTES is marked failed and its
+// tender moves out of analyse_en_cours into the calm "erreur" ("A verifier")
+// state via the same setAppelOffresBusinessStatus path (and audit log) every
+// other status transition uses.
+export async function reapStaleProcessingJobs() {
+  const timeoutMinutes = getProcessingJobTimeoutMinutes();
+  const pool = await requirePool();
+
+  const staleJobs = await pool.query<{
+    id: number;
+    appel_offres_id: number;
+    public_id: string | null;
+  }>(
+    `
+      update ${PROCESSING_JOBS_TABLE}
+      set
+        status = 'failed',
+        finished_at = now(),
+        callback_status = 'failed',
+        error_stage = 'callback',
+        error_code = 'PROCESSING_JOB_TIMEOUT',
+        error_message = $1
+      where status in ('created', 'queued', 'running', 'retrying')
+        and started_at < now() - (interval '1 minute' * $2::int)
+      returning id, appel_offres_id, public_id
+    `,
+    [
+      `Aucun callback recu dans le delai imparti (${timeoutMinutes} minutes).`,
+      timeoutMinutes
+    ]
+  );
+
+  if (staleJobs.rows.length === 0) {
+    return [];
+  }
+
+  const affectedAppelOffresIds = [
+    ...new Set(staleJobs.rows.map((row) => Number(row.appel_offres_id)))
+  ];
+
+  const affectedTenders = await pool.query<{
+    code: string;
+    business_status: AppelOffresBusinessStatus | null;
+  }>(
+    `
+      select code, business_status
+      from ${APPELS_OFFRES_TABLE}
+      where id = any($1::bigint[])
+    `,
+    [affectedAppelOffresIds]
+  );
+
+  for (const tender of affectedTenders.rows) {
+    if (tender.business_status === "analyse_en_cours") {
+      await setAppelOffresBusinessStatus(tender.code, "erreur", {
+        reason: "processing_job_timeout",
+        timeoutMinutes
+      });
+    }
+  }
+
+  return staleJobs.rows;
+}
+
 export async function appendAuditLog(
   code: string,
   action: string,
@@ -1769,10 +2288,246 @@ export async function listAuditLogsForCode(code: string) {
   return result.rows.map(mapAuditLogRow);
 }
 
+export async function getCommercialOwnerViewByCode(
+  code: string
+): Promise<AppelOffresCommercialOwnerView | null> {
+  const pool = await requirePool();
+  const result = await pool.query<CommercialOwnerViewRow>(
+    `
+      select
+        appels.commercial_owner_user_id,
+        owner_user.display_name as owner_display_name,
+        owner_user.email as owner_email,
+        owner_user.job_title as owner_job_title,
+        case when owner_user.role = 'COMMERCIAL' then owner_user.role else null end as owner_role,
+        owner_user.status as owner_status,
+        appels.commercial_owner_assigned_at,
+        appels.commercial_owner_assigned_by_user_id,
+        assigned_by.display_name as assigned_by_name,
+        appels.commercial_owner_previous_user_id,
+        previous_owner.display_name as previous_owner_name,
+        appels.commercial_owner_reason,
+        appels.commercial_owner_updated_at,
+        appels.responsable_commercial as legacy_responsable_commercial
+      from ${APPELS_OFFRES_TABLE} appels
+      left join public.app_users owner_user on owner_user.id = appels.commercial_owner_user_id
+      left join public.app_users assigned_by on assigned_by.id = appels.commercial_owner_assigned_by_user_id
+      left join public.app_users previous_owner on previous_owner.id = appels.commercial_owner_previous_user_id
+      where appels.code = $1
+      limit 1
+    `,
+    [code]
+  );
+
+  return result.rows[0] ? mapCommercialOwnerViewRow(result.rows[0]) : null;
+}
+
+export async function updateCommercialOwnerByCode(input: {
+  code: string;
+  commercialOwnerUserId: number | null;
+  assignedAt: string | null;
+  assignedByUserId: number | null;
+  previousOwnerUserId: number | null;
+  reason: string | null;
+  updatedAt: string;
+  legacyResponsibleLabel?: string | null;
+}) {
+  const pool = await requirePool();
+  const result = await pool.query<AppelOffresRow>(
+    `
+      update ${APPELS_OFFRES_TABLE}
+      set
+        commercial_owner_user_id = $2,
+        commercial_owner_assigned_at = $3,
+        commercial_owner_assigned_by_user_id = $4,
+        commercial_owner_previous_user_id = $5,
+        commercial_owner_reason = $6,
+        commercial_owner_updated_at = $7,
+        responsable_commercial = coalesce($8, responsable_commercial),
+        updated_at = now()
+      where code = $1
+      returning
+        id,
+        code,
+        title,
+        reference,
+        buyer,
+        country,
+        due_date::text,
+        notes,
+        priorite,
+        responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        (
+          select status
+          from public.app_users owner_user
+          where owner_user.id = ${APPELS_OFFRES_TABLE}.commercial_owner_user_id
+        ) as commercial_owner_status,
+        status,
+        business_status,
+        source,
+        created_at,
+        updated_at,
+        archived_at,
+        deleted_at
+    `,
+    [
+      input.code,
+      input.commercialOwnerUserId,
+      input.assignedAt,
+      input.assignedByUserId,
+      input.previousOwnerUserId,
+      input.reason,
+      input.updatedAt,
+      input.legacyResponsibleLabel ?? null
+    ]
+  );
+
+  return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
+}
+
+export async function appendCommercialOwnershipEvent(input: {
+  code: string;
+  previousOwnerUserId: number | null;
+  newOwnerUserId: number;
+  changedByUserId: number | null;
+  reason: string | null;
+  metadata?: Record<string, unknown> | null;
+}) {
+  const pool = await requirePool();
+  const appelOffresId = await getAppelOffresIdByCode(input.code, true);
+  if (!appelOffresId) {
+    throw new Error(`Appel d'offres ${input.code} introuvable.`);
+  }
+
+  await pool.query(
+    `
+      insert into ${COMMERCIAL_OWNERSHIP_EVENTS_TABLE} (
+        appel_offres_id,
+        previous_owner_user_id,
+        new_owner_user_id,
+        changed_by_user_id,
+        reason,
+        metadata_jsonb,
+        created_at
+      )
+      values ($1, $2, $3, $4, $5, $6::jsonb, now())
+    `,
+    [
+      appelOffresId,
+      input.previousOwnerUserId,
+      input.newOwnerUserId,
+      input.changedByUserId,
+      input.reason,
+      input.metadata ? JSON.stringify(input.metadata) : null
+    ]
+  );
+}
+
+export async function listCommercialOwnershipEventsByCode(
+  code: string
+): Promise<AppelOffresCommercialOwnershipEventRecord[]> {
+  const pool = await requirePool();
+  const result = await pool.query<CommercialOwnershipEventRow>(
+    `
+      select
+        events.id,
+        events.appel_offres_id,
+        appels.code as appel_offres_code,
+        events.previous_owner_user_id,
+        previous_owner.display_name as previous_owner_name,
+        events.new_owner_user_id,
+        new_owner.display_name as new_owner_name,
+        events.changed_by_user_id,
+        changed_by.display_name as changed_by_name,
+        events.reason,
+        events.metadata_jsonb,
+        events.created_at
+      from ${COMMERCIAL_OWNERSHIP_EVENTS_TABLE} events
+      inner join ${APPELS_OFFRES_TABLE} appels on appels.id = events.appel_offres_id
+      left join public.app_users previous_owner on previous_owner.id = events.previous_owner_user_id
+      left join public.app_users new_owner on new_owner.id = events.new_owner_user_id
+      left join public.app_users changed_by on changed_by.id = events.changed_by_user_id
+      where appels.code = $1
+      order by events.created_at desc, events.id desc
+    `,
+    [code]
+  );
+
+  return result.rows.map(mapCommercialOwnershipEventRow);
+}
+
+export async function countActiveAppelOffresByCommercialOwnerUserId(userId: number) {
+  const pool = await requirePool();
+  const result = await pool.query<{ count: string }>(
+    `
+      select count(*)::text as count
+      from ${APPELS_OFFRES_TABLE}
+      where commercial_owner_user_id = $1
+        and archived_at is null
+        and deleted_at is null
+    `,
+    [userId]
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+export async function listActiveAppelOffresByCommercialOwnerUserId(userId: number) {
+  const pool = await requirePool();
+  const result = await pool.query<AppelOffresRow>(
+    `
+      select
+        id,
+        code,
+        title,
+        reference,
+        buyer,
+        country,
+        due_date::text,
+        notes,
+        priorite,
+        responsable_commercial,
+        commercial_owner_user_id,
+        commercial_owner_assigned_at,
+        commercial_owner_assigned_by_user_id,
+        commercial_owner_previous_user_id,
+        commercial_owner_reason,
+        commercial_owner_updated_at,
+        (
+          select status
+          from public.app_users owner_user
+          where owner_user.id = ${APPELS_OFFRES_TABLE}.commercial_owner_user_id
+        ) as commercial_owner_status,
+        status,
+        business_status,
+        source,
+        created_at,
+        updated_at,
+        archived_at,
+        deleted_at
+      from ${APPELS_OFFRES_TABLE}
+      where commercial_owner_user_id = $1
+        and archived_at is null
+        and deleted_at is null
+      order by updated_at desc, id desc
+    `,
+    [userId]
+  );
+
+  return result.rows.map(mapAppelOffresRow);
+}
+
 export async function getAppelOffresDetailByCode(
   code: string,
   options: FindByCodeOptions = {}
 ): Promise<AppelOffresDetail | null> {
+  await reapStaleProcessingJobs();
   const record = await getAppelOffresRecordByCode(code, options);
   if (!record) {
     return null;

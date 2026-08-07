@@ -19,7 +19,7 @@ export function FciModuleCard({
   summary?: FciModuleSummaryPresentation;
   disabled?: boolean;
   disabledMessage?: string;
-  onAction: (action: "open" | "generate" | "regenerate" | "validate" | "history") => void;
+  onAction: (action: "open" | "regenerate" | "validate" | "history") => void;
 }) {
   const availableActions = summary?.available_actions ?? [];
   const safeErrorMessage = formatFciSafeErrorMessage(summary?.current_error?.message);
@@ -71,17 +71,6 @@ export function FciModuleCard({
         >
           {openLabel}
         </button>
-        {availableActions.includes("generate") ? (
-          <button
-            type="button"
-            className="button button-ai button-small"
-            onClick={() => onAction("generate")}
-            disabled={disabled}
-            aria-disabled={disabled}
-          >
-            Generer
-          </button>
-        ) : null}
         {availableActions.includes("regenerate") ? (
           <button
             type="button"

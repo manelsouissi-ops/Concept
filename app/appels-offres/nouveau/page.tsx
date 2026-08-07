@@ -1,6 +1,9 @@
 import { AppelOffresForm } from "@/components/appel-offres-form.tsx";
+import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 
-export default function NouvelAppelOffresPage() {
+export default async function NouvelAppelOffresPage() {
+  await requireAreaAccessForPage("appels_offres");
+
   return (
     <div className="page-stack appel-offres-create-page">
       <section className="appel-offres-create-intro">

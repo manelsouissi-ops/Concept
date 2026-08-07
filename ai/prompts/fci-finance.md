@@ -30,22 +30,63 @@ Et les clés :
 - `module_code`
 - `module_type`
 - `generated_at`
-- `source_fiche`
-- `summary`
 - `data`
 - `ai_notes`
 - `validation_warnings`
 
+Ne generez PAS `source_fiche` ni `summary` : ces deux cles sont calculees et
+injectees automatiquement par la plateforme apres validation de votre reponse
+(la plateforme connait deja le statut et la date de validation reels de la
+Fiche CDC, et calcule les statistiques de completion a partir de vos propres
+champs `requires_human_input`). Omettez-les entierement de votre reponse.
+
+# Critical Shape Rules
+
+## `source_references`
+
+Chaque element de `source_references` doit etre un objet, jamais une chaine.
+
+Exemple valide :
+
+```json
+[
+  {
+    "section": "Site & contraintes",
+    "field": "source_financement",
+    "excerpt": "Groupe de la Banque Africaine de Developpement"
+  },
+  {
+    "section": "Procedure",
+    "field": "type_contrat",
+    "excerpt": null
+  }
+]
+```
+
+Exemples interdits :
+
+```json
+["Site & contraintes", "Procedure"]
+```
+
+```json
+[
+  {
+    "section": "Site & contraintes"
+  }
+]
+```
+
 # Source Classification Rules
 
-Chaque champ doit exposer :
+Chaque champ doit exposer exactement ces six cles, avec ces types stricts :
 
-- `value`
-- `source_type`
-- `confidence`
-- `requires_human_input`
-- `justification`
-- `source_references`
+- `value` : selon le champ (chaine, nombre, ou `null`)
+- `source_type` : **chaine**, une seule valeur parmi `fiche_cdc`, `ai_inference`, `internal_required`, `unavailable`, `not_applicable` (jamais un nombre, jamais une autre etiquette)
+- `confidence` : **chaine**, une seule valeur parmi `high`, `medium`, `low`, `none` (jamais un nombre, jamais un pourcentage)
+- `requires_human_input` : booléen
+- `justification` : justification courte et métier
+- `source_references` : tableau d'objets `{section, field, excerpt}` (jamais de chaines brutes, jamais un tableau imbrique)
 
 Utilisez :
 
@@ -54,6 +95,12 @@ Utilisez :
 - `internal_required` pour toute donnée interne CONCEPT
 - `unavailable` si le CDC ne permet pas de conclure
 - `not_applicable` si le point n’est vraiment pas pertinent
+
+Quand `source_type = "internal_required"` :
+
+- `value` doit valoir `null`
+- `requires_human_input` doit valoir `true`
+- `confidence` doit valoir `"none"`
 
 # Non-Invention Rules
 
@@ -115,6 +162,30 @@ Si vous calculez une valeur :
 
 Si les opérandes manquent, ne calculez rien.
 
+## Special Rule For Array-Valued Field Objects
+
+Le champ suivant n'est jamais un tableau brut :
+
+- `data.synthese_financiere.points_de_revue_financiere`
+
+Il doit toujours etre un objet complet avec exactement `value`, `source_type`, `confidence`, `requires_human_input`, `justification`, `source_references` - sa `value` peut seulement etre un tableau de chaines ou `null`. Forme valide :
+
+```json
+{
+  "value": [
+    "Confirmer le taux de change applique",
+    "Verifier l'exposition aux garanties"
+  ],
+  "source_type": "ai_inference",
+  "confidence": "medium",
+  "requires_human_input": false,
+  "justification": "Ces points ressortent de l'analyse financiere preliminaire.",
+  "source_references": []
+}
+```
+
+Interdit : un tableau brut (`["...", "..."]`), une chaine brute, ou `null` directement a la place de l'objet complet.
+
 # Missing Information Behavior
 
 - Toute donnée purement interne CONCEPT doit être `internal_required`
@@ -134,7 +205,10 @@ Retournez du JSON uniquement :
 
 1. `module_code = "B"`
 2. `module_type = "finance"`
-3. Aucun fait financier interne n’est inventé
-4. Chaque calcul a une formule et des entrées explicites
-5. Les champs `internal_required` ont `value = null`, `requires_human_input = true`, `confidence = "none"`
-6. Le JSON est valide
+3. `source_type` et `confidence` sont des chaines parmi les valeurs autorisees ci-dessus (jamais un nombre)
+4. Chaque `source_references` est un tableau d'objets `{section, field, excerpt}`, jamais de chaines brutes
+5. `source_fiche` et `summary` sont absents de la reponse
+6. Aucun fait financier interne n’est inventé
+7. Chaque calcul a une formule et des entrées explicites
+8. Les champs `internal_required` ont `value = null`, `requires_human_input = true`, `confidence = "none"`
+9. Le JSON est valide

@@ -22,15 +22,18 @@ import {
 import {
   closeAppelsOffresPool,
   createAppelOffres,
-  ensureAppelsOffresSchema
+  ensureAppelsOffresSchema,
+  getAppelOffresRecordByCode
 } from "../repository.ts";
 import {
   closeFciPool,
   createFciGenerationJob,
-  ensureFciSchema
+  ensureFciSchema,
+  upsertFciModuleData
 } from "./repository.ts";
 import {
   FciServiceError,
+  autoInitializeAndLaunchFciModulesForValidatedFiche,
   getFciModule,
   getFciModuleHistory,
   getFciWorkspace,
@@ -49,11 +52,24 @@ import {
   N8nCallbackAuthError,
   verifyN8nCallbackAuthentication
 } from "../../integrations/n8n-callback-auth.ts";
+import {
+  closeNotificationsPool,
+  listAppNotificationsForUser
+} from "../../notifications/repository.ts";
 import type { CurrentUser } from "../../auth/rbac.ts";
 import type {
   FciN8nFailureCallback,
   FciN8nSuccessCallback
 } from "./n8n-contract.ts";
+import { getSeededActors } from "../test-actors.ts";
+import {
+  assignFciModule,
+  prepareGoNoGo,
+  submitGoNoGoToDg,
+  WorkflowServiceError
+} from "../workflow/service.ts";
+import { upsertWorkflowState } from "../workflow/repository.ts";
+import { assignCommercialOwner } from "../ownership.ts";
 
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd());
@@ -70,6 +86,7 @@ function buildTestCurrentUser(
 ): CurrentUser {
   return {
     id,
+    firstName: name.split(" ")[0] ?? name,
     name,
     email: `${id}@concept.local`,
     role,
@@ -87,26 +104,36 @@ function buildTestCurrentUser(
   };
 }
 
-const ADMIN_USER = buildTestCurrentUser("user-admin", "Bob Durand", "ADMIN", "ADMINISTRATION");
-const COMMERCIAL_USER = buildTestCurrentUser(
+let ADMIN_USER = buildTestCurrentUser("user-admin", "Bob Durand", "ADMIN", "ADMINISTRATION");
+let COMMERCIAL_USER = buildTestCurrentUser(
   "user-commercial",
   "Claire Commerciale",
   "COMMERCIAL",
   "COMMERCIAL"
 );
-const FINANCE_USER = buildTestCurrentUser("user-finance", "Farid Finance", "FINANCE", "FINANCE");
-const OPERATIONS_USER = buildTestCurrentUser(
+let FINANCE_USER = buildTestCurrentUser("user-finance", "Farid Finance", "FINANCE", "FINANCE");
+let OPERATIONS_USER = buildTestCurrentUser(
   "user-operations",
   "Olivia Operations",
   "OPERATIONS",
   "OPERATIONS"
 );
-const DIRECTION_GENERALE_USER = buildTestCurrentUser(
+let DIRECTION_GENERALE_USER = buildTestCurrentUser(
   "user-dg",
   "Diane DG",
   "DIRECTION_GENERALE",
   "DIRECTION_GENERALE"
 );
+const assignedTenderCodes = new Set<string>();
+
+async function loadPersistedActors() {
+  const actors = await getSeededActors();
+  ADMIN_USER = actors.admin;
+  COMMERCIAL_USER = actors.commercial;
+  FINANCE_USER = actors.finance;
+  OPERATIONS_USER = actors.operations;
+  DIRECTION_GENERALE_USER = actors.dg;
+}
 
 function hasDatabase() {
   return Boolean(databaseUrl && cleanupPool);
@@ -418,7 +445,62 @@ async function createTestAppelOffres({
     await markFicheValidated(code);
   }
 
+  await loadPersistedActors();
+  await assignCommercialOwner({
+    code,
+    newOwnerUserId: Number(COMMERCIAL_USER.id),
+    currentUser: COMMERCIAL_USER,
+    reason: "fci_test_setup"
+  });
+
   return code;
+}
+
+async function ensureAssignedDepartmentModules(code: string) {
+  await loadPersistedActors();
+  if (assignedTenderCodes.has(code)) {
+    return;
+  }
+
+  await assignFciModule({
+    code,
+    moduleCode: "B",
+    assignedUserId: Number(FINANCE_USER.id),
+    currentUser: COMMERCIAL_USER
+  });
+  await assignFciModule({
+    code,
+    moduleCode: "C",
+    assignedUserId: Number(OPERATIONS_USER.id),
+    currentUser: COMMERCIAL_USER
+  });
+  assignedTenderCodes.add(code);
+}
+
+async function initializeAssignedFciWorkspace(code: string) {
+  await loadPersistedActors();
+  await initializeFciWorkspace(code, COMMERCIAL_USER);
+  await ensureAssignedDepartmentModules(code);
+}
+
+async function markWorkflowSubmittedForDgAccess(code: string) {
+  const appelOffres = await getAppelOffresRecordByCode(code, { includeArchived: true });
+  assert.ok(appelOffres, "Expected tender to exist before marking workflow state.");
+  await upsertWorkflowState(appelOffres.id, "SUBMITTED_TO_DG");
+}
+
+function isForbiddenWorkflowOrFciError(error: unknown) {
+  return (
+    (
+      error instanceof FciServiceError
+      || error instanceof WorkflowServiceError
+    )
+    && error.status === 403
+    && (
+      error.code === "RBAC_FORBIDDEN"
+      || error.code === "ASSIGNMENT_FORBIDDEN"
+    )
+  );
 }
 
 function buildFciModulePayloadFixture(input: {
@@ -476,10 +558,11 @@ after(async () => {
   }
 
   await closeFciPool();
+  await closeNotificationsPool();
   await closeAppelsOffresPool();
 });
 
-test("initialize is idempotent and creates only A-D when knowledge base is disabled", async (t) => {
+test("initialize is idempotent and keeps only A-C in the human FCI workspace when knowledge base is disabled", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -488,15 +571,15 @@ test("initialize is idempotent and creates only A-D when knowledge base is disab
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    const first = await initializeFciWorkspace(code);
-    const second = await initializeFciWorkspace(code);
+    const first = await initializeFciWorkspace(code, COMMERCIAL_USER);
+    const second = await initializeFciWorkspace(code, COMMERCIAL_USER);
 
     assert.equal(first.fci_set.id, second.fci_set.id);
     assert.deepEqual(
       first.enabled_modules,
-      ["A", "B", "C", "D"]
+      ["A", "B", "C"]
     );
-    assert.equal(first.module_summaries.length, 4);
+    assert.equal(first.module_summaries.length, 3);
   });
 });
 
@@ -509,11 +592,11 @@ test("initialize creates module E only when knowledge base is enabled", async (t
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(true, async () => {
-    const workspace = await initializeFciWorkspace(code);
-    assert.deepEqual(workspace.enabled_modules, ["A", "B", "C", "D", "E"]);
+    const workspace = await initializeFciWorkspace(code, COMMERCIAL_USER);
+    assert.deepEqual(workspace.enabled_modules, ["A", "B", "C"]);
     assert.equal(
-      workspace.module_summaries.some((module) => module.module_code === "E"),
-      true
+      workspace.module_summaries.some((module) => module.module_code === "D" || module.module_code === "E"),
+      false
     );
   });
 });
@@ -527,7 +610,7 @@ test("manual edits create versions and enforce optimistic concurrency", async (t
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeFciWorkspace(code, COMMERCIAL_USER);
 
     const firstSave = await saveFciModuleEdits(code, "A", {
       data: { section: "v1" },
@@ -536,7 +619,7 @@ test("manual edits create versions and enforce optimistic concurrency", async (t
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: null
-    });
+    }, COMMERCIAL_USER);
     assert.equal(firstSave.latest_data?.version, 1);
 
     const secondSave = await saveFciModuleEdits(code, "A", {
@@ -546,7 +629,7 @@ test("manual edits create versions and enforce optimistic concurrency", async (t
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: 1
-    });
+    }, COMMERCIAL_USER);
     assert.equal(secondSave.latest_data?.version, 2);
 
     await assert.rejects(
@@ -558,7 +641,7 @@ test("manual edits create versions and enforce optimistic concurrency", async (t
           aiNotes: null,
           editor: "Bob Durand",
           expectedVersion: 1
-        }),
+        }, COMMERCIAL_USER),
       (error: unknown) =>
         error instanceof FciServiceError && error.code === "VERSION_CONFLICT"
     );
@@ -575,17 +658,17 @@ test("generation requires a validated fiche CDC and rejects module E generation"
   const validatedCode = await createTestAppelOffres({ validated: true });
 
   await withKnowledgeBaseEnabled(true, async () => {
-    await initializeFciWorkspace(draftCode);
-    await initializeFciWorkspace(validatedCode);
+    await initializeFciWorkspace(draftCode, COMMERCIAL_USER);
+    await initializeFciWorkspace(validatedCode, COMMERCIAL_USER);
 
     await assert.rejects(
-      () => prepareFciGeneration(draftCode, "A"),
+      () => prepareFciGeneration(draftCode, "A", COMMERCIAL_USER),
       (error: unknown) =>
         error instanceof FciServiceError && error.code === "FICHE_CDC_NOT_VALIDATED"
     );
 
     await assert.rejects(
-      () => prepareFciGeneration(validatedCode, "E"),
+      () => prepareFciGeneration(validatedCode, "E", COMMERCIAL_USER),
       (error: unknown) =>
         error instanceof FciServiceError && error.code === "FCI_MODULE_NOT_GENERATABLE"
     );
@@ -601,7 +684,7 @@ test("stale-source validation requires explicit acknowledgement and history stay
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeAssignedFciWorkspace(code);
     await saveFciModuleEdits(code, "B", {
       data: buildCompletedDepartmentPayload("B"),
       sourceSummary: null,
@@ -609,7 +692,7 @@ test("stale-source validation requires explicit acknowledgement and history stay
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: null
-    });
+    }, FINANCE_USER);
 
     await rewriteValidatedSourceFiche(code, "UPDATED");
 
@@ -620,7 +703,7 @@ test("stale-source validation requires explicit acknowledgement and history stay
           comment: null,
           expectedVersion: 1,
           acknowledgeStaleSource: false
-        }),
+        }, FINANCE_USER),
       (error: unknown) =>
         error instanceof FciServiceError && error.code === "SOURCE_OUTDATED"
     );
@@ -630,7 +713,7 @@ test("stale-source validation requires explicit acknowledgement and history stay
       comment: "Validation forcee",
       expectedVersion: 1,
       acknowledgeStaleSource: true
-    });
+    }, FINANCE_USER);
     assert.equal(validated.module.status, "validated");
 
     await withFciEnv({}, async () => {
@@ -654,10 +737,10 @@ test("stale-source validation requires explicit acknowledgement and history stay
           );
         }) as typeof fetch,
         async () => {
-          const regen = await prepareFciRegeneration(code, "B");
+          const regen = await prepareFciRegeneration(code, "B", FINANCE_USER);
           assert.equal(regen.job.status, "running");
 
-          const history = await getFciModuleHistory(code, "B");
+          const history = await getFciModuleHistory(code, "B", COMMERCIAL_USER);
           assert.equal(history.versions[0]?.version, 2);
           assert.equal(history.generation_jobs[0]?.status, "running");
         }
@@ -675,7 +758,7 @@ test("workspace progress excludes disabled knowledge-base module", async (t) => 
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeAssignedFciWorkspace(code);
     await saveFciModuleEdits(code, "C", {
       data: buildCompletedDepartmentPayload("C"),
       sourceSummary: null,
@@ -683,22 +766,22 @@ test("workspace progress excludes disabled knowledge-base module", async (t) => 
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: null
-    });
+    }, OPERATIONS_USER);
     await validateFciModule(code, "C", {
       validatedBy: "Bob Durand",
       comment: null,
       expectedVersion: 1,
       acknowledgeStaleSource: false
-    });
+    }, OPERATIONS_USER);
 
-    const workspace = await getFciWorkspace(code);
-    assert.equal(workspace.progress.total_modules, 4);
+    const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
+    assert.equal(workspace.progress.total_modules, 3);
     assert.equal(workspace.progress.validated_modules, 1);
-    assert.equal(workspace.progress.percentage, 25);
+    assert.equal(workspace.progress.percentage, 33);
   });
 });
 
-test("module without data exposes generate and module with data exposes regenerate", async (t) => {
+test("validating an assigned departmental module notifies Commercial", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -707,11 +790,203 @@ test("module without data exposes generate and module with data exposes regenera
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeAssignedFciWorkspace(code);
+    await saveFciModuleEdits(code, "B", {
+      data: buildCompletedDepartmentPayload("B"),
+      sourceSummary: null,
+      confidence: null,
+      aiNotes: null,
+      editor: FINANCE_USER.name,
+      expectedVersion: null
+    }, FINANCE_USER);
+    await validateFciModule(code, "B", {
+      validatedBy: FINANCE_USER.name,
+      comment: null,
+      expectedVersion: 1,
+      acknowledgeStaleSource: false
+    }, FINANCE_USER);
 
-    const moduleA = await getFciModule(code, "A");
+    const notifications = await listAppNotificationsForUser(Number(COMMERCIAL_USER.id), 20);
+    assert.equal(
+      notifications.some((notification) =>
+        notification.appelOffreCode === code
+        && notification.eventType === "FCI_VALIDATED"
+        && notification.moduleCode === "B"
+      ),
+      true
+    );
+  });
+});
+
+test("validated fiche auto-launches only not_started FCI modules and stays idempotent", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    let launchCount = 0;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          launchCount += 1;
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: `exec-fci-auto-${launchCount}`,
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          const first = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
+          assert.deepEqual(first.launchedModules, ["A", "B", "C"]);
+          assert.equal(first.failedModules.length, 0);
+          assert.equal(launchCount, 3);
+
+          const workspaceAfterFirstLaunch = await getFciWorkspace(code, COMMERCIAL_USER);
+          assert.deepEqual(workspaceAfterFirstLaunch.enabled_modules, ["A", "B", "C"]);
+          assert.equal(
+            workspaceAfterFirstLaunch.module_summaries.every(
+              (module) => module.status === "generating"
+            ),
+            true
+          );
+
+          const second = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
+          assert.deepEqual(second.launchedModules, []);
+          assert.equal(second.failedModules.length, 0);
+          assert.equal(launchCount, 3);
+        }
+      );
+    });
+  });
+});
+
+test("re-validating a Fiche CDC after an edit never disturbs a module already validated or in progress", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    let launchCount = 0;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          launchCount += 1;
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: `exec-fci-revalidate-${launchCount}`,
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          // Module B is already completed and validated by Finance before the
+          // tender's Fiche CDC ever gets re-validated (e.g. Commercial edited
+          // and re-validated the Fiche after Finance had already finished).
+          await initializeAssignedFciWorkspace(code);
+          await saveFciModuleEdits(
+            code,
+            "B",
+            {
+              data: buildCompletedDepartmentPayload("B"),
+              sourceSummary: null,
+              confidence: null,
+              aiNotes: null,
+              editor: "Farid Finance",
+              expectedVersion: null
+            },
+            FINANCE_USER
+          );
+          await validateFciModule(
+            code,
+            "B",
+            {
+              validatedBy: "Farid Finance",
+              comment: null,
+              expectedVersion: 1,
+              acknowledgeStaleSource: false
+            },
+            FINANCE_USER
+          );
+
+          const moduleBBeforeRevalidation = await getFciModule(code, "B", FINANCE_USER);
+          assert.equal(moduleBBeforeRevalidation.module.status, "validated");
+          const validatedAtBeforeRevalidation = moduleBBeforeRevalidation.module.validated_at;
+
+          const result = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
+
+          assert.deepEqual(result.launchedModules.sort(), ["A", "C"]);
+          assert.equal(result.failedModules.length, 0);
+          assert.equal(launchCount, 2, "only the contributing not_started modules should trigger a launch");
+          assert.ok(
+            result.skippedModules.some((skipped) => skipped.moduleCode === "B"),
+            "module B must be reported as skipped, not silently ignored"
+          );
+
+          const moduleBAfterRevalidation = await getFciModule(code, "B", FINANCE_USER);
+          assert.equal(moduleBAfterRevalidation.module.status, "validated");
+          assert.equal(moduleBAfterRevalidation.module.validated_at, validatedAtBeforeRevalidation);
+          assert.equal(
+            moduleBAfterRevalidation.latest_data?.version,
+            moduleBBeforeRevalidation.latest_data?.version,
+            "module B's data must not be wiped or regenerated by re-validation"
+          );
+
+          const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
+          const moduleA = workspace.module_summaries.find((module) => module.module_code === "A");
+          const moduleC = workspace.module_summaries.find((module) => module.module_code === "C");
+          assert.equal(moduleA?.status, "generating");
+          assert.equal(moduleC?.status, "generating");
+        }
+      );
+    });
+  });
+});
+
+test("module without data no longer exposes initial generate and module with data exposes regenerate", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+
+    const moduleA = await getFciModule(code, "A", COMMERCIAL_USER);
     assert.equal(moduleA.latest_data, null);
-    assert.deepEqual(moduleA.allowed_actions, ["generate", "view_history"]);
+    assert.deepEqual(moduleA.allowed_actions, ["view_history"]);
 
     await saveFciModuleEdits(code, "B", {
       data: { section: "draft" },
@@ -720,9 +995,9 @@ test("module without data exposes generate and module with data exposes regenera
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: null
-    });
+    }, FINANCE_USER);
 
-    const moduleB = await getFciModule(code, "B");
+    const moduleB = await getFciModule(code, "B", FINANCE_USER);
     assert.equal(moduleB.latest_data?.version, 1);
     assert.ok(moduleB.allowed_actions.includes("regenerate"));
     assert.ok(moduleB.allowed_actions.includes("edit"));
@@ -739,9 +1014,9 @@ test("legacy pending_integration jobs remain in history and do not block generat
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeFciWorkspace(code, COMMERCIAL_USER);
 
-    const moduleA = await getFciModule(code, "A");
+    const moduleA = await getFciModule(code, "A", COMMERCIAL_USER);
     const legacyJob = await createFciGenerationJob(moduleA.module.id, {
       triggerType: "manual",
       provider: "planned",
@@ -754,13 +1029,13 @@ test("legacy pending_integration jobs remain in history and do not block generat
         "Legacy Phase 2 generation request created before n8n orchestration was connected."
     });
 
-    const moduleAfterLegacyJob = await getFciModule(code, "A");
+    const moduleAfterLegacyJob = await getFciModule(code, "A", COMMERCIAL_USER);
     assert.equal(moduleAfterLegacyJob.generation_job?.id, legacyJob.id);
     assert.equal(moduleAfterLegacyJob.generation_job?.status, "pending_integration");
-    assert.deepEqual(moduleAfterLegacyJob.allowed_actions, ["generate", "view_history"]);
+    assert.deepEqual(moduleAfterLegacyJob.allowed_actions, ["view_history"]);
     assert.equal(moduleAfterLegacyJob.latest_data, null);
 
-    const historyBeforeLaunch = await getFciModuleHistory(code, "A");
+    const historyBeforeLaunch = await getFciModuleHistory(code, "A", COMMERCIAL_USER);
     assert.equal(historyBeforeLaunch.generation_jobs.length, 1);
     assert.equal(historyBeforeLaunch.generation_jobs[0]?.id, legacyJob.id);
     assert.equal(historyBeforeLaunch.versions.length, 0);
@@ -787,14 +1062,14 @@ test("legacy pending_integration jobs remain in history and do not block generat
           );
         }) as typeof fetch,
         async () => {
-          const launch = await prepareFciGeneration(code, "A");
+          const launch = await prepareFciGeneration(code, "A", COMMERCIAL_USER);
           assert.equal(launch.accepted, true);
           assert.equal(launch.job.status, "running");
         }
       );
     });
 
-    const historyAfterLaunch = await getFciModuleHistory(code, "A");
+    const historyAfterLaunch = await getFciModuleHistory(code, "A", COMMERCIAL_USER);
     assert.equal(historyAfterLaunch.generation_jobs.length, 2);
     assert.ok(
       historyAfterLaunch.generation_jobs.some(
@@ -814,7 +1089,7 @@ test("generation launch is accepted and blocks duplicate active launches", async
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeFciWorkspace(code, COMMERCIAL_USER);
 
     await withFciEnv({}, async () => {
       await withMockFetch(
@@ -855,19 +1130,19 @@ test("generation launch is accepted and blocks duplicate active launches", async
           );
         }) as typeof fetch,
         async () => {
-          const result = await prepareFciGeneration(code, "A");
+          const result = await prepareFciGeneration(code, "A", COMMERCIAL_USER);
           assert.equal(result.accepted, true);
           assert.equal(result.orchestration_connected, true);
           assert.equal(result.job.status, "running");
           assert.equal(result.job.execution_id, "exec-fci-accepted-1");
 
-          const module = await getFciModule(code, "A");
+          const module = await getFciModule(code, "A", COMMERCIAL_USER);
           assert.equal(module.module.status, "generating");
           assert.equal(module.generation_job?.status, "running");
           assert.equal(module.generation_job?.execution_id, "exec-fci-accepted-1");
 
           await assert.rejects(
-            () => prepareFciGeneration(code, "A"),
+            () => prepareFciGeneration(code, "A", COMMERCIAL_USER),
             (error: unknown) =>
               error instanceof FciServiceError && error.code === "FCI_ALREADY_GENERATING"
           );
@@ -886,7 +1161,7 @@ test("queued launches still block duplicate generation", async (t) => {
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeFciWorkspace(code, COMMERCIAL_USER);
 
     await withFciEnv({}, async () => {
       await withMockFetch(
@@ -910,15 +1185,15 @@ test("queued launches still block duplicate generation", async (t) => {
           );
         }) as typeof fetch,
         async () => {
-          const result = await prepareFciGeneration(code, "A");
+          const result = await prepareFciGeneration(code, "A", COMMERCIAL_USER);
           assert.equal(result.job.status, "queued");
 
-          const module = await getFciModule(code, "A");
+          const module = await getFciModule(code, "A", COMMERCIAL_USER);
           assert.equal(module.module.status, "generating");
           assert.equal(module.generation_job?.status, "queued");
 
           await assert.rejects(
-            () => prepareFciGeneration(code, "A"),
+            () => prepareFciGeneration(code, "A", COMMERCIAL_USER),
             (error: unknown) =>
               error instanceof FciServiceError && error.code === "FCI_ALREADY_GENERATING"
           );
@@ -937,7 +1212,7 @@ test("launch failure marks the job failed and restores the previous validated mo
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeAssignedFciWorkspace(code);
     await saveFciModuleEdits(code, "B", {
       data: buildCompletedDepartmentPayload("B"),
       sourceSummary: null,
@@ -945,13 +1220,13 @@ test("launch failure marks the job failed and restores the previous validated mo
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: null
-    });
+    }, FINANCE_USER);
     await validateFciModule(code, "B", {
       validatedBy: "Bob Durand",
       comment: null,
       expectedVersion: 1,
       acknowledgeStaleSource: false
-    });
+    }, FINANCE_USER);
 
     await withFciEnv({}, async () => {
       await withMockFetch(
@@ -970,12 +1245,12 @@ test("launch failure marks the job failed and restores the previous validated mo
           )) as typeof fetch,
         async () => {
           await assert.rejects(
-            () => prepareFciRegeneration(code, "B"),
+            () => prepareFciRegeneration(code, "B", FINANCE_USER),
             (error: unknown) =>
               error instanceof FciServiceError && error.code === "FCI_LAUNCH_FAILED"
           );
 
-          const module = await getFciModule(code, "B");
+          const module = await getFciModule(code, "B", COMMERCIAL_USER);
           assert.equal(module.module.status, "validated");
           assert.equal(module.module.error_code, "FCI_N8N_LAUNCH_FAILED");
           assert.equal(module.latest_data?.version, 2);
@@ -995,7 +1270,7 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeFciWorkspace(code, COMMERCIAL_USER);
 
     let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
 
@@ -1020,7 +1295,7 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
           );
         }) as typeof fetch,
         async () => {
-          launchResult = await prepareFciGeneration(code, "A");
+          launchResult = await prepareFciGeneration(code, "A", COMMERCIAL_USER);
         }
       );
 
@@ -1028,8 +1303,8 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
       if (!launchResult) {
         throw new Error("Expected FCI launch result.");
       }
-      const moduleBeforeCallback = await getFciModule(code, "A");
-      const workspace = await getFciWorkspace(code);
+      const moduleBeforeCallback = await getFciModule(code, "A", COMMERCIAL_USER);
+      const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
       const payload = buildFciModulePayloadFixture({
         moduleCode: "A",
         sourceVersion: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
@@ -1075,7 +1350,7 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
       const firstResponse = await applyFciN8nCallback(successEnvelope);
       assert.equal(firstResponse.httpStatus, 200);
 
-      const moduleAfterCallback = await getFciModule(code, "A");
+      const moduleAfterCallback = await getFciModule(code, "A", COMMERCIAL_USER);
       assert.equal(moduleAfterCallback.module.status, "needs_review");
       assert.equal(moduleAfterCallback.latest_data?.version, 1);
       assert.equal(moduleAfterCallback.generation_job?.status, "completed");
@@ -1158,82 +1433,85 @@ test("invalid AI payload callbacks are rejected and mark the generation as faile
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
-
-    let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
-
-    await withFciEnv({}, async () => {
-      await withMockFetch(
-        (async (_input, init) => {
-          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-          return new Response(
-            JSON.stringify({
-              contract_version: "1.0",
-              accepted: true,
-              generation_job_id: requestBody.generation_job_id,
-              correlation_id: requestBody.correlation_id,
-              execution_id: "exec-fci-invalid-payload-1",
-              received_at: new Date().toISOString(),
-              processing_status: "RUNNING"
-            }),
-            {
-              status: 202,
-              headers: { "Content-Type": "application/json" }
-            }
-          );
-        }) as typeof fetch,
-        async () => {
-          launchResult = await prepareFciGeneration(code, "D");
-        }
-      );
-
-      assert.ok(launchResult);
-      if (!launchResult) {
-        throw new Error("Expected FCI launch result.");
-      }
-
-      const workspace = await getFciWorkspace(code);
-      const module = await getFciModule(code, "D");
-      const invalidPayload = buildFciModulePayloadFixture({
-        moduleCode: "D",
-        sourceVersion: module.source_fiche.version ?? "validated:missing",
-        sourceHash: module.source_fiche.hash ?? "missing",
-        code
-      });
-      delete (invalidPayload as Record<string, unknown>).data;
-
-      const response = await applyFciN8nCallback({
-        event: "fci.generation.completed",
-        contract_version: "1.0",
-        generation_job_id: launchResult.job.id,
-        fci_set_id: workspace.fci_set.id,
-        fci_module_id: module.module.id,
-        appel_offre_id: workspace.appel_offres.id,
-        code_interne: code,
-        module_code: "D",
-        correlation_id: launchResult.job.correlation_id ?? "missing",
-        execution_id: "exec-fci-invalid-payload-1",
-        status: "completed",
-        provider: "gemini",
-        model: "gemini-3.6-flash",
-        prompt_version: "1.0",
-        schema_version: "1.0",
-        source_fiche: {
-          version: module.source_fiche.version ?? "validated:missing",
-          hash: module.source_fiche.hash ?? "missing"
-        },
-        generated_at: new Date().toISOString(),
-        generation_parameters: {},
-        payload: invalidPayload
-      } satisfies FciN8nSuccessCallback);
-
-      assert.equal(response.httpStatus, 422);
-
-      const moduleAfterFailure = await getFciModule(code, "D");
-      assert.equal(moduleAfterFailure.module.status, "not_started");
-      assert.equal(moduleAfterFailure.generation_job?.status, "failed");
-      assert.equal(moduleAfterFailure.latest_data, null);
+    await initializeFciWorkspace(code, COMMERCIAL_USER);
+    const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
+    const module = await getFciModule(code, "D", COMMERCIAL_USER);
+    const generationJob = await createFciGenerationJob(module.module.id, {
+      triggerType: "automatic",
+      provider: "gemini",
+      model: "gemini-3.6-flash",
+      status: "running",
+      contractVersion: "1.0",
+      schemaVersion: "1.0",
+      promptVersion: "1.0",
+      generationParameters: {
+        previous_module_status: "not_started"
+      },
+      sourceFicheVersion: module.source_fiche.version ?? "validated:missing",
+      sourceFicheHash: module.source_fiche.hash ?? "missing",
+      executionId: "exec-fci-invalid-payload-1",
+      correlationId: "corr-fci-invalid-payload-1",
+      startedAt: new Date().toISOString()
     });
+
+    const invalidPayload = buildFciModulePayloadFixture({
+      moduleCode: "D",
+      sourceVersion: module.source_fiche.version ?? "validated:missing",
+      sourceHash: module.source_fiche.hash ?? "missing",
+      code
+    });
+    delete (invalidPayload as Record<string, unknown>).data;
+
+    const response = await applyFciN8nCallback({
+      event: "fci.generation.completed",
+      contract_version: "1.0",
+      generation_job_id: generationJob.id,
+      fci_set_id: workspace.fci_set.id,
+      fci_module_id: module.module.id,
+      appel_offre_id: workspace.appel_offres.id,
+      code_interne: code,
+      module_code: "D",
+      correlation_id: generationJob.correlationId ?? "missing",
+      execution_id: "exec-fci-invalid-payload-1",
+      status: "completed",
+      provider: "gemini",
+      model: "gemini-3.6-flash",
+      prompt_version: "1.0",
+      schema_version: "1.0",
+      source_fiche: {
+        version: module.source_fiche.version ?? "validated:missing",
+        hash: module.source_fiche.hash ?? "missing"
+      },
+      generated_at: new Date().toISOString(),
+      generation_parameters: {
+        finish_reason: "length",
+        usage: { completion_tokens: 12000, prompt_tokens: 500 }
+      },
+      payload: invalidPayload
+    } satisfies FciN8nSuccessCallback);
+
+    assert.equal(response.httpStatus, 422);
+
+    const moduleAfterFailure = await getFciModule(code, "D", COMMERCIAL_USER);
+    assert.equal(moduleAfterFailure.module.status, "not_started");
+    assert.equal(moduleAfterFailure.generation_job?.status, "failed");
+    assert.equal(moduleAfterFailure.latest_data, null);
+
+    // Gemini's finish_reason/usage must survive into our stored
+    // generation_parameters so a real truncation (finish_reason: "length")
+    // can be told apart from a genuine malformed-response failure without
+    // re-running generation.
+    if (cleanupPool) {
+      const jobRow = await cleanupPool.query(
+        "select generation_parameters from public.fci_generation_jobs where id = $1",
+        [moduleAfterFailure.generation_job?.id]
+      );
+      assert.equal(jobRow.rows[0]?.generation_parameters?.callback_finish_reason, "length");
+      assert.equal(
+        jobRow.rows[0]?.generation_parameters?.callback_usage?.completion_tokens,
+        12000
+      );
+    }
   });
 });
 
@@ -1246,7 +1524,7 @@ test("failure callbacks preserve the previously validated version during regener
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code);
+    await initializeAssignedFciWorkspace(code);
     await saveFciModuleEdits(code, "C", {
       data: buildCompletedDepartmentPayload("C"),
       sourceSummary: null,
@@ -1254,13 +1532,13 @@ test("failure callbacks preserve the previously validated version during regener
       aiNotes: null,
       editor: "Bob Durand",
       expectedVersion: null
-    });
+    }, OPERATIONS_USER);
     await validateFciModule(code, "C", {
       validatedBy: "Bob Durand",
       comment: null,
       expectedVersion: 1,
       acknowledgeStaleSource: false
-    });
+    }, OPERATIONS_USER);
 
     let launchResult: Awaited<ReturnType<typeof prepareFciRegeneration>> | null = null;
 
@@ -1285,7 +1563,7 @@ test("failure callbacks preserve the previously validated version during regener
           );
         }) as typeof fetch,
         async () => {
-          launchResult = await prepareFciRegeneration(code, "C");
+          launchResult = await prepareFciRegeneration(code, "C", OPERATIONS_USER);
         }
       );
 
@@ -1293,8 +1571,8 @@ test("failure callbacks preserve the previously validated version during regener
       if (!launchResult) {
         throw new Error("Expected FCI regeneration launch result.");
       }
-      const workspace = await getFciWorkspace(code);
-      const module = await getFciModule(code, "C");
+      const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
+      const module = await getFciModule(code, "C", OPERATIONS_USER);
       const failureResult = await applyFciN8nCallback({
         event: "fci.generation.failed",
         contract_version: "1.0",
@@ -1327,7 +1605,7 @@ test("failure callbacks preserve the previously validated version during regener
 
       assert.equal(failureResult.httpStatus, 200);
 
-      const moduleAfterFailure = await getFciModule(code, "C");
+      const moduleAfterFailure = await getFciModule(code, "C", COMMERCIAL_USER);
       assert.equal(moduleAfterFailure.module.status, "validated");
       assert.equal(moduleAfterFailure.latest_data?.version, 2);
       assert.equal(moduleAfterFailure.generation_job?.status, "failed");
@@ -1339,7 +1617,7 @@ test("failure callbacks preserve the previously validated version during regener
   });
 });
 
-test("read-only roles can view every FCI module but only their assigned module is editable", async (t) => {
+test("DG keeps read access and final decision rights but no FCI edit permission", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -1348,7 +1626,8 @@ test("read-only roles can view every FCI module but only their assigned module i
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code, ADMIN_USER);
+    await initializeAssignedFciWorkspace(code);
+    await markWorkflowSubmittedForDgAccess(code);
 
     const commercialModule = await getFciModule(code, "A", COMMERCIAL_USER);
     const financeReadonlyModule = await getFciModule(code, "B", COMMERCIAL_USER);
@@ -1357,19 +1636,24 @@ test("read-only roles can view every FCI module but only their assigned module i
 
     assert.equal(commercialModule.permissions.can_edit, true);
     assert.equal(commercialModule.permissions.read_only, false);
-    assert.equal(commercialModule.allowed_actions.includes("generate"), true);
+    assert.deepEqual(commercialModule.allowed_actions, ["view_history"]);
 
     assert.equal(financeReadonlyModule.permissions.can_edit, false);
     assert.equal(financeReadonlyModule.permissions.read_only, true);
-    assert.equal(financeReadonlyModule.allowed_actions.includes("generate"), false);
+    assert.deepEqual(financeReadonlyModule.allowed_actions, ["view_history"]);
     assert.match(financeReadonlyModule.permissions.read_only_message ?? "", /Lecture seule/i);
 
     assert.equal(operationsModule.permissions.can_edit, true);
+    assert.equal(dgModule.permissions.can_edit, false);
+    assert.equal(dgModule.permissions.can_generate, false);
+    assert.equal(dgModule.permissions.can_validate, false);
+    assert.equal(dgModule.permissions.read_only, true);
+    assert.deepEqual(dgModule.allowed_actions, ["view_history"]);
     assert.equal(dgModule.permissions.can_make_final_decision, true);
   });
 });
 
-test("unauthorized FCI edits and validations return RBAC_FORBIDDEN while admin keeps full access", async (t) => {
+test("unauthorized FCI edits, validations, and reads return RBAC_FORBIDDEN for non-owners and ADMIN", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -1378,7 +1662,7 @@ test("unauthorized FCI edits and validations return RBAC_FORBIDDEN while admin k
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code, ADMIN_USER);
+    await initializeAssignedFciWorkspace(code);
 
     await assert.rejects(
       () =>
@@ -1390,33 +1674,94 @@ test("unauthorized FCI edits and validations return RBAC_FORBIDDEN while admin k
           editor: FINANCE_USER.name,
           expectedVersion: null
         }, FINANCE_USER),
+      isForbiddenWorkflowOrFciError
+    );
+
+    await assert.rejects(
+      () =>
+        saveFciModuleEdits(code, "D", {
+          data: {
+            d1_valeur_strategique: {
+              programme_pluriannuel: true
+            }
+          },
+          sourceSummary: null,
+          confidence: null,
+          aiNotes: null,
+          editor: ADMIN_USER.name,
+          expectedVersion: null
+        }, ADMIN_USER),
+      isForbiddenWorkflowOrFciError
+    );
+
+    await assert.rejects(
+      () =>
+        saveFciModuleEdits(code, "D", {
+          data: {
+            d1_valeur_strategique: {
+              programme_pluriannuel: true
+            }
+          },
+          sourceSummary: null,
+          confidence: null,
+          aiNotes: null,
+          editor: DIRECTION_GENERALE_USER.name,
+          expectedVersion: null
+        }, DIRECTION_GENERALE_USER),
+      isForbiddenWorkflowOrFciError
+    );
+
+    await assert.rejects(
+      () =>
+        saveFciModuleEdits(code, "A", {
+          data: { section: "commercial-cannot-overwrite-after-owner-save" },
+          sourceSummary: null,
+          confidence: null,
+          aiNotes: null,
+          editor: FINANCE_USER.name,
+          expectedVersion: null
+        }, FINANCE_USER),
+      isForbiddenWorkflowOrFciError
+    );
+
+    await saveFciModuleEdits(code, "A", {
+      data: { section: "commercial-owner-draft" },
+      sourceSummary: null,
+      confidence: null,
+      aiNotes: null,
+      editor: COMMERCIAL_USER.name,
+      expectedVersion: null
+    }, COMMERCIAL_USER);
+
+    await assert.rejects(
+      () =>
+        validateFciModule(code, "A", {
+          validatedBy: FINANCE_USER.name,
+          comment: null,
+          expectedVersion: 1,
+          acknowledgeStaleSource: false
+        }, FINANCE_USER),
+      isForbiddenWorkflowOrFciError
+    );
+
+    await assert.rejects(
+      () => getFciWorkspace(code, ADMIN_USER),
       (error: unknown) =>
         error instanceof FciServiceError
         && error.code === "RBAC_FORBIDDEN"
         && error.status === 403
     );
 
-    await saveFciModuleEdits(code, "D", {
-      data: {
-        d1_valeur_strategique: {
-          programme_pluriannuel: true
-        }
-      },
-      sourceSummary: null,
-      confidence: null,
-      aiNotes: null,
-      editor: ADMIN_USER.name,
-      expectedVersion: null
-    }, ADMIN_USER);
+    await assert.rejects(
+      () => getFciModule(code, "A", ADMIN_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "RBAC_FORBIDDEN"
+        && error.status === 403
+    );
 
     await assert.rejects(
-      () =>
-        validateFciModule(code, "D", {
-          validatedBy: COMMERCIAL_USER.name,
-          comment: null,
-          expectedVersion: 1,
-          acknowledgeStaleSource: false
-        }, COMMERCIAL_USER),
+      () => getFciModuleHistory(code, "A", ADMIN_USER),
       (error: unknown) =>
         error instanceof FciServiceError
         && error.code === "RBAC_FORBIDDEN"
@@ -1425,7 +1770,7 @@ test("unauthorized FCI edits and validations return RBAC_FORBIDDEN while admin k
   });
 });
 
-test("unauthorized generation is denied but admin can still generate any departmental module", async (t) => {
+test("unauthorized generation is denied for non-owner business roles and for ADMIN", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -1434,7 +1779,7 @@ test("unauthorized generation is denied but admin can still generate any departm
   const code = await createTestAppelOffres({});
 
   await withKnowledgeBaseEnabled(false, async () => {
-    await initializeFciWorkspace(code, ADMIN_USER);
+    await initializeAssignedFciWorkspace(code);
 
     await assert.rejects(
       () => prepareFciGeneration(code, "B", COMMERCIAL_USER),
@@ -1444,33 +1789,105 @@ test("unauthorized generation is denied but admin can still generate any departm
         && error.status === 403
     );
 
-    await withFciEnv({}, async () => {
-      await withMockFetch(
-        (async (_input, init) => {
-          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-          return new Response(
-            JSON.stringify({
-              contract_version: "1.0",
-              accepted: true,
-              generation_job_id: requestBody.generation_job_id,
-              correlation_id: requestBody.correlation_id,
-              execution_id: "exec-fci-admin-rbac-1",
-              received_at: new Date().toISOString(),
-              processing_status: "RUNNING"
-            }),
-            {
-              status: 202,
-              headers: { "Content-Type": "application/json" }
-            }
-          );
-        }) as typeof fetch,
-        async () => {
-          const result = await prepareFciGeneration(code, "B", ADMIN_USER);
-          assert.equal(result.accepted, true);
-          assert.equal(result.job.status, "running");
-        }
-      );
+    await assert.rejects(
+      () => prepareFciGeneration(code, "B", ADMIN_USER),
+      isForbiddenWorkflowOrFciError
+    );
+  });
+});
+
+test("DG receives 403 for every FCI mutation path and the error maps to the API contract", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await markWorkflowSubmittedForDgAccess(code);
+
+    const moduleD = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+    await upsertFciModuleData(moduleD.module.id, {
+      dataJson: { seeded: true },
+      sourceSummaryJson: null,
+      confidenceJson: null,
+      aiNotesJson: null,
+      version: 1,
+      generatedFromFicheVersion: moduleD.source_fiche.version ?? "validated:missing",
+      generatedFromFicheHash: moduleD.source_fiche.hash ?? "missing"
     });
+
+    const mutations: Array<{
+      label: string;
+      run: () => Promise<unknown>;
+      expectedModule: "A" | "D";
+    }> = [
+      {
+        label: "save draft",
+        expectedModule: "D",
+        run: () =>
+          saveFciModuleEdits(code, "D", {
+            data: { seeded: true },
+            sourceSummary: null,
+            confidence: null,
+            aiNotes: null,
+            editor: DIRECTION_GENERALE_USER.name,
+            expectedVersion: null
+          }, DIRECTION_GENERALE_USER)
+      },
+      {
+        label: "generate",
+        expectedModule: "D",
+        run: () => prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER)
+      },
+      {
+        label: "regenerate",
+        expectedModule: "D",
+        run: () => prepareFciRegeneration(code, "D", DIRECTION_GENERALE_USER)
+      },
+      {
+        label: "complete/validate",
+        expectedModule: "D",
+        run: () =>
+          validateFciModule(code, "D", {
+            validatedBy: DIRECTION_GENERALE_USER.name,
+            comment: "Tentative DG",
+            expectedVersion: 1,
+            acknowledgeStaleSource: false
+          }, DIRECTION_GENERALE_USER)
+      }
+    ];
+
+    for (const mutation of mutations) {
+      let captured: unknown = null;
+
+      await assert.rejects(
+        async () => {
+          try {
+            await mutation.run();
+          } catch (error) {
+            captured = error;
+            throw error;
+          }
+        },
+        (error: unknown) =>
+          error instanceof FciServiceError
+          && error.code === "RBAC_FORBIDDEN"
+          && error.status === 403
+          && error.details?.module_code === mutation.expectedModule
+      );
+
+      const apiResponse = toFciErrorResponse(captured);
+      assert.equal(apiResponse.status, 403, `${mutation.label} should map to API 403`);
+      assert.equal(apiResponse.body.ok, false);
+      assert.equal(apiResponse.body.error.code, "RBAC_FORBIDDEN");
+      assert.equal(
+        (apiResponse.body.error.details as { module_code?: string }).module_code,
+        mutation.expectedModule
+      );
+    }
   });
 });
 

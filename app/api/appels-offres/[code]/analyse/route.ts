@@ -4,6 +4,7 @@ import {
   toBusinessSafeAnalysisError,
   toErrorMessage
 } from "@/lib/appels-offres/user-errors.ts";
+import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,11 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
+    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse) {
+      return deniedResponse;
+    }
+
     const { code } = await params;
     const formData = await request.formData();
     const launched = await launchAnalysisForAppelOffres({

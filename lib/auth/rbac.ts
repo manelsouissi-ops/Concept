@@ -12,9 +12,18 @@ export const USER_ROLES = [
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const RBAC_PERMISSIONS = [
+  "admin.users.manage",
+  "admin.reference_data.manage",
+  "admin.settings.view",
+  "profile.view",
+  "profile.edit_self",
+  "settings.view",
   "dashboard.view",
-  "appels_offres.view",
-  "administration.view",
+  "tender.view",
+  "tender.create",
+  "fiche_cdc.view",
+  "fiche_cdc.edit",
+  "fiche_cdc.validate",
   "fci.view",
   "fci.edit",
   "fci.validate",
@@ -25,10 +34,16 @@ export const RBAC_PERMISSIONS = [
 
 export type Permission = (typeof RBAC_PERMISSIONS)[number];
 
-export type AppArea = "dashboard" | "appels_offres" | "administration";
+export type AppArea =
+  | "administration"
+  | "dashboard"
+  | "appels_offres"
+  | "profile"
+  | "settings";
 
 export type CurrentUser = {
   id: string;
+  firstName: string;
   name: string;
   email: string;
   role: UserRole;
@@ -72,24 +87,39 @@ const ROLE_LABELS: Record<UserRole, string> = {
   DIRECTION_GENERALE: "Direction generale"
 };
 
-const AREA_ACCESS: Record<AppArea, readonly UserRole[]> = {
-  dashboard: USER_ROLES,
-  appels_offres: USER_ROLES,
-  administration: ["ADMIN"]
+const AREA_PERMISSION: Record<AppArea, Permission> = {
+  administration: "admin.users.manage",
+  dashboard: "dashboard.view",
+  appels_offres: "tender.view",
+  profile: "profile.view",
+  settings: "settings.view"
 };
 
 const FCI_EDITOR_ROLE_BY_MODULE: Partial<Record<FciModuleCode, UserRole>> = {
   A: "COMMERCIAL",
   B: "FINANCE",
-  C: "OPERATIONS",
-  D: "DIRECTION_GENERALE"
+  C: "OPERATIONS"
 };
 
 export const rolePermissions: Record<UserRole, readonly Permission[]> = {
-  ADMIN: RBAC_PERMISSIONS,
+  ADMIN: [
+    "admin.users.manage",
+    "admin.reference_data.manage",
+    "admin.settings.view",
+    "profile.view",
+    "profile.edit_self",
+    "settings.view"
+  ],
   COMMERCIAL: [
+    "profile.view",
+    "profile.edit_self",
+    "settings.view",
     "dashboard.view",
-    "appels_offres.view",
+    "tender.view",
+    "tender.create",
+    "fiche_cdc.view",
+    "fiche_cdc.edit",
+    "fiche_cdc.validate",
     "fci.view",
     "fci.edit",
     "fci.validate",
@@ -97,8 +127,12 @@ export const rolePermissions: Record<UserRole, readonly Permission[]> = {
     "fci.regenerate"
   ],
   FINANCE: [
+    "profile.view",
+    "profile.edit_self",
+    "settings.view",
     "dashboard.view",
-    "appels_offres.view",
+    "tender.view",
+    "fiche_cdc.view",
     "fci.view",
     "fci.edit",
     "fci.validate",
@@ -106,8 +140,12 @@ export const rolePermissions: Record<UserRole, readonly Permission[]> = {
     "fci.regenerate"
   ],
   OPERATIONS: [
+    "profile.view",
+    "profile.edit_self",
+    "settings.view",
     "dashboard.view",
-    "appels_offres.view",
+    "tender.view",
+    "fiche_cdc.view",
     "fci.view",
     "fci.edit",
     "fci.validate",
@@ -115,16 +153,25 @@ export const rolePermissions: Record<UserRole, readonly Permission[]> = {
     "fci.regenerate"
   ],
   DIRECTION_GENERALE: [
+    "profile.view",
+    "profile.edit_self",
+    "settings.view",
     "dashboard.view",
-    "appels_offres.view",
+    "tender.view",
+    "fiche_cdc.view",
     "fci.view",
-    "fci.edit",
-    "fci.validate",
-    "fci.generate",
-    "fci.regenerate",
     "fci.final_decision"
   ]
 };
+
+function normalizePathname(pathname: string) {
+  const [path] = pathname.split("?");
+  return path || "/";
+}
+
+export function hasPermission(role: UserRole, permission: Permission) {
+  return rolePermissions[role].includes(permission);
+}
 
 export function isUserRole(value: unknown): value is UserRole {
   return typeof value === "string" && (USER_ROLES as readonly string[]).includes(value);
@@ -164,26 +211,69 @@ export function buildUserPresentation(user: CurrentUser): UserPresentation {
 }
 
 export function canAccess(role: UserRole, area: AppArea) {
-  return AREA_ACCESS[area].includes(role);
+  return hasPermission(role, AREA_PERMISSION[area]);
+}
+
+export function getDefaultAuthenticatedPath(role: UserRole) {
+  return role === "ADMIN" ? "/administration" : "/dashboard";
+}
+
+export function canAccessPath(role: UserRole, pathname: string) {
+  const normalized = normalizePathname(pathname);
+
+  if (normalized === "/administration" || normalized.startsWith("/administration/")) {
+    return canAccess(role, "administration");
+  }
+
+  if (normalized === "/dashboard") {
+    return canAccess(role, "dashboard");
+  }
+
+  if (
+    normalized === "/appels-offres"
+    || normalized.startsWith("/appels-offres/")
+    || normalized === "/fiche"
+    || normalized.startsWith("/fiche/")
+    || normalized === "/initiation"
+  ) {
+    return canAccess(role, "appels_offres");
+  }
+
+  if (normalized === "/profile") {
+    return canAccess(role, "profile");
+  }
+
+  if (normalized === "/settings" || normalized.startsWith("/settings/")) {
+    return canAccess(role, "settings");
+  }
+
+  return false;
 }
 
 export function canViewFciModule(role: UserRole, moduleCode: FciModuleCode) {
   if (role === "ADMIN") {
-    return true;
+    return false;
   }
 
-  return moduleCode === "E" ? false : canAccess(role, "appels_offres");
+  return moduleCode !== "E" && canAccess(role, "appels_offres");
 }
 
 export function getFciEditableRole(moduleCode: FciModuleCode) {
   return FCI_EDITOR_ROLE_BY_MODULE[moduleCode] ?? null;
 }
 
-export function canEditFciModule(role: UserRole, moduleCode: FciModuleCode) {
-  if (role === "ADMIN") {
-    return true;
-  }
+// Reverse lookup of FCI_EDITOR_ROLE_BY_MODULE: which module (if any) a role owns.
+// Single source of truth stays the module->role map above, so adding a role/module
+// pair there is enough for both directions to stay correct.
+export function getFciModuleForRole(role: UserRole): FciModuleCode | null {
+  const entry = (Object.entries(FCI_EDITOR_ROLE_BY_MODULE) as [FciModuleCode, UserRole][]).find(
+    ([, ownerRole]) => ownerRole === role
+  );
 
+  return entry ? entry[0] : null;
+}
+
+export function canEditFciModule(role: UserRole, moduleCode: FciModuleCode) {
   return getFciEditableRole(moduleCode) === role;
 }
 
@@ -200,12 +290,12 @@ export function canRegenerateFciModule(role: UserRole, moduleCode: FciModuleCode
 }
 
 export function canMakeFinalDecision(role: UserRole) {
-  return role === "ADMIN" || role === "DIRECTION_GENERALE";
+  return role === "DIRECTION_GENERALE";
 }
 
 export function getFciReadOnlyMessage(role: UserRole, moduleCode: FciModuleCode) {
   if (role === "ADMIN") {
-    return null;
+    return "Cette fonctionnalite est reservee aux equipes metier.";
   }
 
   const editorRole = getFciEditableRole(moduleCode);
@@ -220,7 +310,11 @@ export function getFciReadOnlyMessage(role: UserRole, moduleCode: FciModuleCode)
   return `Lecture seule : seul ${getUserRoleLabel(editorRole).toLowerCase()} peut modifier ce module.`;
 }
 
-export function getAreaAccessDeniedMessage(area: AppArea) {
+export function getAreaAccessDeniedMessage(area: AppArea, role?: UserRole) {
+  if (role === "ADMIN" && (area === "dashboard" || area === "appels_offres")) {
+    return "Cette fonctionnalite est reservee aux equipes metier.";
+  }
+
   switch (area) {
     case "administration":
       return "Acces refuse : cette section est reservee a l'administrateur.";
@@ -228,6 +322,10 @@ export function getAreaAccessDeniedMessage(area: AppArea) {
       return "Acces refuse : vous ne pouvez pas consulter le tableau de bord.";
     case "appels_offres":
       return "Acces refuse : vous ne pouvez pas consulter les appels d'offres.";
+    case "profile":
+      return "Acces refuse : vous ne pouvez pas consulter ce profil.";
+    case "settings":
+      return "Acces refuse : vous ne pouvez pas consulter les parametres.";
   }
 }
 

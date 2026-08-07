@@ -6,7 +6,6 @@ import {
   downloadFciModuleExport,
   getFciModule,
   getFciModuleHistory,
-  prepareFciGeneration,
   prepareFciRegeneration,
   saveFciModule,
   validateFciModule,
@@ -42,7 +41,6 @@ const FCI_MAX_POLL_ATTEMPTS = 30;
 
 type DialogState =
   | { kind: "validate" }
-  | { kind: "generate" }
   | { kind: "regenerate" }
   | null;
 
@@ -63,7 +61,11 @@ function buildEmptyPayload(
       version: modulePresentation.source_fiche.version ?? "unavailable",
       hash: modulePresentation.source_fiche.hash ?? null,
       status:
-        (modulePresentation.source_fiche.status as "processing" | "draft" | "validated" | "error")
+        (modulePresentation.source_fiche.status as
+          | "processing"
+          | "draft"
+          | "validated"
+          | "error")
         ?? "draft",
       validated_at: modulePresentation.source_fiche.is_validated
         ? modulePresentation.source_fiche.updated_at
@@ -152,7 +154,7 @@ export function FciModuleView({
     if (pollAttempts >= FCI_MAX_POLL_ATTEMPTS) {
       setInfoMessage((current) =>
         current
-        ?? "La génération FCI est toujours en cours. Actualisez le module pour vérifier l’avancement."
+        ?? "La generation FCI est toujours en cours. Actualisez le module pour verifier l'avancement."
       );
       return;
     }
@@ -233,7 +235,7 @@ export function FciModuleView({
     return (
       <FciErrorState
         title="Module FCI introuvable"
-        message={`Le module ${moduleCode} n'est pas supporté dans cette phase.`}
+        message={`Le module ${moduleCode} n'est pas supporte dans cette phase.`}
         onRetry={() => void loadModule()}
       />
     );
@@ -252,7 +254,7 @@ export function FciModuleView({
     switch (action) {
       case "reset":
         setEditablePayload(originalPayload);
-        setInfoMessage("Modifications locales réinitialisées.");
+        setInfoMessage("Modifications locales reinitialisees.");
         setConflictMessage(null);
         setValidationErrors([]);
         return;
@@ -298,14 +300,14 @@ export function FciModuleView({
                 : editablePayload;
               setEditablePayload(nextPayload);
               setOriginalPayload(nextPayload);
-              setInfoMessage("Brouillon enregistré.");
+              setInfoMessage("Brouillon enregistre.");
               setConflictMessage(null);
               setValidationErrors([]);
               await reloadAll();
             } catch (error) {
               if (error instanceof FciClientError && error.code === "VERSION_CONFLICT") {
                 setConflictMessage(
-                  "Une version plus récente existe déjà sur le serveur. Rechargez la dernière version ou conservez vos modifications localement."
+                  "Une version plus recente existe deja sur le serveur. Rechargez la derniere version ou conservez vos modifications localement."
                 );
                 return;
               }
@@ -313,7 +315,7 @@ export function FciModuleView({
               setErrorMessage(
                 error instanceof FciClientError
                   ? formatFciClientErrorMessage(error)
-                  : "Échec de l’enregistrement du module."
+                  : "Echec de l'enregistrement du module."
               );
             } finally {
               setPendingAction(null);
@@ -323,9 +325,6 @@ export function FciModuleView({
         return;
       case "validate":
         setDialogState({ kind: "validate" });
-        return;
-      case "generate":
-        setDialogState({ kind: "generate" });
         return;
       case "regenerate":
         setDialogState({ kind: "regenerate" });
@@ -346,7 +345,7 @@ export function FciModuleView({
             anchor.click();
             anchor.remove();
             URL.revokeObjectURL(objectUrl);
-            setInfoMessage(format === "docx" ? "Export Word prêt." : "Export PDF prêt.");
+            setInfoMessage(format === "docx" ? "Export Word pret." : "Export PDF pret.");
           } catch (error) {
             setErrorMessage(
               error instanceof FciClientError
@@ -361,7 +360,10 @@ export function FciModuleView({
     }
   }
 
-  async function handleDialogConfirm(input: { acknowledged: boolean; comment: string | null }) {
+  async function handleDialogConfirm(input: {
+    acknowledged: boolean;
+    comment: string | null;
+  }) {
     if (!modulePresentation) {
       return;
     }
@@ -375,7 +377,9 @@ export function FciModuleView({
         try {
           if (currentDialog?.kind === "validate") {
             if (isDirty) {
-              setErrorMessage("Enregistrez d’abord les modifications avant de marquer le module comme terminé.");
+              setErrorMessage(
+                "Enregistrez d'abord les modifications avant de marquer le module comme termine."
+              );
               return;
             }
 
@@ -385,16 +389,12 @@ export function FciModuleView({
               expectedVersion: modulePresentation.latest_data?.version ?? null,
               acknowledgeStaleSource: input.acknowledged
             });
-            setInfoMessage("Module marqué comme terminé.");
+            setInfoMessage("Module marque comme termine.");
             setValidationErrors([]);
-          } else if (currentDialog?.kind === "generate") {
-            await prepareFciGeneration(code, moduleCode);
-            setPollAttempts(0);
-            setInfoMessage("Génération lancée. Le module sera actualisé automatiquement.");
           } else if (currentDialog?.kind === "regenerate") {
             await prepareFciRegeneration(code, moduleCode);
             setPollAttempts(0);
-            setInfoMessage("Régénération lancée. Le module sera actualisé automatiquement.");
+            setInfoMessage("Regeneration lancee. Le module sera actualise automatiquement.");
           }
 
           await reloadAll();
@@ -464,10 +464,18 @@ export function FciModuleView({
           <strong>Conflit de version</strong>
           <div>{conflictMessage}</div>
           <div className="workspace-route-actions">
-            <button type="button" className="button button-secondary button-small" onClick={() => void reloadAll()}>
-              Recharger la dernière version
+            <button
+              type="button"
+              className="button button-secondary button-small"
+              onClick={() => void reloadAll()}
+            >
+              Recharger la derniere version
             </button>
-            <button type="button" className="button button-ghost button-small" onClick={() => setConflictMessage(null)}>
+            <button
+              type="button"
+              className="button button-ghost button-small"
+              onClick={() => setConflictMessage(null)}
+            >
               Conserver mes modifications
             </button>
           </div>
@@ -475,7 +483,7 @@ export function FciModuleView({
       ) : null}
       {validationErrors.length ? (
         <div className="callout warning" role="alert">
-          <strong>Le module ne peut pas encore être marqué comme terminé.</strong>
+          <strong>Le module ne peut pas encore etre marque comme termine.</strong>
           <ul className="fci-validation-list">
             {validationErrors.map((validationError) => (
               <li key={validationError.path}>
@@ -487,22 +495,26 @@ export function FciModuleView({
       ) : null}
       {!modulePresentation.source_fiche.is_validated ? (
         <div className="callout warning">
-          La Fiche CDC source n'est pas encore validée. Certaines actions resteront en lecture ou en préparation.
+          La Fiche CDC source n'est pas encore validee. Certaines actions resteront en
+          lecture ou en preparation.
         </div>
       ) : null}
       {modulePresentation.stale_source ? (
         <div className="callout warning">
-          Ce module repose sur une version ancienne de la Fiche CDC. Une validation demandera un acquittement explicite.
+          Ce module repose sur une version ancienne de la Fiche CDC. Une validation
+          demandera un acquittement explicite.
         </div>
       ) : null}
       {modulePresentation.module.status === "validated" && isDirty ? (
         <div className="callout info">
-          Ce module est déjà terminé. Toute nouvelle sauvegarde mettra à jour la version complétée du formulaire.
+          Ce module est deja termine. Toute nouvelle sauvegarde mettra a jour la version
+          completee du formulaire.
         </div>
       ) : null}
       {unsupportedPayload ? (
         <div className="callout warning">
-          Données historiques non reconnues par le contrat FCI actuel. Affichage brut en lecture seule.
+          Donnees historiques non reconnues par le contrat FCI actuel. Affichage brut en
+          lecture seule.
         </div>
       ) : null}
 
@@ -516,7 +528,7 @@ export function FciModuleView({
             <strong>{completion.filled} / {completion.total}</strong>
           </div>
           <p className="workspace-card-description">
-            {completion.humanInputsRequired} champs internes restent à relire ou compléter.
+            {completion.humanInputsRequired} champs internes restent a relire ou completer.
           </p>
         </section>
         <section className="workspace-card compact">
@@ -528,7 +540,10 @@ export function FciModuleView({
             <FciFormStatusBadge status={modulePresentation.module.form_status} />
           </div>
           <p className="workspace-card-description">
-            Dernier enregistrement : {formatFciDateTime(modulePresentation.latest_data?.updated_at ?? modulePresentation.module.updated_at)}
+            Dernier enregistrement :{" "}
+            {formatFciDateTime(
+              modulePresentation.latest_data?.updated_at ?? modulePresentation.module.updated_at
+            )}
           </p>
         </section>
         <section className="workspace-card compact">
@@ -543,13 +558,13 @@ export function FciModuleView({
             </span>
           </div>
           <p className="workspace-card-description">
-            Dernière mise à jour : {formatFciDateTime(modulePresentation.source_fiche.updated_at)}
+            Derniere mise a jour : {formatFciDateTime(modulePresentation.source_fiche.updated_at)}
           </p>
         </section>
         <section className="workspace-card compact">
           <div className="workspace-card-topline">
             <div>
-              <span className="card-kicker">Génération IA</span>
+              <span className="card-kicker">Generation IA</span>
               <h3>{modulePresentation.generation_job ? modulePresentation.generation_job.model : "Aucune"}</h3>
             </div>
             {modulePresentation.generation_job ? (
@@ -561,15 +576,15 @@ export function FciModuleView({
               ? formatFciSafeErrorMessage(modulePresentation.generation_job.error_message)
                 ?? (
                   modulePresentation.generation_job.status === "completed"
-                    ? "La dernière génération IA a été terminée."
+                    ? "La derniere generation IA a ete terminee."
                     : modulePresentation.generation_job.status === "running"
-                      ? "La génération IA est en cours dans n8n."
+                      ? "La generation IA est en cours dans n8n."
                       : modulePresentation.generation_job.status === "queued"
                         || modulePresentation.generation_job.status === "created"
-                        ? "La génération IA a été acceptée et sera traitée en arrière-plan."
-                        : "Une exécution IA a été enregistrée pour ce module."
+                        ? "La generation IA a ete acceptee et sera traitee en arriere-plan."
+                        : "Une execution IA a ete enregistree pour ce module."
                 )
-              : "Aucune demande de génération enregistrée."}
+              : "Aucune demande de generation enregistree."}
           </p>
         </section>
       </div>
@@ -578,18 +593,18 @@ export function FciModuleView({
         <div className="fci-action-bar-meta" aria-live="polite">
           <strong>
             {isDirty
-              ? "Modifications non enregistrées"
+              ? "Modifications non enregistrees"
               : `Dernier enregistrement : ${formatFciDateTime(
                 modulePresentation.latest_data?.updated_at ?? modulePresentation.module.updated_at
               )}`}
           </strong>
           <span>
             {pendingAction === "save"
-              ? "Enregistrement en cours…"
+              ? "Enregistrement en cours..."
               : pendingAction === "download-docx"
-                ? "Préparation du document Word…"
+                ? "Preparation du document Word..."
                 : pendingAction === "download-pdf"
-                  ? "Préparation du PDF…"
+                  ? "Preparation du PDF..."
                   : "Les actions restent visibles pendant la saisie."}
           </span>
         </div>
@@ -629,9 +644,9 @@ export function FciModuleView({
         <section className="section-card">
           <div className="section-header">
             <div>
-              <h3>Données brutes</h3>
+              <h3>Donnees brutes</h3>
               <p className="meta">
-                Aucun rendu spécialisé n'est disponible pour cette structure historique.
+                Aucun rendu specialise n'est disponible pour cette structure historique.
               </p>
             </div>
           </div>
@@ -643,29 +658,21 @@ export function FciModuleView({
 
       <FciConfirmDialog
         open={dialogState?.kind === "validate"}
-        title={`Marquer ${definition.shortTitle} comme terminé`}
-        description="Confirmez que les champs obligatoires ont été complétés et vérifiés avant validation."
-        confirmLabel="Marquer comme terminé"
+        title={`Marquer ${definition.shortTitle} comme termine`}
+        description="Confirmez que les champs obligatoires ont ete completes et verifies avant validation."
+        confirmLabel="Marquer comme termine"
         commentLabel="Commentaire de validation"
         commentPlaceholder="Commentaire facultatif"
         requireAcknowledgement={modulePresentation.stale_source}
-        acknowledgeLabel="Je confirme valider ce module malgré une source Fiche CDC obsolète."
-        onCancel={() => setDialogState(null)}
-        onConfirm={handleDialogConfirm}
-      />
-      <FciConfirmDialog
-        open={dialogState?.kind === "generate"}
-        title={`Lancer la génération du module ${definition.shortTitle}`}
-        description="Cette action lance une génération IA asynchrone à partir de la Fiche CDC validée."
-        confirmLabel="Lancer la génération"
+        acknowledgeLabel="Je confirme valider ce module malgre une source Fiche CDC obsolete."
         onCancel={() => setDialogState(null)}
         onConfirm={handleDialogConfirm}
       />
       <FciConfirmDialog
         open={dialogState?.kind === "regenerate"}
-        title={`Relancer la génération du module ${definition.shortTitle}`}
-        description="Cette action conserve les versions existantes et lance une nouvelle génération IA avec la source Fiche CDC courante."
-        confirmLabel="Relancer la génération"
+        title={`Relancer la generation du module ${definition.shortTitle}`}
+        description="Cette action conserve les versions existantes et lance une nouvelle generation IA avec la source Fiche CDC courante."
+        confirmLabel="Relancer la generation"
         onCancel={() => setDialogState(null)}
         onConfirm={handleDialogConfirm}
       />

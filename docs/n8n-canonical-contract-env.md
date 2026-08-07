@@ -150,11 +150,14 @@ Use this order for local development:
 
 1. PostgreSQL
 2. Marker
-3. n8n with its runtime env block
-4. Next.js
+3. Local callback signer helper (`scripts/n8n-tests/test_callback_capture_server.py`, :8899)
+4. n8n with its runtime env block
+5. Next.js
 
-If you rely on the local signer helper at its configured loopback address, start it before any
-workflow execution is allowed to reach the terminal callback step.
+The signer must be up before any workflow execution reaches the terminal `Sign Canonical
+Callback` step, or that node's POST to `N8N_CALLBACK_SIGNER_URL` will fail with connection
+refused. `scripts/start-local-stack.ps1` starts all five in this order and is idempotent — it
+skips any step whose port is already listening.
 
 ## Safe local PowerShell block for n8n
 
