@@ -23,9 +23,18 @@ export function FciModuleCard({
 }) {
   const availableActions = summary?.available_actions ?? [];
   const safeErrorMessage = formatFciSafeErrorMessage(summary?.current_error?.message);
-  const formStatus = summary ? getFciFormStatusPresentation(summary.form_status) : null;
-  const openLabel =
-    summary?.form_status && summary.form_status !== "not_started" ? "Continuer" : "Ouvrir";
+  const isStaleValidation = summary?.status === "validated" && summary.stale_source;
+  const formStatus = isStaleValidation
+    ? { label: "À revérifier", tone: "warning" as const }
+    : summary
+      ? getFciFormStatusPresentation(summary.form_status)
+      : null;
+  const canEdit = summary?.permissions.can_edit ?? false;
+  const openLabel = !canEdit
+    ? "Consulter"
+    : summary?.form_status && summary.form_status !== "not_started"
+      ? "Continuer"
+      : "Ouvrir";
 
   return (
     <article className={`workspace-card fci-module-card${disabled ? " is-disabled" : ""}`}>
@@ -57,6 +66,11 @@ export function FciModuleCard({
       {summary?.permissions.read_only_message ? (
         <p className="meta">{summary.permissions.read_only_message}</p>
       ) : null}
+      {isStaleValidation ? (
+        <div className="callout warning">
+          La Fiche CDC a été modifiée depuis la validation de ce module. Vérifiez que le contenu est toujours à jour.
+        </div>
+      ) : null}
       {safeErrorMessage ? (
         <div className="callout warning">{safeErrorMessage}</div>
       ) : null}
@@ -64,7 +78,7 @@ export function FciModuleCard({
       <div className="workspace-card-actions">
         <button
           type="button"
-          className="button button-primary button-small"
+          className={canEdit ? "button button-primary button-small" : "button button-secondary button-small"}
           onClick={() => onAction("open")}
           disabled={disabled}
           aria-disabled={disabled}

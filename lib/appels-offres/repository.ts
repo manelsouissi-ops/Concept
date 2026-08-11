@@ -1252,12 +1252,26 @@ export function parseExtractedDeadline(raw: string | null | undefined) {
   return null;
 }
 
-// Fills the dossier's title/buyer/country/due date from the validated Fiche
+function normalizeExtractedOptionalText(raw: string | null | undefined) {
+  const value = raw?.trim();
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return normalized === "non trouve" ? null : value;
+}
+
+// Fills the dossier's title/buyer/country/due date/reference from the validated Fiche
 // CDC extraction (intitule_mission / client_maitre_ouvrage / pays /
-// date_limite_depot). Only overwrites when the extracted value is non-empty
+// date_limite_depot / reference_officielle). Only overwrites when the extracted value is non-empty
 // (and, for the deadline, only when it parses to an unambiguous calendar
-// date), so a placeholder-title/empty-buyer/unset-country dossier never gets
-// blanked out again by a re-validation with missing or messy fields.
+// date). A validated reference only fills an empty dossier reference, preserving
+// any meaningful value entered manually.
 export async function applyValidatedExtractionIdentity(
   code: string,
   identity: {
@@ -1265,6 +1279,7 @@ export async function applyValidatedExtractionIdentity(
     buyer: string | null;
     country?: string | null;
     deadline?: string | null;
+    reference?: string | null;
   }
 ) {
   const pool = await requirePool();
@@ -1272,6 +1287,7 @@ export async function applyValidatedExtractionIdentity(
   const buyer = identity.buyer?.trim() || null;
   const country = identity.country?.trim() || null;
   const dueDate = parseExtractedDeadline(identity.deadline);
+  const reference = normalizeExtractedOptionalText(identity.reference);
   const result = await pool.query<AppelOffresRow>(
     `
       update ${APPELS_OFFRES_TABLE}
@@ -1280,6 +1296,10 @@ export async function applyValidatedExtractionIdentity(
         buyer = coalesce($3, buyer),
         country = coalesce($4, country),
         due_date = coalesce($5::date, due_date),
+        reference = case
+          when nullif(btrim(reference), '') is null then coalesce($6, reference)
+          else reference
+        end,
         updated_at = now()
       where code = $1
       returning
@@ -1308,7 +1328,7 @@ export async function applyValidatedExtractionIdentity(
         archived_at,
         deleted_at
     `,
-    [code, title, buyer, country, dueDate]
+    [code, title, buyer, country, dueDate, reference]
   );
 
   return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
@@ -1835,6 +1855,23 @@ export async function getProcessingJobByPublicId(publicId: string) {
     [publicId]
   );
 
+  return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
+}
+
+export async function getProcessingJobById(id: number) {
+  const pool = await requirePool();
+  const result = await pool.query<ProcessingJobRow>(
+    `
+      select id, appel_offres_id, public_id, job_type, status, started_at, finished_at,
+        contract_version, correlation_id, execution_id, launch_accepted_at,
+        callback_received_at, callback_status, callback_idempotency_key,
+        retry_of_job_id, error_stage, error_code, error_message, metadata
+      from ${PROCESSING_JOBS_TABLE}
+      where id = $1
+      limit 1
+    `,
+    [id]
+  );
   return result.rows[0] ? mapProcessingJobRow(result.rows[0]) : null;
 }
 

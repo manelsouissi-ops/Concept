@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getRoleWorkspaceExperience } from "./role-workspace.ts";
 
-test("finance gets the minimal department workspace with a 4-item nav (no Mes dossiers)", () => {
+test("finance gets the focused department navigation", () => {
   const financeExperience = getRoleWorkspaceExperience("FINANCE");
 
   assert.equal(financeExperience.dashboardVariant, "department_minimal");
   assert.equal(financeExperience.dashboardAction, null);
   assert.deepEqual(
     financeExperience.primaryNavigation.map((item) => item.label),
-    ["Accueil", "Mes modules FCI", "Historique", "Profil"]
+    ["Accueil", "Mes FCI", "Appels d'offres", "Historique", "Profil"]
   );
 });
 
@@ -20,7 +20,7 @@ test("operations gets the same minimal workspace as finance", () => {
   assert.equal(operationsExperience.dashboardAction, null);
   assert.deepEqual(
     operationsExperience.primaryNavigation.map((item) => item.label),
-    ["Accueil", "Mes modules FCI", "Historique", "Profil"]
+    ["Accueil", "Mes FCI", "Appels d'offres", "Historique", "Profil"]
   );
 });
 
@@ -35,7 +35,7 @@ test("direction generale gets the decision workspace and a Go/No-Go nav", () => 
   );
 });
 
-test("commercial workspace keeps the classic dashboard and new tender action", () => {
+test("commercial workspace exposes task-oriented navigation", () => {
   const commercialExperience = getRoleWorkspaceExperience("COMMERCIAL");
 
   assert.equal(commercialExperience.dashboardVariant, "commercial_coordination");
@@ -43,13 +43,17 @@ test("commercial workspace keeps the classic dashboard and new tender action", (
     commercialExperience.primaryNavigation.map((item) => item.label),
     [
       "Accueil",
-      "Mes dossiers",
-      "FCIs a suivre",
-      "Prets pour Go/No-Go",
-      "En attente DG",
+      "Appels d'offres",
+      "Mes Fiches CDC",
+      "Mes FCI",
+      "Go/No-Go",
       "Historique",
       "Profil"
     ]
   );
   assert.equal(commercialExperience.dashboardAction, null);
+  assert.deepEqual(
+    commercialExperience.primaryNavigation.map((item) => item.href),
+    ["/dashboard", "/appels-offres", "/fiches-cdc", "/mes-fci", "/go-no-go", "/history", "/profile"]
+  );
 });

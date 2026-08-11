@@ -22,6 +22,7 @@ import {
 type Props = {
   code: string;
   appel: AppelOffresDetail;
+  readOnly?: boolean;
   onReviewStateChange?: (state: "saved" | "validated" | null) => void;
 };
 
@@ -649,7 +650,7 @@ function DossierFieldsSection({
   );
 }
 
-export function FicheEditor({ code, appel, onReviewStateChange }: Props) {
+export function FicheEditor({ code, appel, readOnly = false, onReviewStateChange }: Props) {
   const router = useRouter();
   const [data, setData] = useState<FicheResponse | null>(null);
   const [statusData, setStatusData] = useState<FicheStatusResponse | null>(null);
@@ -1212,7 +1213,7 @@ export function FicheEditor({ code, appel, onReviewStateChange }: Props) {
     );
   }
 
-  const isLocked = data.status.status !== "draft";
+  const isLocked = readOnly || data.status.status !== "draft";
   const unresolvedCount = data.controle.resolutions.filter(
     (resolution) => resolution.status === "unresolved"
   ).length;

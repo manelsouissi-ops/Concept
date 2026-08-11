@@ -19,6 +19,7 @@ import {
   getMaxCdcUploadBytes,
   getN8nContractVersion,
   getN8nIntegrationConfig,
+  getCdcWorkflowMode,
   type N8nIntegrationConfig
 } from "@/lib/integrations/n8n-config";
 import {
@@ -27,6 +28,7 @@ import {
   getAppelOffresDetailByCode,
   getLatestProcessingJobByCode,
   getProcessingJobByPublicId,
+  getProcessingJobById,
   setAppelOffresBusinessStatus,
   syncStoredDocumentsMetadata,
   updateProcessingJobByPublicId,
@@ -39,6 +41,7 @@ import type {
   ProcessingJobRecord
 } from "@/lib/appels-offres/types.ts";
 import { storeSourcePdf } from "@/lib/appels-offres/storage.ts";
+import { launchDocumentProcessing, launchPersistedCdcExtraction } from "@/lib/appels-offres/cdc-split.ts";
 import {
   DATA_ROOT,
   finalizeProcessingSuccess,
@@ -742,6 +745,112 @@ export async function launchAnalysisForAppelOffres(
   }).catch(() => undefined);
 
   try {
+    if (getCdcWorkflowMode() === "split") {
+      const config = getN8nIntegrationConfig();
+      const retryAncestor = latestJob?.retryOfJobId
+        ? await getProcessingJobById(latestJob.retryOfJobId)
+        : null;
+      const resumeSource = latestJob?.metadata?.documentProcessing
+        ? latestJob
+        : retryAncestor?.metadata?.documentProcessing
+          ? retryAncestor
+          : null;
+      const previousDocument = resumeSource?.metadata?.documentProcessing;
+      const canResumeW2 = !options.forceRegenerate && !options.pdfFile && latestJob && resumeSource &&
+        ["failed", "cancelled"].includes(latestJob.status) &&
+        previousDocument && typeof previousDocument === "object" && !Array.isArray(previousDocument) &&
+        (previousDocument as Record<string, unknown>).status === "COMPLETED";
+      if (canResumeW2) {
+        const artifact = previousDocument as Record<string, unknown>;
+        const documentId = typeof artifact.documentId === "string" ? artifact.documentId : "";
+        const markdownPath = typeof artifact.markdownPath === "string" ? artifact.markdownPath : "";
+        const contentHash = typeof artifact.contentHash === "string" ? artifact.contentHash : "";
+        const byteSize = typeof artifact.byteSize === "number" ? artifact.byteSize : 0;
+        if (documentId && markdownPath && /^sha256:[a-f0-9]{64}$/.test(contentHash) && byteSize > 0) {
+          await updateProcessingJobByPublicId(processingJobId, {
+            status: "queued",
+            metadata: {
+              pipelineMode: "split",
+              pipelineStage: "cdc_extraction_queued",
+              resumedFromProcessingJobId: resumeSource.publicId,
+              documentProcessing: artifact
+            }
+          });
+          const launched = await launchPersistedCdcExtraction({
+            processingJobId,
+            appelOffreId: toContractAppelOffreId(appel.id),
+            codeInterne: code,
+            correlationId,
+            sourceProcessingJobId: resumeSource.publicId!,
+            documentId,
+            markdownPath,
+            contentHash,
+            byteSize
+          });
+          await updateProcessingJobByPublicId(processingJobId, {
+            status: "running",
+            executionId: launched.acceptance.execution_id,
+            contractVersion: launched.acceptance.contract_version,
+            launchAcceptedAt: launched.acceptance.received_at,
+            metadata: {
+              pipelineMode: "split",
+              pipelineStage: "cdc_extraction_running",
+              resumedFromProcessingJobId: resumeSource.publicId,
+              documentProcessing: artifact,
+              cdcExtraction: { status: "RUNNING", executionId: launched.acceptance.execution_id, launchPayload: launched.payload }
+            }
+          });
+          await markProcessingActive(code, launched.acceptance.execution_id);
+          await setAppelOffresBusinessStatus(code, "analyse_en_cours", { processingJobId, executionId: launched.acceptance.execution_id }).catch(() => undefined);
+          return { code, processingJobId, correlationId, executionId: launched.acceptance.execution_id, callbackUrl: launched.payload.callback_url };
+        }
+      }
+      const pdfPath = getPdfPathForLaunch(await getStoredPdfPath(code));
+      const launched = await launchDocumentProcessing({
+        processingJobId,
+        appelOffreId: toContractAppelOffreId(appel.id),
+        codeInterne: code,
+        correlationId,
+        pdfPath,
+        retryOfProcessingJobId: latestJob && ["failed", "cancelled"].includes(latestJob.status)
+          ? latestJob.publicId
+          : null,
+        requestedParser: process.env.DOCUMENT_PARSER === "marker" ? "marker" : "docling"
+      });
+      await updateProcessingJobByPublicId(processingJobId, {
+        status: "running",
+        executionId: launched.acceptance.execution_id,
+        contractVersion: launched.acceptance.contract_version,
+        launchAcceptedAt: launched.acceptance.received_at,
+        metadata: {
+          pipelineMode: "split",
+          pipelineStage: "document_processing_running",
+          documentProcessing: {
+            status: "RUNNING",
+            executionId: launched.acceptance.execution_id,
+            launchPayload: launched.payload
+          }
+        }
+      });
+      await markProcessingActive(code, launched.acceptance.execution_id);
+      await setAppelOffresBusinessStatus(code, "analyse_en_cours", {
+        processingJobId,
+        executionId: launched.acceptance.execution_id
+      }).catch(() => undefined);
+      await appendAuditLog(code, "document_processing_launch_accepted", {
+        processingJobId,
+        correlationId,
+        executionId: launched.acceptance.execution_id
+      }).catch(() => undefined);
+      return {
+        code,
+        processingJobId,
+        correlationId,
+        executionId: launched.acceptance.execution_id,
+        callbackUrl: launched.payload.callback_url
+      };
+    }
+
     const { config, webhookMode } = readLaunchConfig(code);
     const callbackUrl = buildCanonicalCallbackUrl(config.platformPublicBaseUrl);
     const pdfPath = getPdfPathForLaunch(await getStoredPdfPath(code));
@@ -897,6 +1006,18 @@ async function applySuccessCallback(
       remoteStartedAt: payload.started_at,
       remoteFinishedAt: payload.finished_at,
       durationMs: payload.duration_ms,
+      ...(job.metadata?.pipelineMode === "split"
+        ? {
+            pipelineStage: "cdc_extraction_completed",
+            cdcExtraction: {
+              ...(job.metadata?.cdcExtraction && typeof job.metadata.cdcExtraction === "object"
+                ? job.metadata.cdcExtraction as Record<string, unknown>
+                : {}),
+              status: "COMPLETED",
+              executionId: payload.execution_id
+            }
+          }
+        : {}),
       ...payload.metadata
     }
   });
@@ -939,6 +1060,18 @@ async function applyFailureCallback(
       durationMs: payload.duration_ms,
       retryable: payload.error.retryable,
       provider: payload.error.provider ?? null,
+      ...(job.metadata?.pipelineMode === "split"
+        ? {
+            pipelineStage: "cdc_extraction_failed",
+            cdcExtraction: {
+              ...(job.metadata?.cdcExtraction && typeof job.metadata.cdcExtraction === "object"
+                ? job.metadata.cdcExtraction as Record<string, unknown>
+                : {}),
+              status: payload.status,
+              executionId: payload.execution_id
+            }
+          }
+        : {}),
       ...payload.metadata
     }
   });

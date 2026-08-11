@@ -37,6 +37,8 @@ export type DecisionWorkspacePresentation = {
     roleTitle: string;
   };
   attentionCount: number;
+  goCount: number;
+  noGoCount: number;
   heroSummary: string;
   queue: DecisionWorkspaceRow[];
   history: DecisionWorkspaceRow[];
@@ -100,7 +102,7 @@ function buildQueueRow(record: DecisionWorkspaceRecord): DecisionWorkspaceRow {
     decisionAtLabel: "En attente",
     rationale: null,
     reserves: null,
-    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}?view=go-no-go`,
+    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}/go-no-go`,
     actionLabel: "Ouvrir la décision"
   };
 }
@@ -120,7 +122,7 @@ function buildHistoryRow(record: DecisionWorkspaceRecord): DecisionWorkspaceRow 
     decisionAtLabel: formatDateLabel(decision?.decidedAt ?? null),
     rationale: decision?.rationale ?? null,
     reserves: decision?.reserves ?? null,
-    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}?view=go-no-go`,
+    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}/go-no-go`,
     actionLabel: "Consulter"
   };
 }
@@ -170,6 +172,8 @@ export function buildDecisionWorkspacePresentation(input: {
       roleTitle: input.currentUser.jobTitle || "Direction generale"
     },
     attentionCount,
+    goCount: history.filter((row) => row.statusLabel === "Go").length,
+    noGoCount: history.filter((row) => row.statusLabel === "No-Go").length,
     heroSummary:
       attentionCount > 0
         ? `${attentionCount} decision${attentionCount > 1 ? "s" : ""} en attente d'arbitrage.`

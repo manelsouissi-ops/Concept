@@ -1,4 +1,4 @@
-import type { AppelOffresSummaryView, BadgeTone } from "./presentation.ts";
+import type { AppelOffresSummaryView } from "./presentation.ts";
 import type { FciSetOverallStatus } from "./fci/types.ts";
 
 export type DashboardRowActionKind = "validate" | "processing" | "generate" | "consult" | "retry" | "open";
@@ -80,19 +80,4 @@ export function buildDashboardRowAction(
   }
 
   return { kind: "open", label: "Ouvrir", href: `/appels-offres/${code}`, tone: "ghost" };
-}
-
-export function buildDashboardStatusDisplay(
-  summary: AppelOffresSummaryView,
-  fciStatus: FciSetOverallStatus | null
-): { label: string; tone: BadgeTone } {
-  if (isDossierBlocked(summary, fciStatus)) {
-    return { label: "A verifier", tone: "warning" };
-  }
-
-  if (isDossierProcessing(summary, fciStatus)) {
-    return { label: "En cours d'analyse", tone: "ai" };
-  }
-
-  return { label: summary.statusLabel, tone: summary.statusTone };
 }

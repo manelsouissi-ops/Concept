@@ -514,6 +514,44 @@ export async function assignFciModule(input: {
   return assignment;
 }
 
+/** Assigns the single active Finance and Operations contributors when FCI opens. */
+export async function autoAssignFciContributors(input: {
+  code: string;
+  currentUser: CurrentUser;
+}) {
+  const results: FciModuleAssignmentDetail[] = [];
+  for (const target of [
+    { moduleCode: "B" as const, role: "FINANCE" as const },
+    { moduleCode: "C" as const, role: "OPERATIONS" as const }
+  ]) {
+    const activeUsers = await listUsers({ role: target.role, status: "ACTIVE" });
+    if (activeUsers.length !== 1) {
+      await appendAuditLog(input.code, "fci.assignment.automatic_skipped", {
+        moduleCode: target.moduleCode,
+        role: target.role,
+        activeUserCount: activeUsers.length,
+        reason: "single_active_employee_required"
+      }, input.currentUser.name);
+      continue;
+    }
+
+    const existing = await getAssignmentsForTender(input.code);
+    const current = existing.find((assignment) => assignment.moduleCode === target.moduleCode);
+    if (current) {
+      results.push(current);
+      continue;
+    }
+
+    results.push(await assignFciModule({
+      code: input.code,
+      moduleCode: target.moduleCode,
+      assignedUserId: activeUsers[0].id,
+      currentUser: input.currentUser
+    }));
+  }
+  return results;
+}
+
 export async function reassignFciModule(input: {
   code: string;
   moduleCode: FciAssignableModuleCode;
@@ -773,10 +811,19 @@ export async function deriveTenderWorkflowState(code: string): Promise<TenderWor
     getFciDetailByAppelOffresCode(code)
   ]);
 
+  // Readiness must not survive a Fiche CDC that has since reverted to a
+  // draft (e.g. CDC replaced after FCI was already validated) - otherwise
+  // ready_for_gonogo stays true on stale data. businessStatus is already
+  // loaded on appelOffres, so this costs no extra I/O.
+  const ficheCurrentlyValidated =
+    appelOffres.businessStatus === "fiche_validee"
+    || appelOffres.businessStatus === "offre_autorisee"
+    || appelOffres.businessStatus === "offre_rejetee";
   const overallStatus = fciDetail
     ? calculateFciOverallStatus({
         modules: fciDetail.modules,
-        latestDataByModuleId: indexLatestModuleData(fciDetail.moduleData)
+        latestDataByModuleId: indexLatestModuleData(fciDetail.moduleData),
+        ficheCurrentlyValidated
       })
     : "not_started";
 

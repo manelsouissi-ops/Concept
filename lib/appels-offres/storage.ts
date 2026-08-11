@@ -84,6 +84,22 @@ export async function storeSourcePdf(code: string, pdfFile: File) {
   };
 }
 
+export async function storeGeneratedMarkdown(code: string, markdown: string) {
+  await ensureDataRoot();
+  await fs.mkdir(projectDir(code), { recursive: true });
+  await ensureAppelOffresBundleStatus(code);
+
+  const contents = Buffer.from(markdown, "utf8");
+  await writeFileAtomic(markdownPath(code), contents);
+
+  return {
+    fileName: "cdc.md",
+    storagePath: markdownPath(code),
+    mimeType: "text/markdown",
+    sizeBytes: contents.byteLength
+  };
+}
+
 export async function getAppelOffresPdfPath(code: string) {
   const targetPath = pdfPath(code);
   await fs.access(targetPath);

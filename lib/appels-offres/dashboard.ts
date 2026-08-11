@@ -6,9 +6,9 @@ import {
   listFciOverallStatusesByAppelOffresCodes
 } from "./fci/repository.ts";
 import type { FciModuleCode } from "./fci/types.ts";
+import { deriveTenderStage } from "./tender-stage.ts";
 import {
   buildDashboardRowAction,
-  buildDashboardStatusDisplay,
   isDossierBlocked,
   isDossierComplete,
   isDossierProcessing
@@ -16,7 +16,6 @@ import {
 
 export {
   buildDashboardRowAction,
-  buildDashboardStatusDisplay,
   type DashboardRowAction,
   type DashboardRowActionKind
 } from "./dashboard-status.ts";
@@ -49,6 +48,7 @@ export async function getDashboardData() {
       const summary = buildAppelOffresSummary(detail);
       const fciStatus = getFciStatus(detail.code);
       const titlePendingExtraction = isPlaceholderProjectTitle(detail.title, detail.code);
+      const stage = deriveTenderStage({ detail, fciOverallStatus: fciStatus });
 
       return {
         detail,
@@ -56,7 +56,7 @@ export async function getDashboardData() {
         fciStatus,
         displayTitle: titlePendingExtraction ? DASHBOARD_TITLE_PENDING_EXTRACTION : detail.title,
         clientLabel: buildWorkspaceIdentity(detail).clientLabel,
-        statusDisplay: buildDashboardStatusDisplay(summary, fciStatus),
+        statusDisplay: { label: stage.label, tone: stage.tone },
         nextAction: buildDashboardRowAction(detail.code, summary, fciStatus)
       };
     });

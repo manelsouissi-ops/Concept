@@ -239,6 +239,10 @@ export function canAccessPath(role: UserRole, pathname: string) {
     return canAccess(role, "appels_offres");
   }
 
+  if (["/fiches-cdc", "/mes-fci", "/go-no-go", "/history"].includes(normalized)) {
+    return role === "COMMERCIAL" && canAccess(role, "appels_offres");
+  }
+
   if (normalized === "/profile") {
     return canAccess(role, "profile");
   }

@@ -257,7 +257,8 @@ test("commercial workspace categorizes legacy, ready, awaiting-DG and decided do
     ]
   });
 
-  assert.equal(workspace.kpis.find((item) => item.key === "to-assign")?.value, 1);
+  assert.equal(workspace.kpis.find((item) => item.key === "fiche-review")?.value, 0);
+  assert.equal(workspace.kpis.find((item) => item.key === "fci-a")?.value, 0);
   assert.equal(workspace.kpis.find((item) => item.key === "ready")?.value, 1);
   assert.equal(workspace.kpis.find((item) => item.key === "awaiting-dg")?.value, 1);
   assert.equal(workspace.unownedQueue.some((item) => item.code === "AO-LEGACY"), true);
@@ -265,4 +266,73 @@ test("commercial workspace categorizes legacy, ready, awaiting-DG and decided do
   assert.equal(workspace.awaitingDg[0]?.code, "AO-DG");
   assert.equal(workspace.recentDecisions[0]?.code, "AO-HISTORY");
   assert.equal(workspace.tracking.some((row) => row.code === "AO-LEGACY"), false);
+});
+
+test("commercial attention queue exposes focused CDC, FCI A and Go/No-Go routes", () => {
+  const workspace = buildCommercialWorkspacePresentation({
+    currentUser: buildUser(),
+    records: [
+      {
+        detail: buildDetail({
+          id: 10,
+          code: "AO-CDC",
+          businessStatus: "fiche_a_valider",
+          ficheStatus: {
+            status: "draft",
+            createdAt: "2026-08-02T08:00:00.000Z",
+            processingStartedAt: null,
+            validatedAt: null,
+            modifiedAt: "2026-08-02T09:00:00.000Z",
+            errorReason: null,
+            errorStage: null,
+            n8nExecutionId: null
+          }
+        }),
+        fciDetail: null,
+        workflow: buildWorkflow({ appel_offres_id: 10, code: "AO-CDC", explicit_state: null }),
+        latestDecision: null
+      },
+      {
+        detail: buildDetail({ id: 11, code: "AO-FCI-A" }),
+        fciDetail: buildFciDetail({ A: "generated", B: "generated", C: "generated" }),
+        workflow: buildWorkflow({ appel_offres_id: 11, code: "AO-FCI-A" }),
+        latestDecision: null
+      },
+      {
+        detail: buildDetail({ id: 12, code: "AO-GNG" }),
+        fciDetail: buildFciDetail({ A: "validated", B: "validated", C: "validated" }),
+        workflow: buildWorkflow({
+          appel_offres_id: 12,
+          code: "AO-GNG",
+          ready_for_gonogo: true,
+          derived_state: "READY_FOR_GONOGO"
+        }),
+        latestDecision: null
+      }
+    ]
+  });
+
+  assert.deepEqual(workspace.actionsRequired.map((item) => item.taskType), [
+    "FICHE CDC",
+    "FCI A · COMMERCIAL",
+    "GO/NO-GO"
+  ]);
+  assert.equal(workspace.actionsRequired[0]?.actionHref, "/appels-offres/AO-CDC/fiche-cdc");
+  assert.equal(workspace.actionsRequired[1]?.actionHref, "/appels-offres/AO-FCI-A/fci?fciModule=A");
+  assert.equal(workspace.actionsRequired[2]?.actionHref, "/appels-offres/AO-GNG/go-no-go");
+
+  assert.equal(workspace.kpis.find((item) => item.key === "active")?.value, 3);
+  assert.deepEqual(workspace.nextActions.map((item) => item.key), ["fiche-review", "fci-a", "ready"]);
+  assert.equal(workspace.nextActions.length <= 3, true);
+  assert.match(workspace.nextActions[0]?.description ?? "", /1 fiche/);
+});
+
+test("landing page shows no next actions and a zero active count when the owned queue is empty", () => {
+  const workspace = buildCommercialWorkspacePresentation({
+    currentUser: buildUser(),
+    records: []
+  });
+
+  assert.equal(workspace.kpis.find((item) => item.key === "active")?.value, 0);
+  assert.deepEqual(workspace.nextActions, []);
 });

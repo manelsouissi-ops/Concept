@@ -85,11 +85,20 @@ function getSubmitProgressLabel(mode: Props["mode"], submitPhase: SubmitPhase, i
   return "Creation du dossier et envoi du CDC...";
 }
 
+const CREATE_STEPS = [
+  { key: 1, label: "Informations du dossier" },
+  { key: 2, label: "Ajouter le CDC" },
+  { key: 3, label: "Vérification" }
+] as const;
+
+type CreateStep = (typeof CREATE_STEPS)[number]["key"];
+
 export function AppelOffresForm({ mode, initialValue, current }: Props) {
   const router = useRouter();
   const [form, setForm] = useState(createInitialFormState(mode, initialValue));
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [createStep, setCreateStep] = useState<CreateStep>(1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
@@ -183,17 +192,14 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
 
     const payload = new FormData();
     payload.append("code", targetCode);
-
-    if (isEdit) {
-      payload.append("title", form.title.trim());
-      payload.append("reference", form.reference.trim());
-      payload.append("buyer", form.buyer.trim());
-      payload.append("country", form.country.trim());
-      payload.append("dueDate", form.dueDate.trim());
-      payload.append("notes", form.notes.trim());
-      payload.append("priorite", form.priorite);
-      payload.append("responsable_commercial", form.responsableCommercial.trim());
-    }
+    payload.append("title", form.title.trim());
+    payload.append("reference", form.reference.trim());
+    payload.append("buyer", form.buyer.trim());
+    payload.append("country", form.country.trim());
+    payload.append("dueDate", form.dueDate.trim());
+    payload.append("notes", form.notes.trim());
+    payload.append("priorite", form.priorite);
+    payload.append("responsable_commercial", form.responsableCommercial.trim());
 
     if (file) {
       payload.append("file", file);
@@ -229,7 +235,7 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
         setSubmitPhase("redirecting");
         router.push(
           body.redirect_url ??
-            `/appels-offres/${encodeURIComponent(targetCode)}?view=fci`
+            `/appels-offres/${encodeURIComponent(targetCode)}`
         );
         return;
       }
@@ -602,92 +608,276 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
     );
   }
 
+  function goToStep(target: CreateStep) {
+    setError(null);
+    setCreateStep(target);
+  }
+
+  function handleNextStep() {
+    if (createStep === 2 && !file) {
+      setError("Ajoutez le CDC PDF avant de poursuivre.");
+      return;
+    }
+    if (createStep === 2 && createValidation.fileError) {
+      setError(createValidation.fileError);
+      return;
+    }
+    goToStep((createStep + 1) as CreateStep);
+  }
+
   return (
     <form className="appel-offres-create-form" onSubmit={handleSubmit}>
       <input type="hidden" name="code" value={form.code} />
 
+      <nav className="appel-offres-create-steps" aria-label="Etapes de creation">
+        {CREATE_STEPS.map((stepDef, index) => (
+          <div
+            key={stepDef.key}
+            className={
+              stepDef.key === createStep
+                ? "appel-offres-create-step is-current"
+                : stepDef.key < createStep
+                  ? "appel-offres-create-step is-done"
+                  : "appel-offres-create-step"
+            }
+          >
+            <span className="appel-offres-create-step-index">
+              {stepDef.key < createStep ? "✓" : stepDef.key}
+            </span>
+            <span>{stepDef.label}</span>
+            {index < CREATE_STEPS.length - 1 ? <i aria-hidden="true">→</i> : null}
+          </div>
+        ))}
+      </nav>
+
       <section className="section-card appel-offres-create-card">
         <div className="section-body stack appel-offres-create-body">
-          <div
-            className={
-              dragActive
-                ? "upload-dropzone create-upload-dropzone active"
-                : "upload-dropzone create-upload-dropzone"
-            }
-            onDragEnter={(event) => {
-              event.preventDefault();
-              setDragActive(true);
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragActive(true);
-            }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-              applyFile(event.dataTransfer.files?.[0] ?? null);
-            }}
-          >
-            <input
-              ref={fileInputRef}
-              id="appel-file"
-              type="file"
-              accept="application/pdf,.pdf"
-              className="sr-only"
-              disabled={isWorking}
-              onChange={(event) => applyFile(event.target.files?.[0] ?? null)}
-            />
-            <div className="upload-dropzone-icon create-upload-dropzone-icon">
-              <UploadIcon className="upload-icon" />
-            </div>
-            <div className="upload-dropzone-copy create-upload-dropzone-copy">
-              <strong>Deposez votre CDC PDF ici</strong>
-              <p>
-                ou
-                {" "}
-                <button
-                  type="button"
-                  className="inline-button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isWorking}
-                >
-                  cliquez pour selectionner un fichier
-                </button>
+          {createStep === 1 ? (
+            <div className="stack">
+              <p className="meta">
+                Renseignez les informations du dossier. Elles pourront être complétées plus tard.
               </p>
-              <span>PDF uniquement.</span>
-            </div>
-          </div>
-
-          {selectedFile}
-
-          {error ? <div className="callout warning">{error}</div> : null}
-
-          <div className="appel-offres-create-note">
-            L'analyse sera lancee automatiquement apres la creation du dossier.
-          </div>
-
-          {submitProgressLabel ? (
-            <div className="appel-offres-create-progress" role="status" aria-live="polite">
-              {submitProgressLabel}
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="appel-title">Intitulé</label>
+                  <input
+                    id="appel-title"
+                    className="input"
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, title: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="appel-buyer">Client</label>
+                  <input
+                    id="appel-buyer"
+                    className="input"
+                    value={form.buyer}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, buyer: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="appel-country">Pays</label>
+                  <input
+                    id="appel-country"
+                    className="input"
+                    value={form.country}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, country: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="appel-due-date">Date limite</label>
+                  <input
+                    id="appel-due-date"
+                    type="date"
+                    className="input"
+                    value={form.dueDate}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, dueDate: event.target.value }))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="appel-priority">Priorité</label>
+                  <select
+                    id="appel-priority"
+                    className="select"
+                    value={form.priorite}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        priorite: event.target.value as AppelOffresInput["priorite"]
+                      }))
+                    }
+                  >
+                    <option value="basse">Basse</option>
+                    <option value="normale">Normale</option>
+                    <option value="haute">Haute</option>
+                    <option value="critique">Critique</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="appel-reference">Référence / description courte</label>
+                  <input
+                    id="appel-reference"
+                    className="input"
+                    value={form.reference}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, reference: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="sticky-action-bar appel-offres-create-actions">
+                <Link href="/appels-offres" className="button button-ghost">
+                  Annuler
+                </Link>
+                <button type="button" className="button button-primary" onClick={() => goToStep(2)}>
+                  Continuer
+                </button>
+              </div>
             </div>
           ) : null}
 
-          <div className="sticky-action-bar appel-offres-create-actions">
-            <Link href="/appels-offres" className="button button-ghost">
-              Annuler
-            </Link>
-            <button
-              className="button button-primary"
-              type="submit"
-              disabled={!createValidation.canSubmit || isWorking}
-            >
-              {getSubmitLabel(mode, submitPhase, isWorking)}
-            </button>
-          </div>
+          {createStep === 2 ? (
+            <div className="stack">
+              <p className="meta">
+                Ajoutez le cahier des charges reçu.
+                <br />
+                CONCEPT analysera automatiquement le document après création du dossier.
+              </p>
+              <div
+                className={
+                  dragActive
+                    ? "upload-dropzone create-upload-dropzone active"
+                    : "upload-dropzone create-upload-dropzone"
+                }
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                  applyFile(event.dataTransfer.files?.[0] ?? null);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  id="appel-file"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  disabled={isWorking}
+                  onChange={(event) => applyFile(event.target.files?.[0] ?? null)}
+                />
+                <div className="upload-dropzone-icon create-upload-dropzone-icon">
+                  <UploadIcon className="upload-icon" />
+                </div>
+                <div className="upload-dropzone-copy create-upload-dropzone-copy">
+                  <strong>Deposez votre CDC PDF ici</strong>
+                  <p>
+                    ou
+                    {" "}
+                    <button
+                      type="button"
+                      className="inline-button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isWorking}
+                    >
+                      cliquez pour selectionner un fichier
+                    </button>
+                  </p>
+                  <span>Format accepté : PDF uniquement.</span>
+                </div>
+              </div>
+
+              {selectedFile}
+
+              {error ? <div className="callout warning">{error}</div> : null}
+
+              <div className="sticky-action-bar appel-offres-create-actions">
+                <button type="button" className="button button-ghost" onClick={() => goToStep(1)}>
+                  Retour
+                </button>
+                <button type="button" className="button button-primary" onClick={handleNextStep}>
+                  Continuer
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {createStep === 3 ? (
+            <div className="stack">
+              <p className="meta">Vérifiez les informations avant de créer le dossier.</p>
+              <div className="workspace-info-list">
+                <div className="workspace-info-row">
+                  <span>Intitulé</span>
+                  <strong>{form.title || "Non renseigné"}</strong>
+                </div>
+                <div className="workspace-info-row">
+                  <span>Client</span>
+                  <strong>{form.buyer || "Non renseigné"}</strong>
+                </div>
+                <div className="workspace-info-row">
+                  <span>Pays</span>
+                  <strong>{form.country || "Non renseigné"}</strong>
+                </div>
+                <div className="workspace-info-row">
+                  <span>Date limite</span>
+                  <strong>{form.dueDate || "Non renseignée"}</strong>
+                </div>
+                <div className="workspace-info-row">
+                  <span>PDF sélectionné</span>
+                  <strong>{file?.name ?? "Aucun"}</strong>
+                </div>
+              </div>
+
+              {error ? <div className="callout warning">{error}</div> : null}
+
+              <div className="appel-offres-create-note">
+                CONCEPT analysera automatiquement le document après création du dossier.
+              </div>
+
+              {submitProgressLabel ? (
+                <div className="appel-offres-create-progress" role="status" aria-live="polite">
+                  {submitProgressLabel}
+                </div>
+              ) : null}
+
+              <div className="sticky-action-bar appel-offres-create-actions">
+                <button
+                  type="button"
+                  className="button button-ghost"
+                  onClick={() => goToStep(2)}
+                  disabled={isWorking}
+                >
+                  Retour
+                </button>
+                <button
+                  className="button button-primary"
+                  type="submit"
+                  disabled={!createValidation.canSubmit || isWorking}
+                >
+                  {isWorking ? getSubmitLabel(mode, submitPhase, isWorking) : "Créer l'appel d'offres et lancer l'analyse"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     </form>

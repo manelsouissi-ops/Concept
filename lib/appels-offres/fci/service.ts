@@ -552,10 +552,16 @@ async function recalculateAndPersistOverallStatus(code: string) {
     return null;
   }
 
+  const appelOffres = await requireAppelOffres(code);
+  const ficheCurrentlyValidated =
+    appelOffres.businessStatus === "fiche_validee"
+    || appelOffres.businessStatus === "offre_autorisee"
+    || appelOffres.businessStatus === "offre_rejetee";
   const latestDataByModuleId = indexLatestModuleData(detail.moduleData);
   const overallStatus = calculateFciOverallStatus({
     modules: detail.modules,
-    latestDataByModuleId
+    latestDataByModuleId,
+    ficheCurrentlyValidated
   });
 
   if (overallStatus !== detail.set.overallStatus) {

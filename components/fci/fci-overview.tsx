@@ -29,44 +29,19 @@ export function FciOverview({
     workspace.module_summaries.map((summary) => [summary.module_code, summary] as const)
   );
 
-  const modulesRequiringReview = workspace.module_summaries.filter(
-    (summary) => summary.status === "needs_review"
-  ).length;
-
   return (
     <div className="workspace-stack">
-      <div className="workspace-overview-grid fci-overview-grid">
-        <section className="workspace-card compact">
-          <div className="workspace-card-topline">
-            <div>
-              <span className="card-kicker">Statut global</span>
-              <h3>{workspace.fci_set.overall_status === "validated" ? "Validation terminée" : "Workspace actif"}</h3>
-            </div>
-            <strong>{workspace.progress.enabled_modules} modules</strong>
-          </div>
-          <p className="workspace-card-description">
-            Dernière activité : {formatFciDateTime(workspace.fci_set.updated_at)}
-          </p>
-        </section>
+      <header className="fci-overview-header">
+        <h2>FCI du dossier</h2>
+        <p className="meta">Dernière activité : {formatFciDateTime(workspace.fci_set.updated_at)}</p>
+      </header>
 
+      <div className="workspace-overview-grid fci-overview-grid">
         <FciProgress
           validatedModules={workspace.progress.validated_modules}
           totalModules={workspace.progress.enabled_modules}
           percentage={workspace.progress.percentage}
         />
-
-        <section className="workspace-card compact">
-          <div className="workspace-card-topline">
-            <div>
-              <span className="card-kicker">À vérifier</span>
-              <h3>{modulesRequiringReview}</h3>
-            </div>
-            <strong>{workspace.progress.modules_with_data} modules alimentés</strong>
-          </div>
-          <p className="workspace-card-description">
-            Les modules à vérifier peuvent être complétés et validés manuellement.
-          </p>
-        </section>
 
         <FciSourceStatus source={workspace.source_fiche} />
       </div>

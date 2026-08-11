@@ -6,6 +6,9 @@ import {
 } from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
 import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
+import { hasPermission } from "@/lib/auth/rbac.ts";
+import { autoAssignFciContributors } from "@/lib/appels-offres/workflow/service.ts";
+import { notifyAssignedUser } from "@/lib/notifications/orchestration.ts";
 import { autoInitializeAndLaunchFciModulesForValidatedFiche } from "@/lib/appels-offres/fci/service.ts";
 import {
   markFicheValidated,
@@ -26,9 +29,12 @@ export async function POST(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
-    if (deniedResponse) {
+    const { currentUser, deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse || !currentUser) {
       return deniedResponse;
+    }
+    if (!hasPermission(currentUser.role, "fiche_cdc.validate")) {
+      return NextResponse.json({ error: "Seul le Commercial peut valider la Fiche CDC." }, { status: 403 });
     }
 
     const { code } = await params;
@@ -87,16 +93,32 @@ export async function POST(
       indexed.fiche.extraction.find((field) => field.key === "pays")?.value ?? null;
     const extractedDeadline =
       indexed.fiche.extraction.find((field) => field.key === "date_limite_depot")?.value ?? null;
+    const extractedReference =
+      indexed.fiche.extraction.find((field) => field.key === "reference_officielle")?.value ?? null;
     await applyValidatedExtractionIdentity(code, {
       title: extractedTitle,
       buyer: extractedBuyer,
       country: extractedCountry,
-      deadline: extractedDeadline
+      deadline: extractedDeadline,
+      reference: extractedReference
     }).catch(() => undefined);
     await appendAuditLog(code, "fiche_cdc.validated", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);
     await autoInitializeAndLaunchFciModulesForValidatedFiche(code).catch(() => undefined);
+    const commercialUserId = Number(currentUser.id);
+    if (Number.isInteger(commercialUserId) && commercialUserId > 0) {
+      await notifyAssignedUser({
+        appelOffreCode: code,
+        moduleCode: "A",
+        eventType: "FCI_ASSIGNED",
+        recipientUserId: commercialUserId,
+        recipientRole: "COMMERCIAL",
+        currentUser,
+        metadata: { assignedUserName: currentUser.name, automatic: true }
+      });
+    }
+    await autoAssignFciContributors({ code, currentUser });
     const fiche = await readFicheBundle(code);
     return NextResponse.json(fiche);
   } catch (error) {

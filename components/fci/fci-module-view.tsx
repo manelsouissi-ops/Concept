@@ -209,7 +209,15 @@ export function FciModuleView({
       return;
     }
 
-    fieldContainer.scrollIntoView({ behavior: "smooth", block: "center" });
+    const fieldRect = fieldContainer.getBoundingClientRect();
+    const centeredTop =
+      window.scrollY
+      + fieldRect.top
+      - Math.max(24, (window.innerHeight - fieldRect.height) / 2);
+    window.scrollTo({
+      top: Math.max(0, centeredTop),
+      behavior: "smooth"
+    });
     const focusTarget = fieldContainer.querySelector<HTMLElement>(
       "input, textarea, select, [tabindex='-1']"
     );

@@ -10,6 +10,7 @@ import type { CurrentUser } from "../auth/rbac.ts";
 import type { FciModuleAssignmentDetail } from "./workflow/types.ts";
 import type { TenderWorkflowStateView } from "./workflow/service.ts";
 import { deriveTenderWorkflowState } from "./workflow/service.ts";
+import { buildHistoryWorkspace, type HistoryWorkspaceRow } from "./commercial-secondary-workspaces.ts";
 
 export type CommercialWorkspaceKpi = {
   key: string;
@@ -24,6 +25,8 @@ export type CommercialActionItem = {
   code: string;
   title: string;
   client: string;
+  deadlineLabel: string;
+  taskType: "FICHE CDC" | "FCI A · COMMERCIAL" | "GO/NO-GO" | "SUIVI";
   summary: string;
   statusLabel: string;
   statusTone: BadgeTone;
@@ -31,10 +34,17 @@ export type CommercialActionItem = {
   actionHref: string;
 };
 
+export type CommercialUnownedItem = Omit<CommercialActionItem, "deadlineLabel" | "taskType">;
+
 export type CommercialTrackingRow = {
   code: string;
   title: string;
   client: string;
+  deadlineLabel: string;
+  cdcComplete: boolean;
+  fciValidatedCount: number;
+  goNoGoComplete: boolean;
+  dgComplete: boolean;
   commercialLabel: string;
   financeLabel: string;
   operationsLabel: string;
@@ -56,6 +66,19 @@ export type CommercialDecisionRow = {
   actionLabel: string;
 };
 
+// A single derived, presentation-ready "next action" for the simplified
+// landing page - built from summary counts rather than individual tenders,
+// so the page never grows back into a work-management table. The shape is
+// role-agnostic on purpose: Finance/Operations/DG can populate the same
+// field later with their own counts.
+export type CommercialNextAction = {
+  key: string;
+  title: string;
+  description: string;
+  linkLabel: string;
+  href: string;
+};
+
 export type CommercialWorkspacePresentation = {
   currentUser: {
     firstName: string;
@@ -65,11 +88,13 @@ export type CommercialWorkspacePresentation = {
   heroTitle: string;
   heroSummary: string;
   kpis: CommercialWorkspaceKpi[];
-  unownedQueue: CommercialActionItem[];
+  nextActions: CommercialNextAction[];
+  unownedQueue: CommercialUnownedItem[];
   actionsRequired: CommercialActionItem[];
   tracking: CommercialTrackingRow[];
   awaitingDg: CommercialDecisionRow[];
   recentDecisions: CommercialDecisionRow[];
+  recentActivity: HistoryWorkspaceRow[];
 };
 
 type CommercialWorkspaceRecord = {
@@ -254,46 +279,64 @@ function getOverallState(record: CommercialWorkspaceRecord) {
 function buildActionItem(record: CommercialWorkspaceRecord): CommercialActionItem | null {
   const identity = buildWorkspaceIdentity(record.detail);
   const href = `/appels-offres/${encodeURIComponent(record.detail.code)}`;
+  const summary = buildAppelOffresSummary(record.detail);
+  const common = {
+    code: record.detail.code,
+    title: identity.displayTitle,
+    client: identity.clientLabel,
+    deadlineLabel: formatDateLabel(record.detail.dueDate)
+  };
 
-  if (hasLegacyAssignmentGap(record)) {
+  if (record.detail.ficheStatus?.status === "draft" || summary.statusKey === "fiche_a_valider") {
     return {
-      key: `${record.detail.code}-assign`,
-      code: record.detail.code,
-      title: identity.displayTitle,
-      client: identity.clientLabel,
-      summary: "Affectez les contributions Finance et Operations avant leur traitement.",
-      statusLabel: "A affecter",
+      ...common,
+      key: `${record.detail.code}-fiche-review`,
+      taskType: "FICHE CDC",
+      summary: "La fiche générée attend votre relecture et votre validation.",
+      statusLabel: "À vérifier",
       statusTone: "warning",
-      actionLabel: "Affecter",
-      actionHref: href
+      actionLabel: "Vérifier la fiche",
+      actionHref: `${href}/fiche-cdc`
+    };
+  }
+
+  const moduleA = getModule(record.fciDetail, "A");
+  if (moduleA && !["validated", "generating"].includes(moduleA.status)) {
+    return {
+      ...common,
+      key: `${record.detail.code}-fci-a`,
+      taskType: "FCI A · COMMERCIAL",
+      summary: "Votre contribution commerciale doit être complétée puis validée.",
+      statusLabel: moduleA.status === "failed" ? "À reprendre" : "À compléter",
+      statusTone: moduleA.status === "failed" ? "danger" : "warning",
+      actionLabel: "Compléter ma FCI",
+      actionHref: `${href}/fci?fciModule=A`
     };
   }
 
   if (isBlocked(record)) {
     return {
       key: `${record.detail.code}-blocked`,
-      code: record.detail.code,
-      title: identity.displayTitle,
-      client: identity.clientLabel,
+      ...common,
+      taskType: "SUIVI",
       summary: "Une contribution FCI demande une reprise ou une verification.",
       statusLabel: "Bloque",
       statusTone: "danger",
       actionLabel: "Suivre",
-      actionHref: href
+      actionHref: `${href}/fci`
     };
   }
 
   if (isReadyForPreparation(record)) {
     return {
       key: `${record.detail.code}-ready`,
-      code: record.detail.code,
-      title: identity.displayTitle,
-      client: identity.clientLabel,
-      summary: "Le dossier peut etre prepare puis soumis a la Direction generale.",
-      statusLabel: "Pret pour Go/No-Go",
+      ...common,
+      taskType: "GO/NO-GO",
+      summary: "Les FCI A, B et C sont validées. Le dossier peut être préparé.",
+      statusLabel: "Prêt à préparer",
       statusTone: "success",
-      actionLabel: "Preparer",
-      actionHref: `${href}?view=overview`
+      actionLabel: "Préparer le dossier",
+      actionHref: `${href}/go-no-go`
     };
   }
 
@@ -304,18 +347,28 @@ function buildTrackingRow(record: CommercialWorkspaceRecord): CommercialTracking
   const identity = buildWorkspaceIdentity(record.detail);
   const overallState = getOverallState(record);
   const moduleA = getModule(record.fciDetail, "A");
+  const validatedCount = (["A", "B", "C"] as const).filter(
+    (moduleCode) => getModule(record.fciDetail, moduleCode)?.status === "validated"
+  ).length;
+  const goNoGoComplete = ["GONOGO_PREPARED", "SUBMITTED_TO_DG", "UNDER_DG_REVIEW", "GO_DECIDED", "NO_GO_DECIDED"].includes(record.workflow.explicit_state ?? "");
+  const dgComplete = record.workflow.explicit_state === "GO_DECIDED" || record.workflow.explicit_state === "NO_GO_DECIDED";
 
   return {
     code: record.detail.code,
     title: identity.displayTitle,
     client: identity.clientLabel,
+    deadlineLabel: formatDateLabel(record.detail.dueDate),
+    cdcComplete: record.detail.ficheStatus?.status === "validated" || buildAppelOffresSummary(record.detail).statusKey === "fiche_validee",
+    fciValidatedCount: validatedCount,
+    goNoGoComplete,
+    dgComplete,
     commercialLabel: getModuleStatusLabel(moduleA),
     financeLabel: getAssignmentLaneLabel(record.workflow, record.fciDetail, "B"),
     operationsLabel: getAssignmentLaneLabel(record.workflow, record.fciDetail, "C"),
     overallStateLabel: overallState.label,
     overallStateTone: overallState.tone,
     latestActivity: formatDateLabel(record.detail.updatedAt),
-    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}`,
+    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}/overview`,
     actionLabel: "Ouvrir"
   };
 }
@@ -385,13 +438,18 @@ export function buildCommercialWorkspacePresentation(input: {
   const actionsRequired = ownedRecords
     .map(buildActionItem)
     .filter((item): item is CommercialActionItem => item != null)
-    .sort((left, right) => left.code.localeCompare(right.code));
+    .sort((left, right) => {
+      const leftRecord = ownedRecords.find((record) => record.detail.code === left.code);
+      const rightRecord = ownedRecords.find((record) => record.detail.code === right.code);
+      const leftOverdue = leftRecord ? buildAppelOffresSummary(leftRecord.detail).isOverdue : false;
+      const rightOverdue = rightRecord ? buildAppelOffresSummary(rightRecord.detail).isOverdue : false;
+      if (leftOverdue !== rightOverdue) return leftOverdue ? -1 : 1;
+      const rank = { "FICHE CDC": 1, "FCI A · COMMERCIAL": 2, "GO/NO-GO": 3, "SUIVI": 4 };
+      return rank[left.taskType] - rank[right.taskType] || left.code.localeCompare(right.code);
+    });
 
   const tracking = ownedRecords
-    .filter((record) => {
-      const summary = buildAppelOffresSummary(record.detail);
-      return summary.statusKey === "fiche_validee" || record.fciDetail != null;
-    })
+    .filter((record) => !isRecentDecision(record))
     .sort((left, right) => right.detail.updatedAt.localeCompare(left.detail.updatedAt))
     .map(buildTrackingRow);
 
@@ -407,8 +465,19 @@ export function buildCommercialWorkspacePresentation(input: {
     )
     .map(buildRecentDecisionRow)
     .slice(0, 8);
+  const recentActivity = buildHistoryWorkspace(
+    ownedRecords.map((record) => ({
+      detail: record.detail,
+      fci: record.fciDetail,
+      workflow: record.workflow,
+      decision: record.latestDecision
+    }))
+  )
+    .filter((event) => event.category !== "general")
+    .slice(0, 5);
 
-  const dossiersAAffecter = unownedQueue.length;
+  const fichesToReview = actionsRequired.filter((item) => item.taskType === "FICHE CDC").length;
+  const fciAToComplete = actionsRequired.filter((item) => item.taskType === "FCI A · COMMERCIAL").length;
   const dossiersReady = ownedRecords.filter(isReadyForPreparation).length;
   const dossiersAwaitingDg = ownedRecords.filter(isAwaitingDg).length;
   const dossiersInProgress = ownedRecords.filter((record) => {
@@ -418,7 +487,36 @@ export function buildCommercialWorkspacePresentation(input: {
 
     return !isRecentDecision(record);
   }).length;
-  const ownedActiveCount = ownedRecords.filter((record) => !isRecentDecision(record)).length;
+
+  const nextActions: CommercialNextAction[] = [
+    fichesToReview > 0
+      ? {
+          key: "fiche-review",
+          title: "Vérifier une Fiche CDC",
+          description: `${fichesToReview} fiche${fichesToReview > 1 ? "s" : ""} nécessite${fichesToReview > 1 ? "nt" : ""} votre validation`,
+          linkLabel: "Voir mes Fiches CDC",
+          href: "/fiches-cdc"
+        }
+      : null,
+    fciAToComplete > 0
+      ? {
+          key: "fci-a",
+          title: "Compléter ma FCI A",
+          description: `${fciAToComplete} analyse${fciAToComplete > 1 ? "s" : ""} commerciale${fciAToComplete > 1 ? "s" : ""} à terminer`,
+          linkLabel: "Voir mes FCI",
+          href: "/mes-fci"
+        }
+      : null,
+    dossiersReady > 0
+      ? {
+          key: "ready",
+          title: "Préparer un Go/No-Go",
+          description: `${dossiersReady} dossier${dossiersReady > 1 ? "s" : ""} prêt${dossiersReady > 1 ? "s" : ""}`,
+          linkLabel: "Go/No-Go",
+          href: "/go-no-go"
+        }
+      : null
+  ].filter((item): item is CommercialNextAction => item != null).slice(0, 3);
 
   return {
     currentUser: {
@@ -431,39 +529,48 @@ export function buildCommercialWorkspacePresentation(input: {
       "Suivez uniquement les dossiers dont vous etes responsable commercial.",
     kpis: [
       {
-        key: "my-active",
-        label: "Mes dossiers actifs",
-        value: ownedActiveCount,
-        description: "Dossiers dont vous etes le responsable commercial courant.",
-        tone: ownedActiveCount > 0 ? "default" : "success"
+        key: "active",
+        label: "Appels d'offres actifs",
+        value: ownedRecords.length,
+        description: "Dossiers dont vous etes responsable commercial.",
+        tone: "default"
       },
       {
-        key: "to-assign",
-        label: "A affecter",
-        value: dossiersAAffecter,
-        description: "Dossiers sans responsable commercial actif.",
-        tone: dossiersAAffecter > 0 ? "warning" : "success"
+        key: "fiche-review",
+        label: "Fiches CDC à vérifier",
+        value: fichesToReview,
+        description: "Fiches en brouillon qui attendent votre validation.",
+        tone: fichesToReview > 0 ? "warning" : "success"
+      },
+      {
+        key: "fci-a",
+        label: "FCI A à compléter",
+        value: fciAToComplete,
+        description: "Contributions commerciales à compléter ou reprendre.",
+        tone: fciAToComplete > 0 ? "warning" : "success"
       },
       {
         key: "ready",
-        label: "Prets pour Go/No-Go",
+        label: "Prêts pour Go/No-Go",
         value: dossiersReady,
         description: "Dossiers dont A, B et C sont valides et attendent la preparation.",
         tone: dossiersReady > 0 ? "success" : "default"
       },
       {
         key: "awaiting-dg",
-        label: "En attente de decision DG",
+        label: "En attente DG",
         value: dossiersAwaitingDg,
         description: "Dossiers soumis a la Direction generale.",
         tone: dossiersAwaitingDg > 0 ? "warning" : "default"
       }
     ],
+    nextActions,
     unownedQueue,
     actionsRequired,
     tracking,
     awaitingDg,
-    recentDecisions
+    recentDecisions,
+    recentActivity
   };
 }
 

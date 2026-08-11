@@ -1,0 +1,1015 @@
+[
+  {
+    "id": "cdcExtractionV1",
+    "name": "CONCEPT - CDC Extraction",
+    "description": "W2 split CDC pipeline: verified persisted Markdown to Gemini/XML and existing signed final callback. Inactive until cutover.",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.GEMINI_API_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ (function() {\n  const documentText = $json.markdown || $json.text || '';\n  if (!documentText.trim()) {\n    throw new Error('Document markdown vide avant appel Gemini XML — vérifier les étapes Marker en amont.');\n  }\n  const prompt = \"Tu es un assistant qui lit un cahier des charges et produit une fiche projet standard au format XML.\\n\\nLe document est à la fin. Exécute trois étapes dans l'ordre, puis rends un seul document XML.\\n\\nÉTAPE 1. Extraction\\nPour chaque champ, donne la valeur exacte du dossier et sa source (page ou section).\\nN'invente rien. Si l'information manque, mets \\\"Non trouvé\\\".\\nReprends les termes du dossier. Ne reformule pas les chiffres ni les dates.\\n\\nÉTAPE 2. Évaluation\\nAttribue trois notes de 1 à 5. Justifie chaque note avec des éléments du dossier.\\n\\nComplexité technique.\\n1. Une seule discipline. 2. Peu de disciplines. 3. Plusieurs disciplines coordonnées. 4. Multi-disciplines avec modélisation. 5. Multi-sites, multi-composantes.\\n\\nDifficulté terrain.\\n1. Site unique, accès facile. 2. Site urbain simple. 3. Bassin urbain avec contraintes. 4. Plusieurs sites sensibles. 5. Sites multiples, logistique lourde.\\n\\nRisque de sous-dimensionnement.\\nEstime d'abord la charge réelle des livrables et des phases. Compare-la au volume demandé. Puis note.\\n1. Moyens largement suffisants. 2. Volume cohérent. 3. Volume tendu. 4. Charge élevée à surveiller. 5. Sous-dimensionnement probable.\\n\\nÉTAPE 3. Contrôle\\nVérifie ta propre fiche.\\nListe les champs \\\"Non trouvé\\\" et où chercher.\\nSignale les valeurs incohérentes entre elles.\\nSignale les dates et chiffres à revérifier.\\n\\nSORTIE\\nRends uniquement le document XML ci-dessous, rempli. Aucun texte avant ni après. Laisse reference_interne vide, je la remplis à la main. Garde exactement cette structure et ces noms de balises.\\nUtilise des valeurs concises, des justifications breves, et n'ajoute aucun texte hors XML. Verifie que toutes les balises obligatoires sont presentes et que le document se termine bien par </fiche_projet>.\\n\\n<?xml version=\\\"1.0\\\" encoding=\\\"UTF-8\\\"?>\\n<fiche_projet>\\n<reference_interne></reference_interne>\\n<extraction>\\n<reference_officielle source=\\\"\\\"></reference_officielle>\\n<intitule_mission source=\\\"\\\"></intitule_mission>\\n<client_maitre_ouvrage source=\\\"\\\"></client_maitre_ouvrage>\\n<pays source=\\\"\\\"></pays>\\n<zone_execution source=\\\"\\\"></zone_execution>\\n<projet_rattachement source=\\\"\\\"></projet_rattachement>\\n<source_financement source=\\\"\\\"></source_financement>\\n<credit_financement source=\\\"\\\"></credit_financement>\\n<secteur source=\\\"\\\"></secteur>\\n<nature_prestation source=\\\"\\\"></nature_prestation>\\n<type_procedure source=\\\"\\\"></type_procedure>\\n<methode_selection source=\\\"\\\"></methode_selection>\\n<type_proposition source=\\\"\\\"></type_proposition>\\n<type_contrat source=\\\"\\\"></type_contrat>\\n<date_emission source=\\\"\\\"></date_emission>\\n<date_limite_depot source=\\\"\\\"></date_limite_depot>\\n<langue_offre source=\\\"\\\"></langue_offre>\\n<ponderation_technique_financiere source=\\\"\\\"></ponderation_technique_financiere>\\n<note_technique_minimale source=\\\"\\\"></note_technique_minimale>\\n<duree_totale source=\\\"\\\"></duree_totale>\\n<volume_hommes_mois source=\\\"\\\"></volume_hommes_mois>\\n<nombre_profils_experts source=\\\"\\\"></nombre_profils_experts>\\n<phases_mission source=\\\"\\\"></phases_mission>\\n<livrables_principaux source=\\\"\\\"></livrables_principaux>\\n<nombre_livrables_structurants source=\\\"\\\"></nombre_livrables_structurants>\\n<profils_cles source=\\\"\\\"></profils_cles>\\n<disciplines_techniques source=\\\"\\\"></disciplines_techniques>\\n<nombre_sites source=\\\"\\\"></nombre_sites>\\n<contraintes_site source=\\\"\\\"></contraintes_site>\\n<outils_methodes source=\\\"\\\"></outils_methodes>\\n<moyens_materiels source=\\\"\\\"></moyens_materiels>\\n<exigences_es source=\\\"\\\"></exigences_es>\\n<normes_referentiels source=\\\"\\\"></normes_referentiels>\\n<points_techniques_structurants source=\\\"\\\"></points_techniques_structurants>\\n</extraction>\\n<evaluation>\\n<complexite_technique note=\\\"\\\">\\n<justification></justification>\\n</complexite_technique>\\n<difficulte_terrain note=\\\"\\\">\\n<justification></justification>\\n</difficulte_terrain>\\n<risque_sous_dimensionnement note=\\\"\\\">\\n<charge_estimee></charge_estimee>\\n<justification></justification>\\n</risque_sous_dimensionnement>\\n</evaluation>\\n<controle>\\n<champs_non_trouves></champs_non_trouves>\\n<incoherences></incoherences>\\n<a_verifier></a_verifier>\\n</controle>\\n</fiche_projet>\\n\\nDocument:\\n\" + documentText;\n  return JSON.stringify({\n    model: 'gemini-3.6-flash',\n    messages: [{ role: 'user', content: prompt }],\n    max_tokens: 12000\n  });\n})() }}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "id": "3ed04dcb-f407-468e-ab88-2b895d0203ce",
+        "name": "HTTP Request → Gemini XML",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1840,
+          752
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nlet xml = response?.choices?.[0]?.message?.content ?? '';\nxml = String(xml).trim();\nxml = xml.replace(/^```xml\\s*/i, '');\nxml = xml.replace(/^```\\s*/i, '');\nxml = xml.replace(/\\s*```$/i, '');\nxml = xml.trim();\n\nconst markdownSource = $('Read Markdown as Text').first().json;\nconst markdown = markdownSource.markdown || markdownSource.text || '';\n\nreturn [{\n  json: {\n    xml,\n    markdown,\n  },\n}];"
+        },
+        "id": "716cb30e-1bee-443a-9e28-4b482dbea2f8",
+        "name": "Clean XML Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2064,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst xml = String(item.json.xml || '').trim();\nconst markdown = String(item.json.markdown || '').trim();\nconst extractionFields = [\"reference_officielle\", \"intitule_mission\", \"client_maitre_ouvrage\", \"pays\", \"zone_execution\", \"projet_rattachement\", \"source_financement\", \"credit_financement\", \"secteur\", \"nature_prestation\", \"type_procedure\", \"methode_selection\", \"type_proposition\", \"type_contrat\", \"date_emission\", \"date_limite_depot\", \"langue_offre\", \"ponderation_technique_financiere\", \"note_technique_minimale\", \"duree_totale\", \"volume_hommes_mois\", \"nombre_profils_experts\", \"phases_mission\", \"livrables_principaux\", \"nombre_livrables_structurants\", \"profils_cles\", \"disciplines_techniques\", \"nombre_sites\", \"contraintes_site\", \"outils_methodes\", \"moyens_materiels\", \"exigences_es\", \"normes_referentiels\", \"points_techniques_structurants\"];\nconst evaluationFields = [\"complexite_technique\", \"difficulte_terrain\", \"risque_sous_dimensionnement\"];\nconst controlChildren = ['champs_non_trouves', 'incoherences', 'a_verifier'];\n\nlet successReady = true;\nlet errorStage = null;\nlet errorCode = null;\nlet errorMessage = null;\nlet missingElement = null;\n\nconst hasOpeningTag = (name) => new RegExp(`<${name}(?:\\\\s|>)`, 'i').test(xml);\nconst hasClosingTag = (name) => new RegExp(`</${name}>`, 'i').test(xml);\nconst hasAttributeOnOpeningTag = (name, attribute) =>\n  new RegExp(`<${name}\\\\b[^>]*\\\\b${attribute}=`, 'i').test(xml);\nconst sectionBody = (name) => {\n  const match = xml.match(new RegExp(`<${name}\\\\b[^>]*>([\\\\s\\\\S]*?)</${name}>`, 'i'));\n  return match ? match[1] : null;\n};\nconst fail = (code, message, element = null) => {\n  successReady = false;\n  errorStage = 'XML';\n  errorCode = code;\n  errorMessage = message;\n  missingElement = element;\n};\n\nif (!markdown) {\n  fail('MARKDOWN_EMPTY', 'Le markdown retourne par Marker est vide.');\n} else if (!xml) {\n  fail('XML_EMPTY', 'Le XML retourne par Gemini est vide.');\n} else if (!hasOpeningTag('fiche_projet')) {\n  fail('XML_INVALID_ROOT', 'Le XML retourne par Gemini ne contient pas la racine fiche_projet attendue.', 'fiche_projet');\n} else if (!hasClosingTag('fiche_projet')) {\n  fail('XML_INCOMPLETE', 'Le XML retourne par Gemini est incomplet : balise fermante </fiche_projet> manquante.', 'fiche_projet');\n} else if (!hasOpeningTag('reference_interne') || !hasClosingTag('reference_interne')) {\n  fail('XML_SCHEMA_INVALID', 'Le XML retourne par Gemini ne contient pas l\\'element obligatoire <reference_interne>.', 'reference_interne');\n} else if (!hasOpeningTag('extraction') || !hasClosingTag('extraction')) {\n  fail('XML_SCHEMA_INVALID', 'Le XML retourne par Gemini ne contient pas la section obligatoire <extraction>.', 'extraction');\n} else if (!hasOpeningTag('evaluation') || !hasClosingTag('evaluation')) {\n  fail('XML_SCHEMA_INVALID', 'Le XML retourne par Gemini ne contient pas la section obligatoire <evaluation>.', 'evaluation');\n} else if (!hasOpeningTag('controle') || !hasClosingTag('controle')) {\n  fail('XML_SCHEMA_INVALID', 'Le XML retourne par Gemini ne contient pas la section obligatoire <controle>.', 'controle');\n}\n\nif (successReady) {\n  for (const field of extractionFields) {\n    if (!hasOpeningTag(field)) {\n      fail('XML_SCHEMA_INVALID', `Le XML retourne par Gemini ne contient pas l'element obligatoire <${field}>.`, field);\n      break;\n    }\n    if (!hasClosingTag(field)) {\n      fail('XML_INCOMPLETE', `Le XML retourne par Gemini est incomplet : balise fermante </${field}> manquante.`, field);\n      break;\n    }\n    if (!hasAttributeOnOpeningTag(field, 'source')) {\n      fail('XML_SCHEMA_INVALID', `Le XML retourne par Gemini ne contient pas l'attribut source obligatoire sur <${field}>.`, field);\n      break;\n    }\n  }\n}\n\nif (successReady) {\n  for (const field of evaluationFields) {\n    if (!hasOpeningTag(field)) {\n      fail('XML_SCHEMA_INVALID', `Le XML retourne par Gemini ne contient pas l'element d'evaluation obligatoire <${field}>.`, field);\n      break;\n    }\n    if (!hasClosingTag(field)) {\n      fail('XML_INCOMPLETE', `Le XML retourne par Gemini est incomplet : balise fermante </${field}> manquante.`, field);\n      break;\n    }\n    if (!hasAttributeOnOpeningTag(field, 'note')) {\n      fail('XML_SCHEMA_INVALID', `Le XML retourne par Gemini ne contient pas l'attribut note obligatoire sur <${field}>.`, field);\n      break;\n    }\n\n    const evaluationBody = sectionBody(field);\n    if (!evaluationBody) {\n      fail('XML_INCOMPLETE', `Le XML retourne par Gemini est incomplet : contenu de <${field}> indisponible.`, field);\n      break;\n    }\n    if (!/<justification(?:\\s|>)/i.test(evaluationBody) || !/<\\/justification>/i.test(evaluationBody)) {\n      fail('XML_SCHEMA_INVALID', `Le XML retourne par Gemini ne contient pas l'element <justification> obligatoire dans <${field}>.`, field);\n      break;\n    }\n    if (field === 'risque_sous_dimensionnement' &&\n      (!/<charge_estimee(?:\\s|>)/i.test(evaluationBody) || !/<\\/charge_estimee>/i.test(evaluationBody))) {\n      fail('XML_SCHEMA_INVALID', 'Le XML retourne par Gemini ne contient pas l\\'element <charge_estimee> obligatoire dans <risque_sous_dimensionnement>.', 'charge_estimee');\n      break;\n    }\n  }\n}\n\nif (successReady) {\n  for (const field of controlChildren) {\n    if (!hasOpeningTag(field)) {\n      fail('XML_SCHEMA_INVALID', `Le XML retourne par Gemini ne contient pas l'element obligatoire <${field}> dans <controle>.`, field);\n      break;\n    }\n    if (!hasClosingTag(field)) {\n      fail('XML_INCOMPLETE', `Le XML retourne par Gemini est incomplet : balise fermante </${field}> manquante dans <controle>.`, field);\n      break;\n    }\n  }\n}\n\nreturn [{\n  json: {\n    ...item.json,\n    success_ready: successReady,\n    error_stage: errorStage,\n    error_code: errorCode,\n    error_message: errorMessage,\n    missing_required_element: missingElement,\n  },\n}];"
+        },
+        "id": "e5fe5c13-94f8-4ad2-b12d-209e4f1cb7f5",
+        "name": "Validate Success Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2288,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.success_ready }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "159acb69-5e90-48f8-b300-17f8cac8b42f",
+        "name": "Success Payload Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          2512,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context = $('Build CDC Extraction Context').first().json;\nconst getNodeJson = (nodeName) => {\n  try {\n    return $(nodeName).first()?.json ?? null;\n  } catch {\n    return null;\n  }\n};\nconst item = $input.first();\nconst pdfInfo = getNodeJson('Validate Source PDF Binary') ?? {};\nconst markerStats = getNodeJson('Build CDC Extraction Context') ?? {};\nconst finishedAt = new Date().toISOString();\nconst durationMs = Math.max(0, Date.parse(finishedAt) - Date.parse(context.started_at));\nconst payload = {\n  contract_version: context.contract_version,\n  processing_job_id: context.processing_job_id,\n  appel_offre_id: context.appel_offre_id,\n  code_interne: context.code_interne,\n  correlation_id: context.correlation_id,\n  execution_id: context.execution_id,\n  status: 'COMPLETED',\n  started_at: context.started_at,\n  finished_at: finishedAt,\n  duration_ms: durationMs,\n  metadata: {\n    llm_model: context.llm_model,\n    marker_poll_count: markerStats.marker_poll_count ?? null,\n    marker_elapsed_ms: markerStats.marker_elapsed_ms ?? null,\n    pdf_size_bytes: pdfInfo.pdf_size_bytes ?? context.pdf_size_bytes ?? null,\n  },\n  result: {\n    markdown: item.json.markdown,\n    xml: item.json.xml,\n  },\n};\n\nconst rawBody = JSON.stringify(payload);\n\nreturn [{\n  json: {\n    callback_sign_request: {\n      callback_url: context.callback_url,\n      contract_version: context.contract_version,\n      callback_timestamp: new Date().toISOString(),\n      callback_raw_body: rawBody,\n      terminal_status: 'COMPLETED',\n    },\n  },\n}];"
+        },
+        "id": "16a91440-aa1d-4eaa-aa31-f1731a160594",
+        "name": "Prepare Success Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2736,
+          576
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context = $('Build CDC Extraction Context').first().json;\nconst getNodeJson = (nodeName) => {\n  try {\n    return $(nodeName).first()?.json ?? null;\n  } catch {\n    return null;\n  }\n};\nconst item = $input.first();\nconst markerStats = getNodeJson('Build CDC Extraction Context') ?? {};\nconst finishedAt = new Date().toISOString();\nconst durationMs = Math.max(0, Date.parse(finishedAt) - Date.parse(context.started_at));\nconst payload = {\n  contract_version: context.contract_version,\n  processing_job_id: context.processing_job_id,\n  appel_offre_id: context.appel_offre_id,\n  code_interne: context.code_interne,\n  correlation_id: context.correlation_id,\n  execution_id: context.execution_id,\n  status: 'FAILED',\n  started_at: context.started_at,\n  finished_at: finishedAt,\n  duration_ms: durationMs,\n  metadata: {\n    llm_model: context.llm_model,\n    marker_poll_count: markerStats.marker_poll_count ?? null,\n    marker_elapsed_ms: markerStats.marker_elapsed_ms ?? null,\n  },\n  error: {\n    stage: 'LLM',\n    code: 'LLM_REQUEST_FAILED',\n    message: String($input.first().json.error?.message || $input.first().json.message || 'Gemini request failed.'),\n    retryable: true,\n    provider: 'gemini',\n  },\n};\n\nconst rawBody = JSON.stringify(payload);\n\nreturn [{\n  json: {\n    callback_sign_request: {\n      callback_url: context.callback_url,\n      contract_version: context.contract_version,\n      callback_timestamp: new Date().toISOString(),\n      callback_raw_body: rawBody,\n      terminal_status: 'FAILED',\n    },\n  },\n}];"
+        },
+        "id": "85d2b033-cf26-4ebf-92d1-1fc4a80cfa23",
+        "name": "Prepare Gemini Failure Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2736,
+          1296
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context = $('Build CDC Extraction Context').first().json;\nconst getNodeJson = (nodeName) => {\n  try {\n    return $(nodeName).first()?.json ?? null;\n  } catch {\n    return null;\n  }\n};\nconst item = $input.first();\nconst markerStats = getNodeJson('Build CDC Extraction Context') ?? {};\nconst finishedAt = new Date().toISOString();\nconst durationMs = Math.max(0, Date.parse(finishedAt) - Date.parse(context.started_at));\nconst payload = {\n  contract_version: context.contract_version,\n  processing_job_id: context.processing_job_id,\n  appel_offre_id: context.appel_offre_id,\n  code_interne: context.code_interne,\n  correlation_id: context.correlation_id,\n  execution_id: context.execution_id,\n  status: 'FAILED',\n  started_at: context.started_at,\n  finished_at: finishedAt,\n  duration_ms: durationMs,\n  metadata: {\n    llm_model: context.llm_model,\n    marker_poll_count: markerStats.marker_poll_count ?? null,\n    marker_elapsed_ms: markerStats.marker_elapsed_ms ?? null,\n  },\n  error: {\n    stage: String($input.first().json.error_stage || 'UNKNOWN'),\n    code: String($input.first().json.error_code || 'VALIDATION_FAILED'),\n    message: String($input.first().json.error_message || 'Validation de sortie echouee.'),\n    retryable: false,\n    provider: null,\n  },\n};\n\nconst rawBody = JSON.stringify(payload);\n\nreturn [{\n  json: {\n    callback_sign_request: {\n      callback_url: context.callback_url,\n      contract_version: context.contract_version,\n      callback_timestamp: new Date().toISOString(),\n      callback_raw_body: rawBody,\n      terminal_status: 'FAILED',\n    },\n  },\n}];"
+        },
+        "id": "7642c041-5fa6-4753-9059-82f972f08c6e",
+        "name": "Prepare Validation Failure Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2736,
+          1104
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Build CDC Extraction Context').first().json.callback_signer_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.callback_sign_request || $json) }}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "timeout": "={{ Number($('Build CDC Extraction Context').first().json.callback_timeout_ms || 30000) }}"
+          }
+        },
+        "id": "e30820bd-2af3-462a-87f6-7b61390d9178",
+        "name": "Sign Canonical Callback",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          2960,
+          1152
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst signed = item.json?.body && typeof item.json.body === 'object'\n  ? item.json.body\n  : item.json;\n\nreturn [{\n  json: {\n    callback_url: signed.callback_url,\n    contract_version: signed.contract_version,\n    callback_timestamp: signed.callback_timestamp,\n    callback_signature: signed.callback_signature,\n    callback_raw_body: signed.callback_raw_body,\n    terminal_status: signed.terminal_status,\n  },\n}];"
+        },
+        "id": "7836fbb3-f645-488f-a055-418eceda4721",
+        "name": "Unwrap Signed Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3184,
+          1152
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.callback_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.PLATFORM_CALLBACK_TOKEN}}"
+              },
+              {
+                "name": "X-Contract-Version",
+                "value": "={{ $json.contract_version }}"
+              },
+              {
+                "name": "X-Callback-Timestamp",
+                "value": "={{ $json.callback_timestamp }}"
+              },
+              {
+                "name": "X-Callback-Signature",
+                "value": "={{ 'sha256=' + $json.callback_signature }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.callback_raw_body }}",
+          "options": {
+            "timeout": "={{ Number($('Build CDC Extraction Context').first().json.callback_timeout_ms || 30000) }}"
+          }
+        },
+        "id": "acbcd0d9-ad0b-4cc4-b620-372b8d3cef8f",
+        "name": "Send Canonical Callback",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          3408,
+          1152
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "concept-cdc-extraction",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "95cc937a-b8ff-474b-a63e-e6b296f33c9f",
+        "name": "Webhook CDC Extraction",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          -1968,
+          1104
+        ],
+        "webhookId": "b38c99fc-d410-4ee1-8e9f-642ae37640bd"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item=$input.first(); const body=item.json.body??item.json??{}; const headers=item.json.headers??{}; const env=typeof $env==='object'&&$env?$env:{}; const h=(n)=>String(headers[n]||headers[n.toLowerCase()]||'').trim(); const fail=(m,c,s=400)=>[{json:{launch_valid:false,response_status:s,response_body:JSON.stringify({error:m,code:c})}}];\nif(!env.N8N_WEBHOOK_TOKEN) return fail('N8N_WEBHOOK_TOKEN absent.','WORKFLOW_CONFIGURATION_ERROR',500); if(h('authorization')!=='Bearer '+env.N8N_WEBHOOK_TOKEN) return fail('Jeton invalide.','UNAUTHORIZED',401);\nconst required=['contract_version','processing_job_id','appel_offre_id','code_interne','correlation_id','source_processing_job_id','markdown_document_id','markdown_path','markdown_content_hash','callback_url','requested_at']; for(const k of required) if(typeof body[k]!=='string'||!body[k].trim()) return fail('Champ invalide: '+k,'INVALID_LAUNCH_PAYLOAD');\nif(h('idempotency-key')!==body.correlation_id+':cdc-extraction') return fail('Idempotency-Key invalide.','INVALID_IDEMPOTENCY_KEY'); if(body.contract_version!==String(env.N8N_CONTRACT_VERSION||'1.0')) return fail('Version invalide.','INVALID_CONTRACT_VERSION');\nreturn [{json:{...body,markdown_byte_size:Number(body.markdown_byte_size),launch_valid:true}}];"
+        },
+        "id": "da56f577-c3a8-449c-b20f-4bb383c121a4",
+        "name": "Validate CDC Extraction Launch",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1760,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.launch_valid }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "aab61a7d-5ea8-401e-881c-91993d0d5f43",
+        "name": "Launch Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -1536,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item=$input.first().json; const env=typeof $env==='object'&&$env?$env:{}; const root=String(env.N8N_SHARED_STORAGE_ROOT||'').replace(/\\\\/g,'/').replace(/\\/+$/,''); const p=String(item.markdown_path).replace(/\\\\/g,'/'); const expected=root+'/'+item.code_interne+'/cdc.md'; const ready=p===expected&&/^sha256:[a-f0-9]{64}$/.test(item.markdown_content_hash)&&Number.isInteger(item.markdown_byte_size)&&item.markdown_byte_size>0&&String(item.callback_url).endsWith('/api/fiche/callbacks/n8n'); const now=new Date().toISOString(); return [{json:{...item,launch_ready:ready,response_status:ready?202:400,response_body:ready?'':JSON.stringify({error:'Artifact Markdown invalide.',code:'INVALID_MARKDOWN_ARTIFACT'}),execution_id:String($execution.id),started_at:now,callback_signer_url:String(env.N8N_CALLBACK_SIGNER_URL||''),callback_timeout_ms:Number(env.N8N_CALLBACK_TIMEOUT_MS||30000),llm_model:'gemini-3.6-flash',launch_response_body:JSON.stringify({contract_version:item.contract_version,accepted:true,processing_job_id:item.processing_job_id,correlation_id:item.correlation_id,execution_id:String($execution.id),received_at:now,processing_status:'RUNNING'})}}];"
+        },
+        "id": "13032538-da44-4a3e-88a1-9a5869b7fca5",
+        "name": "Build CDC Extraction Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1296,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.launch_ready }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "373448db-8590-4486-b504-42393b9dbc4d",
+        "name": "Launch Ready?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -1072,
+          624
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.response_body }}",
+          "options": {
+            "responseCode": "={{ Number($json.response_status || 400) }}"
+          }
+        },
+        "id": "b23f9285-dfd3-455d-87fe-f6b99d41269f",
+        "name": "Respond Launch Rejected",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          -848,
+          1200
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.launch_response_body }}",
+          "options": {
+            "responseCode": 202
+          }
+        },
+        "id": "6589dcd9-e521-4f16-838b-9acd5831538c",
+        "name": "Respond 202 Accepted",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          -848,
+          816
+        ]
+      },
+      {
+        "parameters": {
+          "fileSelector": "={{ $json.markdown_path }}",
+          "options": {
+            "mimeType": "text/markdown",
+            "dataPropertyName": "data"
+          }
+        },
+        "id": "5e0de57b-7b9e-480c-8a2f-4d6d7b2623f3",
+        "name": "Read Persisted Markdown",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1.1,
+        "position": [
+          -832,
+          720
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item=$input.first(); const buffer=await this.helpers.getBinaryDataBuffer(0,'data'); return [{json:{...$('Build CDC Extraction Context').first().json,markdown:buffer.toString('utf8'),actual_byte_size:buffer.length}}];"
+        },
+        "id": "be63607c-744f-45ac-b9b0-4cdd0f19c115",
+        "name": "Read Markdown as Text",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -608,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "action": "hash",
+          "type": "SHA256",
+          "value": "={{ $json.markdown }}",
+          "dataPropertyName": "actual_sha256"
+        },
+        "id": "515a4f77-06b3-41cb-87b6-4539e481fb6c",
+        "name": "Hash Persisted Markdown",
+        "type": "n8n-nodes-base.crypto",
+        "typeVersion": 1,
+        "position": [
+          -384,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const j=$input.first().json; const valid=j.actual_byte_size===j.markdown_byte_size&&('sha256:'+j.actual_sha256)===j.markdown_content_hash; return [{json:{...j,artifact_valid:valid,error_stage:'MARKDOWN',error_code:valid?null:'MARKDOWN_INTEGRITY_MISMATCH',error_message:valid?null:'Le Markdown persiste ne correspond pas a la taille/empreinte attendue.'}}];"
+        },
+        "id": "d9757b9b-8389-4e17-a48f-a9821f10c0ce",
+        "name": "Verify Persisted Markdown",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -160,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.artifact_valid }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "e2460fa3-e015-4c5e-b2b7-32675af03046",
+        "name": "Artifact Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          64,
+          720
+        ]
+      },
+      {
+        "id": "cdc-provider-select-v1",
+        "name": "Select CDC AI Provider",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1320,
+          260
+        ],
+        "parameters": {
+          "jsCode": "const item=$input.first().json; const env=typeof $env==='object'&&$env?$env:{}; const provider=String(env.CDC_AI_PROVIDER||'gemini').trim().toLowerCase(); const valid=['gemini','shadow','local'].includes(provider); return [{json:{...item,cdc_ai_provider:provider,provider_valid:valid,error_stage:valid?item.error_stage:'LLM',error_code:valid?item.error_code:'AI_PROVIDER_INVALID',error_message:valid?item.error_message:'CDC_AI_PROVIDER doit valoir gemini, shadow ou local.'}}];"
+        }
+      },
+      {
+        "id": "cdc-provider-valid-v1",
+        "name": "CDC AI Provider Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1540,
+          260
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.provider_valid }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "cdc-provider-local-v1",
+        "name": "CDC AI Provider Local?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1760,
+          220
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.cdc_ai_provider }}",
+                "rightValue": "local",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "cdc-local-not-ready-v1",
+        "name": "Prepare Local Contract Not Ready",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1980,
+          100
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{...$input.first().json,error_stage:'LLM',error_code:'LOCAL_CANONICAL_CONTRACT_NOT_READY',error_message:'Le fournisseur local est limite au shadow: le contrat XML canonique complet 34 champs/evaluation/controle n est pas encore valide.',local_provider:'qwen3:14b'}}];"
+        }
+      },
+      {
+        "id": "cdc-shadow-enabled-v1",
+        "name": "CDC AI Shadow Enabled?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          2860,
+          220
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $('Select CDC AI Provider').first().json.cdc_ai_provider }}",
+                "rightValue": "shadow",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "cdc-local-shadow-call-v1",
+        "name": "Call Local RAG Shadow",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3080,
+          120
+        ],
+        "onError": "continueRegularOutput",
+        "parameters": {
+          "method": "POST",
+          "url": "={{ String($env.LOCAL_RAG_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\\/+$/, '') + '/v1/shadow' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.LOCAL_RAG_SERVICE_TOKEN}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ (function(){ const context=$('Build CDC Extraction Context').first().json; const validated=$('Validate Success Payload').first().json; return JSON.stringify({contract_version:String($env.LOCAL_RAG_CONTRACT_VERSION||'local-cdc-shadow.v1'),processing_job_id:context.processing_job_id,correlation_id:context.correlation_id,appel_offre_id:Number(context.appel_offre_id),code_interne:context.code_interne,document_id:Number(context.markdown_document_id),markdown_path:context.markdown_path,markdown_content_hash:context.markdown_content_hash,authoritative_xml:validated.xml}); })() }}",
+          "options": {
+            "timeout": 600000,
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "cdc-continue-authoritative-v1",
+        "name": "Continue Authoritative Gemini Success",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3300,
+          220
+        ],
+        "parameters": {
+          "jsCode": "const provider=$('Select CDC AI Provider').first().json.cdc_ai_provider; const shadowInput=$input.first().json; if(provider==='shadow'){ const ok=['recorded','duplicate'].includes(shadowInput?.status); console.log(JSON.stringify({event:'cdc_local_ai_shadow',provider:'local',authoritative_provider:'gemini',shadow_ok:ok,shadow_status:shadowInput?.status||'failed',local_persisted:false,code_interne:$('Build CDC Extraction Context').first().json.code_interne,error:ok?null:String(shadowInput?.error?.message||shadowInput?.message||shadowInput?.error||'LOCAL_SHADOW_UNAVAILABLE')})); } return [{json:$('Validate Success Payload').first().json}];"
+        }
+      }
+    ],
+    "connections": {
+      "Webhook CDC Extraction": {
+        "main": [
+          [
+            {
+              "node": "Validate CDC Extraction Launch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate CDC Extraction Launch": {
+        "main": [
+          [
+            {
+              "node": "Launch Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Launch Valid?": {
+        "main": [
+          [
+            {
+              "node": "Build CDC Extraction Context",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Launch Rejected",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build CDC Extraction Context": {
+        "main": [
+          [
+            {
+              "node": "Launch Ready?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Launch Ready?": {
+        "main": [
+          [
+            {
+              "node": "Respond 202 Accepted",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Launch Rejected",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Respond 202 Accepted": {
+        "main": [
+          [
+            {
+              "node": "Read Persisted Markdown",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Persisted Markdown": {
+        "main": [
+          [
+            {
+              "node": "Read Markdown as Text",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Markdown as Text": {
+        "main": [
+          [
+            {
+              "node": "Hash Persisted Markdown",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Hash Persisted Markdown": {
+        "main": [
+          [
+            {
+              "node": "Verify Persisted Markdown",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Verify Persisted Markdown": {
+        "main": [
+          [
+            {
+              "node": "Artifact Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Artifact Valid?": {
+        "main": [
+          [
+            {
+              "node": "Select CDC AI Provider",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Request → Gemini XML": {
+        "main": [
+          [
+            {
+              "node": "Clean XML Response",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Gemini Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Clean XML Response": {
+        "main": [
+          [
+            {
+              "node": "Validate Success Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Success Payload": {
+        "main": [
+          [
+            {
+              "node": "Success Payload Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Success Payload Valid?": {
+        "main": [
+          [
+            {
+              "node": "CDC AI Shadow Enabled?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Success Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Gemini Failure Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Validation Failure Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sign Canonical Callback": {
+        "main": [
+          [
+            {
+              "node": "Unwrap Signed Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Unwrap Signed Callback": {
+        "main": [
+          [
+            {
+              "node": "Send Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Select CDC AI Provider": {
+        "main": [
+          [
+            {
+              "node": "CDC AI Provider Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CDC AI Provider Valid?": {
+        "main": [
+          [
+            {
+              "node": "CDC AI Provider Local?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CDC AI Provider Local?": {
+        "main": [
+          [
+            {
+              "node": "Prepare Local Contract Not Ready",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "HTTP Request → Gemini XML",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Local Contract Not Ready": {
+        "main": [
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CDC AI Shadow Enabled?": {
+        "main": [
+          [
+            {
+              "node": "Call Local RAG Shadow",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Continue Authoritative Gemini Success",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Local RAG Shadow": {
+        "main": [
+          [
+            {
+              "node": "Continue Authoritative Gemini Success",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Continue Authoritative Gemini Success": {
+        "main": [
+          [
+            {
+              "node": "Prepare Success Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "timeSavedMode": "fixed",
+      "callerPolicy": "workflowsFromSameOwner",
+      "availableInMCP": true
+    }
+  }
+]

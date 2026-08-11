@@ -17,7 +17,10 @@ const DEFAULT_WORKSPACE_TABS: WorkspaceTabDefinition[] = [
 ];
 
 const DECISION_CENTER_TABS: WorkspaceTabDefinition[] = [
-  { key: "go-no-go", label: "Decision" },
+  { key: "overview", label: "Synthèse" },
+  { key: "fiche", label: "Fiche CDC" },
+  { key: "fci", label: "FCI A / B / C" },
+  { key: "go-no-go", label: "Décision" },
   { key: "history", label: "Historique", countKey: "history" }
 ];
 
@@ -42,7 +45,9 @@ export function resolveAppelOffresWorkspaceView(input: {
   }
 
   if (
-    input.requestedView === "documents"
+    input.requestedView === "overview"
+    || input.requestedView === "documents"
+    || input.requestedView === "fci"
     || input.requestedView === "fiche"
     || input.requestedView === "history"
     || input.requestedView === "go-no-go"

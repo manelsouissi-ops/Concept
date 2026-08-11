@@ -32,8 +32,7 @@ import {
   GoNoGoReportClientError
 } from "@/lib/appels-offres/go-no-go-report/client.ts";
 import type { GoNoGoReportWorkspaceView } from "@/lib/appels-offres/go-no-go-report/service.ts";
-import { buildDashboardStatusDisplay } from "@/lib/appels-offres/dashboard-status.ts";
-import { buildAppelOffresSummary } from "@/lib/appels-offres/presentation.ts";
+import { deriveTenderStage } from "@/lib/appels-offres/tender-stage.ts";
 import type { AppelOffresDetail } from "@/lib/appels-offres/types.ts";
 import type { FciSetOverallStatus } from "@/lib/appels-offres/fci/types.ts";
 
@@ -163,10 +162,10 @@ export function DgDecisionCenter({
     [modules, view]
   );
 
-  const statusDisplay = useMemo(
-    () => buildDashboardStatusDisplay(buildAppelOffresSummary(appel), fciStatus),
-    [appel, fciStatus]
-  );
+  const statusDisplay = useMemo(() => {
+    const stage = deriveTenderStage({ detail: appel, fciOverallStatus: fciStatus });
+    return { label: stage.label, tone: stage.tone };
+  }, [appel, fciStatus]);
 
   const header = useMemo(
     () =>

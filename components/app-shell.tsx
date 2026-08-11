@@ -95,6 +95,11 @@ function getRouteMeta(pathname: string) {
     };
   }
 
+  if (pathname === "/fiches-cdc") return { title: "Mes Fiches CDC", breadcrumbs: ["Commercial", "Mes Fiches CDC"] };
+  if (pathname === "/mes-fci") return { title: "Mes FCI", breadcrumbs: ["Commercial", "Mes FCI"] };
+  if (pathname === "/go-no-go") return { title: "Go/No-Go", breadcrumbs: ["Commercial", "Go/No-Go"] };
+  if (pathname === "/history") return { title: "Historique", breadcrumbs: ["Commercial", "Historique"] };
+
   if (pathname === "/appels-offres/nouveau") {
     return {
       title: "Nouvel appel d'offres",
@@ -463,7 +468,11 @@ export function AppShell({
 
         <div className="sidebar-spacer" />
 
-        <div className="sidebar-user">
+        <Link
+          href="/profile"
+          className="sidebar-user"
+          onClick={() => setSidebarOpen(false)}
+        >
           <UserAvatar
             displayName={currentUser.name}
             avatarUrl={currentUser.avatar_url}
@@ -474,7 +483,7 @@ export function AppShell({
             <span>{currentUser.role_label}</span>
             <small>{currentUser.department_label}</small>
           </div>
-        </div>
+        </Link>
       </aside>
 
       {sidebarOpen ? (

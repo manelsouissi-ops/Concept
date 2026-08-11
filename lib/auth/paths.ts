@@ -5,6 +5,7 @@ const PUBLIC_PAGE_PATHS = new Set<string>(["/login"]);
 const PUBLIC_API_PATH_PATTERNS = [
   /^\/api\/auth\/(?:login|logout)$/,
   /^\/api\/fiche\/callbacks\/n8n$/,
+  /^\/api\/documents\/callbacks\/n8n$/,
   /^\/api\/fci\/callbacks\/n8n$/,
   /^\/api\/fci\/contracts\/validate$/,
   /^\/api\/fiche\/[^/]+\/complete$/

@@ -434,6 +434,15 @@ export function isModuleSourceStale(
 export function calculateFciOverallStatus(input: {
   modules: FciModuleRecord[];
   latestDataByModuleId: Map<number, FciModuleDataRecord>;
+  // Optional: whether the tender's Fiche CDC is CURRENTLY validated
+  // (appelOffres.businessStatus === "fiche_validee" or a later state). When
+  // explicitly false, individually-validated modules cannot make the set
+  // overall "validated" - this prevents a tender from reading as
+  // "ready for Go/No-Go" when its source Fiche CDC has since reverted to a
+  // draft (e.g. after a CDC replacement), even though those modules were
+  // legitimately validated against an earlier version. Omitted/undefined
+  // preserves the previous behavior for existing callers.
+  ficheCurrentlyValidated?: boolean;
 }) {
   const enabledModules = input.modules.filter(
     (module) =>
@@ -446,7 +455,9 @@ export function calculateFciOverallStatus(input: {
   }
 
   if (enabledModules.every((module) => module.status === "validated")) {
-    return "validated" satisfies FciSetOverallStatus;
+    return input.ficheCurrentlyValidated === false
+      ? "needs_review" satisfies FciSetOverallStatus
+      : "validated" satisfies FciSetOverallStatus;
   }
 
   if (enabledModules.some((module) => module.status === "generating")) {
@@ -525,7 +536,9 @@ export function buildFciModuleAllowedActions(input: {
   const canRegenerate = canRegenerateFciModule(input.currentUser.role, input.module.moduleCode);
 
   if (canEdit && input.latestData && input.module.status !== "generating") {
-    actions.unshift("validate");
+    if (input.module.status !== "validated") {
+      actions.unshift("validate");
+    }
     actions.unshift("edit");
   }
 

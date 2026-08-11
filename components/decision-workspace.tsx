@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClockIcon } from "@/components/app-icons.tsx";
+import { CheckCircleIcon, ClockIcon, FolderIcon } from "@/components/app-icons.tsx";
 import { EmptyState } from "@/components/empty-state.tsx";
 import { StatCard } from "@/components/stat-card.tsx";
 import { StatusBadge } from "@/components/status-badge.tsx";
@@ -63,7 +63,7 @@ export function DecisionWorkspace({
         </div>
       </section>
 
-      <section className="department-stat-single" aria-label="Indicateur de decision">
+      <section className="kpi-grid finance-kpi-grid" aria-label="Indicateurs de décision">
         <StatCard
           icon={<ClockIcon className="stat-icon" />}
           label="Décisions en attente"
@@ -71,6 +71,21 @@ export function DecisionWorkspace({
           description="Dossiers dont les contributions A, B et C sont validees et qui attendent votre arbitrage."
           tone={workspace.attentionCount > 0 ? "warning" : "success"}
           statusTone={workspace.attentionCount > 0 ? "warning" : "success"}
+        />
+        <StatCard
+          icon={<CheckCircleIcon className="stat-icon" />}
+          label="GO"
+          value={workspace.goCount}
+          description="Décisions favorables rendues."
+          tone="success"
+          statusTone="success"
+        />
+        <StatCard
+          icon={<FolderIcon className="stat-icon" />}
+          label="NO-GO"
+          value={workspace.noGoCount}
+          description="Décisions défavorables rendues."
+          tone="default"
         />
       </section>
 

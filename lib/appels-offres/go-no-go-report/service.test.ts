@@ -13,7 +13,8 @@ import {
   closeAppelsOffresPool,
   createAppelOffres,
   ensureAppelsOffresSchema,
-  getAppelOffresRecordByCode
+  getAppelOffresRecordByCode,
+  setAppelOffresBusinessStatus
 } from "../repository.ts";
 import { closeFciPool, ensureFciSchema } from "../fci/repository.ts";
 import {
@@ -286,6 +287,12 @@ async function createTestAppelOffres() {
     markdown: `# ${code}`
   });
   await markFicheValidated(code);
+  // Mirrors what the real /api/fiche/[code]/validate route does: it flips
+  // both the file-based fiche status AND the DB businessStatus column
+  // together. Fixtures that only did the former left FCI modules readable
+  // as "validated" for readiness purposes while businessStatus stayed
+  // "fiche_a_valider" - the exact contradiction this whole change fixes.
+  await setAppelOffresBusinessStatus(code, "fiche_validee");
 
   await loadPersistedActors();
   await assignCommercialOwner({

@@ -73,3 +73,27 @@
 - `N8N_CALLBACK_SIGNER_URL`
   These are runtime-only n8n values. See `docs/n8n-canonical-contract-env.md` for the
   verified local values, startup order, and safe PowerShell block.
+
+## Controlled local CDC AI shadow
+
+- `CDC_AI_PROVIDER`
+  CDC extraction provider selector consumed by W2. Supported values are `gemini`, `shadow`,
+  and `local`. It defaults to `gemini`. `shadow` keeps Gemini authoritative and records a
+  local comparison. `local` currently fails closed because the validated local contract
+  covers eight identification fields rather than the entire canonical Fiche XML.
+
+- `LOCAL_RAG_SERVICE_URL`
+  Loopback URL for the dedicated local semantic extraction service. Defaults operationally
+  to `http://127.0.0.1:8091` when configured in n8n.
+
+- `LOCAL_RAG_SERVICE_TOKEN`
+  Dedicated bearer token shared only by n8n and the local RAG service. It must not reuse a
+  callback or launch token.
+
+- `LOCAL_RAG_CONTRACT_VERSION`
+  Local structured-result contract. The first shadow integration requires
+  `local-cdc-shadow.v1`.
+
+- `LOCAL_RAG_SHADOW_LOG_DIR`
+  Non-business JSONL telemetry directory used by the local service. Defaults to
+  `/tmp/concept-local-rag-shadow`; it must not point into a tender data directory.

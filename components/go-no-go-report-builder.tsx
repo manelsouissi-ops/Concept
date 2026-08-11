@@ -174,6 +174,71 @@ export function GoNoGoReportBuilder({
   const canPrepare = workspace.permissions.can_prepare;
   const canSubmit = workspace.permissions.can_submit;
   const canRegenerate = workspace.permissions.can_regenerate;
+  const canExport = workspace.permissions.can_export && hasReport;
+
+  const moduleReadiness = (["A", "B", "C"] as const).map((moduleCode) => ({
+    moduleCode,
+    validated:
+      workspace.source_readiness.modules.find((module) => module.module_code === moduleCode)
+        ?.status === "validated"
+  }));
+  const allModulesReady = moduleReadiness.every((module) => module.validated);
+
+  // Nothing to prepare yet: keep the page to a short readiness checklist
+  // instead of a full editable report form with export controls that
+  // cannot do anything useful until A, B and C are validated.
+  if (!hasReport && !allModulesReady) {
+    return (
+      <section className="section-card">
+        <div className="section-header">
+          <div>
+            <h3>Go/No-Go</h3>
+            <p className="meta">En attente des contributions</p>
+          </div>
+        </div>
+        <div className="section-body stack">
+          <div className="workspace-info-list">
+            {moduleReadiness.map((module) => (
+              <div className="workspace-info-row" key={module.moduleCode}>
+                <span>FCI {module.moduleCode}</span>
+                <StatusBadge
+                  label={module.validated ? "Validée" : "À valider"}
+                  tone={module.validated ? "success" : "neutral"}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="callout info">
+            Le rapport Go/No-Go sera disponible lorsque les trois FCI seront validées.
+          </div>
+          <div className="workspace-card-actions">
+            {(["A", "B", "C"] as const).map((moduleCode) => (
+              <button
+                key={moduleCode}
+                type="button"
+                className="button button-ghost button-small"
+                onClick={() => onOpenFciModule(moduleCode)}
+              >
+                Ouvrir FCI {moduleCode}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Progressive disclosure: one dominant primary action per state, other
+  // controls only render when they are actually usable right now.
+  const primaryActionKey = canGenerate && !hasReport
+    ? "generate"
+    : canPrepare
+      ? "prepare"
+      : canSubmit
+        ? "submit"
+        : canEdit && hasReport
+          ? "save"
+          : "none";
 
   return (
     <div className="stack">
@@ -215,80 +280,95 @@ export function GoNoGoReportBuilder({
           {message ? <div className="callout info">{message}</div> : null}
           {error ? <div className="callout warning">{error}</div> : null}
           <div className="workspace-card-actions">
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => void runAction(() => generateGoNoGoReportDraft(code), "Le rapport a ete genere.")}
-              disabled={!canGenerate || isSubmitting || hasReport}
-            >
-              Generer le rapport
-            </button>
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() => void runAction(() => regenerateGoNoGoReportDraft(code), "Une nouvelle version du rapport a ete creee.")}
-              disabled={!canRegenerate || isSubmitting}
-            >
-              Regenerer une nouvelle version
-            </button>
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() =>
-                void runAction(
-                  () =>
-                    saveGoNoGoReportDraft(code, {
-                      ...form,
-                      ai_recommendation: form.ai_recommendation || null,
-                      recommended_decision:
-                        form.recommended_decision === "go" || form.recommended_decision === "no_go"
-                          ? form.recommended_decision
-                          : null,
-                      expectedVersion: workspace.report.version
-                    }),
-                  "Le brouillon a ete enregistre."
-                )
-              }
-              disabled={!canEdit || !hasReport || isSubmitting}
-            >
-              Enregistrer le brouillon
-            </button>
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() => setShowPreview((current) => !current)}
-              disabled={!hasReport}
-            >
-              {showPreview ? "Masquer la previsualisation" : "Previsualiser"}
-            </button>
-            <a
-              className={`button button-ghost ${workspace.permissions.can_export ? "" : "is-disabled"}`}
-              href={workspace.permissions.can_export ? `/api/appels-offres/${encodeURIComponent(code)}/go-no-go-report/export?format=docx` : "#"}
-            >
-              Exporter DOCX
-            </a>
-            <a
-              className={`button button-ghost ${workspace.permissions.can_export ? "" : "is-disabled"}`}
-              href={workspace.permissions.can_export ? `/api/appels-offres/${encodeURIComponent(code)}/go-no-go-report/export?format=pdf` : "#"}
-            >
-              Exporter PDF
-            </a>
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => void runAction(() => prepareTenderGoNoGo(code), "Le rapport a ete marque comme prepare.")}
-              disabled={!canPrepare || isSubmitting}
-            >
-              Marquer comme prepare
-            </button>
-            <button
-              type="button"
-              className="button button-secondary"
-              onClick={() => void runAction(() => submitTenderToDg(code), "Le rapport a ete soumis a la DG.")}
-              disabled={!canSubmit || isSubmitting}
-            >
-              Soumettre a la Direction generale
-            </button>
+            {canGenerate && !hasReport ? (
+              <button
+                type="button"
+                className={primaryActionKey === "generate" ? "button button-primary" : "button button-secondary"}
+                onClick={() => void runAction(() => generateGoNoGoReportDraft(code), "Le rapport a ete genere.")}
+                disabled={isSubmitting}
+              >
+                Generer le rapport
+              </button>
+            ) : null}
+            {canEdit && hasReport ? (
+              <button
+                type="button"
+                className={primaryActionKey === "save" ? "button button-primary" : "button button-secondary"}
+                onClick={() =>
+                  void runAction(
+                    () =>
+                      saveGoNoGoReportDraft(code, {
+                        ...form,
+                        ai_recommendation: form.ai_recommendation || null,
+                        recommended_decision:
+                          form.recommended_decision === "go" || form.recommended_decision === "no_go"
+                            ? form.recommended_decision
+                            : null,
+                        expectedVersion: workspace.report.version
+                      }),
+                    "Le brouillon a ete enregistre."
+                  )
+                }
+                disabled={isSubmitting}
+              >
+                Enregistrer le brouillon
+              </button>
+            ) : null}
+            {canPrepare ? (
+              <button
+                type="button"
+                className={primaryActionKey === "prepare" ? "button button-primary" : "button button-secondary"}
+                onClick={() => void runAction(() => prepareTenderGoNoGo(code), "Le rapport a ete marque comme prepare.")}
+                disabled={isSubmitting}
+              >
+                Marquer comme prepare
+              </button>
+            ) : null}
+            {canSubmit ? (
+              <button
+                type="button"
+                className={primaryActionKey === "submit" ? "button button-primary" : "button button-secondary"}
+                onClick={() => void runAction(() => submitTenderToDg(code), "Le rapport a ete soumis a la DG.")}
+                disabled={isSubmitting}
+              >
+                Soumettre a la Direction generale
+              </button>
+            ) : null}
+            {hasReport ? (
+              <button
+                type="button"
+                className="button button-ghost"
+                onClick={() => setShowPreview((current) => !current)}
+              >
+                {showPreview ? "Masquer la previsualisation" : "Previsualiser"}
+              </button>
+            ) : null}
+            {canRegenerate ? (
+              <button
+                type="button"
+                className="button button-ghost"
+                onClick={() => void runAction(() => regenerateGoNoGoReportDraft(code), "Une nouvelle version du rapport a ete creee.")}
+                disabled={isSubmitting}
+              >
+                Regenerer une nouvelle version
+              </button>
+            ) : null}
+            {canExport ? (
+              <>
+                <a
+                  className="button button-ghost"
+                  href={`/api/appels-offres/${encodeURIComponent(code)}/go-no-go-report/export?format=docx`}
+                >
+                  Exporter DOCX
+                </a>
+                <a
+                  className="button button-ghost"
+                  href={`/api/appels-offres/${encodeURIComponent(code)}/go-no-go-report/export?format=pdf`}
+                >
+                  Exporter PDF
+                </a>
+              </>
+            ) : null}
           </div>
         </div>
       </section>

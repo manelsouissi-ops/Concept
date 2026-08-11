@@ -1,0 +1,1093 @@
+[
+  {
+    "id": "cdcDocumentProcessingV1",
+    "name": "CONCEPT - Document Processing",
+    "description": "W1 split CDC pipeline: secured PDF processing to signed Markdown callback. Inactive until cutover.",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "concept-document-processing",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "274d6460-796c-479c-877f-4429f5bdb385",
+        "name": "Webhook Document Processing",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          -1968,
+          1104
+        ],
+        "webhookId": "fd8b592d-a67b-4778-9ede-d6a9d67414f8"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst body = item.json.body ?? item.json ?? {};\nconst headers = item.json.headers ?? {};\nconst env = typeof $env === 'object' && $env ? $env : {};\n\nconst getHeader = (name) => {\n  const direct = headers[name];\n  if (typeof direct === 'string' && direct.trim()) {\n    return direct.trim();\n  }\n  const lower = headers[name.toLowerCase()];\n  if (typeof lower === 'string' && lower.trim()) {\n    return lower.trim();\n  }\n  return '';\n};\n\nconst unauthorized = (message) => ([{\n  json: {\n    launch_valid: false,\n    response_status: 401,\n    response_body: JSON.stringify({\n      error: message,\n      code: 'UNAUTHORIZED',\n    }),\n  },\n}]);\n\nconst badRequest = (message, code) => ([{\n  json: {\n    launch_valid: false,\n    response_status: 400,\n    response_body: JSON.stringify({\n      error: message,\n      code,\n    }),\n  },\n}]);\n\nconst configurationError = (message) => ([{\n  json: {\n    launch_valid: false,\n    response_status: 500,\n    response_body: JSON.stringify({\n      error: message,\n      code: 'WORKFLOW_CONFIGURATION_ERROR',\n    }),\n  },\n}]);\n\nconst expectedToken = String(env.N8N_WEBHOOK_TOKEN || '').trim();\nif (!expectedToken) {\n  return configurationError('N8N_WEBHOOK_TOKEN est absent de l\\'environnement n8n.');\n}\n\nconst authorization = getHeader('authorization');\nif (!authorization || !authorization.startsWith('Bearer ')) {\n  return unauthorized('Authorization Bearer manquant.');\n}\n\nconst providedToken = authorization.slice('Bearer '.length).trim();\nif (providedToken !== expectedToken) {\n  return unauthorized('Jeton de lancement invalide.');\n}\n\nconst expectedVersion = String(env.N8N_CONTRACT_VERSION || '1.0').trim();\nconst requireField = (key) => {\n  const value = body[key];\n  if (typeof value !== 'string' || !value.trim()) {\n    throw new Error(key);\n  }\n  return value.trim();\n};\n\nlet contractVersion = '';\nlet processingJobId = '';\nlet appelOffreId = '';\nlet codeInterne = '';\nlet correlationId = '';\nlet callbackUrl = '';\nlet pdfPath = '';\nlet requestedAt = '';\n\ntry {\n  contractVersion = requireField('contract_version');\n  processingJobId = requireField('processing_job_id');\n  appelOffreId = requireField('appel_offre_id');\n  codeInterne = requireField('code_interne');\n  correlationId = requireField('correlation_id');\n  callbackUrl = requireField('callback_url');\n  pdfPath = requireField('pdf_path');\n  requestedAt = requireField('requested_at');\n} catch (error) {\n  return badRequest(\n    `Champ obligatoire manquant ou invalide: ${error.message}`,\n    'INVALID_LAUNCH_PAYLOAD'\n  );\n}\n\nif (contractVersion !== expectedVersion) {\n  return badRequest(\n    `Version de contrat inattendue: ${contractVersion}`,\n    'INVALID_CONTRACT_VERSION'\n  );\n}\n\nif (!Number.isFinite(Date.parse(requestedAt))) {\n  return badRequest(\n    'requested_at doit etre un timestamp ISO-8601 valide.',\n    'INVALID_REQUESTED_AT'\n  );\n}\n\nif (!/^https?:\\/\\/[^\\s]+$/i.test(callbackUrl)) {\n  return badRequest(\n    'callback_url doit etre une URL http(s) valide.',\n    'INVALID_CALLBACK_URL'\n  );\n}\n\nreturn [{\n  json: {\n    launch_valid: true,\n    contract_version: contractVersion,\n    processing_job_id: processingJobId,\n    appel_offre_id: appelOffreId,\n    code_interne: codeInterne,\n    correlation_id: correlationId,\n    callback_url: callbackUrl,\n    pdf_path: pdfPath,\n    requested_at: requestedAt,\n  },\n}];"
+        },
+        "id": "766a384a-0a6a-45dd-b64a-1651c838c1ff",
+        "name": "Validate Canonical Launch",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1744,
+          1104
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.launch_valid }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "2e9cccca-8ae1-44f0-804a-5d79358c8755",
+        "name": "Launch Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -1520,
+          1104
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst env = typeof $env === 'object' && $env ? $env : {};\n\nconst sharedRootRaw = String(env.N8N_SHARED_STORAGE_ROOT || '').trim();\nconst markerConvertUrl = String(env.MARKER_CONVERT_URL || '').trim();\nconst markerResultUrl = String(env.MARKER_RESULT_URL || '').trim().replace(/\\/+$/, '');\nconst markerStatusUrl = String(env.MARKER_STATUS_URL || '').trim().replace(/\\/+$/, '');\nconst callbackSignerUrl = String(env.N8N_CALLBACK_SIGNER_URL || '').trim();\nconst contractVersion = String(env.N8N_CONTRACT_VERSION || '1.0').trim();\nconst callbackToken = String(env.PLATFORM_CALLBACK_TOKEN || '').trim();\n\nconst rejectLaunch = (message, code, status = 400) => ([\n  {\n    json: {\n      launch_ready: false,\n      response_status: status,\n      response_body: JSON.stringify({\n        error: message,\n        code,\n      }),\n    },\n  },\n]);\n\nif (!sharedRootRaw) {\n  return rejectLaunch(\n    'N8N_SHARED_STORAGE_ROOT est absent de l\\'environnement n8n.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\nif (!markerConvertUrl) {\n  return rejectLaunch(\n    'MARKER_CONVERT_URL est absent de l\\'environnement n8n.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\nif (!markerResultUrl) {\n  return rejectLaunch(\n    'MARKER_RESULT_URL est absent de l\\'environnement n8n.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\nif (!markerStatusUrl) {\n  return rejectLaunch(\n    'MARKER_STATUS_URL est absent de l\\'environnement n8n.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\nif (!callbackSignerUrl) {\n  return rejectLaunch(\n    'N8N_CALLBACK_SIGNER_URL est absent de l\\'environnement n8n.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\nif (!callbackToken) {\n  return rejectLaunch(\n    'PLATFORM_CALLBACK_TOKEN est absent de l\\'environnement n8n.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\n/**\n * Normalize a local absolute path.\n *\n * Supports:\n * - Windows: C:\\Users\\lotfi\\...\n * - Windows normalized: C:/Users/lotfi/...\n * - Linux: /home/concept/...\n *\n * Returns null for:\n * - relative paths\n * - invalid traversal outside the root\n */\nconst normalizeAbsoluteLocalPath = (value) => {\n  const raw = String(value || '').trim();\n\n  if (!raw) {\n    return null;\n  }\n\n  // Normalize Windows separators to forward slashes.\n  const unified = raw\n    .replace(/\\\\/g, '/')\n    .replace(/\\/+/g, '/');\n\n  const windowsDriveMatch = unified.match(/^([A-Za-z]:)(?:\\/|$)/);\n  const isLinuxAbsolute = unified.startsWith('/');\n\n  if (!windowsDriveMatch && !isLinuxAbsolute) {\n    return null;\n  }\n\n  let prefix;\n  let remainder;\n\n  if (windowsDriveMatch) {\n    prefix = windowsDriveMatch[1].toUpperCase();\n    remainder = unified.slice(prefix.length);\n  } else {\n    prefix = '/';\n    remainder = unified.slice(1);\n  }\n\n  const segments = [];\n\n  for (const segment of remainder.split('/')) {\n    if (!segment || segment === '.') {\n      continue;\n    }\n\n    if (segment === '..') {\n      if (segments.length === 0) {\n        return null;\n      }\n\n      segments.pop();\n      continue;\n    }\n\n    segments.push(segment);\n  }\n\n  if (prefix === '/') {\n    return `/${segments.join('/')}`;\n  }\n\n  return `${prefix}/${segments.join('/')}`;\n};\n\nconst sharedRoot = normalizeAbsoluteLocalPath(sharedRootRaw);\n\nif (!sharedRoot) {\n  return rejectLaunch(\n    'N8N_SHARED_STORAGE_ROOT doit etre un chemin absolu local valide.',\n    'WORKFLOW_CONFIGURATION_ERROR',\n    500\n  );\n}\n\nconst pdfPath = normalizeAbsoluteLocalPath(\n  String(item.json.pdf_path || '').trim()\n);\n\nif (!pdfPath) {\n  return rejectLaunch(\n    'pdf_path doit etre un chemin absolu local valide.',\n    'INVALID_PDF_PATH'\n  );\n}\n\n/**\n * Security check:\n * the PDF must be inside the configured shared storage root.\n */\nif (\n  !(\n    pdfPath === sharedRoot ||\n    pdfPath.startsWith(`${sharedRoot}/`)\n  )\n) {\n  return rejectLaunch(\n    `pdf_path hors du stockage partage autorise: ${pdfPath}`,\n    'INVALID_PDF_PATH'\n  );\n}\n\nif (!pdfPath.toLowerCase().endsWith('.pdf')) {\n  return rejectLaunch(\n    `pdf_path doit cibler un fichier .pdf: ${pdfPath}`,\n    'INVALID_PDF_PATH'\n  );\n}\n\nconst receivedAt = new Date().toISOString();\n\nconst launchResponse = {\n  contract_version: contractVersion,\n  accepted: true,\n  processing_job_id: item.json.processing_job_id,\n  correlation_id: item.json.correlation_id,\n  execution_id: String($execution.id),\n  received_at: receivedAt,\n  processing_status: 'RUNNING',\n};\n\nreturn [\n  {\n    json: {\n      launch_ready: true,\n      launch_valid: true,\n\n      contract_version: contractVersion,\n\n      processing_job_id: item.json.processing_job_id,\n      appel_offre_id: item.json.appel_offre_id,\n      code_interne: item.json.code_interne,\n      correlation_id: item.json.correlation_id,\n\n      callback_url: item.json.callback_url,\n      pdf_path: pdfPath,\n\n      requested_at: item.json.requested_at,\n\n      execution_id: String($execution.id),\n\n      received_at: receivedAt,\n      started_at: receivedAt,\n\n      marker_convert_url: markerConvertUrl,\n      marker_result_url: markerResultUrl,\n      marker_status_url: markerStatusUrl,\n\n      callback_signer_url: callbackSignerUrl,\n\n      callback_timeout_ms: Number(\n        env.N8N_CALLBACK_TIMEOUT_MS || 30000\n      ),\n\n      parser_provider: String(item.json.requested_parser || env.DOCUMENT_PARSER || 'docling').trim(),\n\n      pdf_size_bytes: null,\n\n      launch_response_body: JSON.stringify(launchResponse),\n    },\n  },\n];"
+        },
+        "id": "71927fe9-0bff-4746-857e-3d5abde90c22",
+        "name": "Build Document Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -1296,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.launch_ready }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "bd64e7cb-683e-4cae-8724-b5bf7e3ff8f7",
+        "name": "Launch Ready?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -1072,
+          1008
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.response_body }}",
+          "options": {
+            "responseCode": "={{ Number($json.response_status || 400) }}"
+          }
+        },
+        "id": "6d00df3a-2f8b-4955-b08d-c8215548d6b3",
+        "name": "Respond Launch Rejected",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          -848,
+          1200
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.launch_response_body }}",
+          "options": {
+            "responseCode": 202
+          }
+        },
+        "id": "87dbd57d-4dea-4931-9c66-d2cda739c8e8",
+        "name": "Respond 202 Accepted",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          -848,
+          816
+        ]
+      },
+      {
+        "parameters": {
+          "fileSelector": "={{ $json.pdf_path }}",
+          "options": {
+            "mimeType": "application/pdf",
+            "dataPropertyName": "data"
+          }
+        },
+        "id": "deff541a-ae12-4106-918c-9cab5d17d6f4",
+        "name": "Read Source PDF From Disk",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1.1,
+        "position": [
+          -848,
+          1008
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst rawMessage = item.json?.error || item.json?.message || 'Lecture du PDF source impossible.';\nconst errorMessage = typeof rawMessage === 'string' ? rawMessage : JSON.stringify(rawMessage);\n\nreturn [{\n  json: {\n    error_stage: 'UPLOAD',\n    error_code: 'SOURCE_PDF_READ_FAILED',\n    error_message: errorMessage,\n  },\n}];"
+        },
+        "id": "00449b78-428a-4c4c-bce4-524dbd2cd1d8",
+        "name": "Prepare Source PDF Read Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2512,
+          1536
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst binaryField = 'data';\nconst buffer = await this.helpers.getBinaryDataBuffer(0, binaryField);\nconst header = buffer.subarray(0, 4).toString('utf8');\nconst pdfSizeBytes = Number(item.binary?.[binaryField]?.fileSize || buffer.length || 0);\n\nif (header !== '%PDF') {\n  return [{\n    json: {\n      source_pdf_valid: false,\n      error_stage: 'UPLOAD',\n      error_code: 'INVALID_PDF_FILE',\n      error_message: `Le fichier n\\'a pas une signature PDF valide: ${item.binary?.[binaryField]?.fileName || 'source.pdf'}`,\n      pdf_size_bytes: pdfSizeBytes,\n    },\n    binary: item.binary,\n  }];\n}\n\nreturn [{\n  json: {\n    source_pdf_valid: true,\n    marker_binary_field: binaryField,\n    pdf_size_bytes: pdfSizeBytes,\n  },\n  binary: item.binary,\n}];"
+        },
+        "id": "ac134ed9-c189-4d1b-846d-3baff22f86e4",
+        "name": "Validate Source PDF Binary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -624,
+          944
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.source_pdf_valid }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "80b5bbd4-2450-499f-b13e-c474cce3844c",
+        "name": "Source PDF Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -400,
+          944
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Build Document Context').first().json.marker_convert_url }}",
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "parameterType": "formBinaryData",
+                "name": "file",
+                "inputDataFieldName": "={{ $json.marker_binary_field || 'data' }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "id": "6ccf8f9d-7899-4ad8-b9d9-0a632f0feef1",
+        "name": "Convert PDF via Document Parser",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          -176,
+          864
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst now = Date.now();\n\nreturn [{\n  json: {\n    ...item.json,\n    marker_poll_count: 0,\n    marker_started_at: now,\n    marker_max_polls: 40,\n    marker_max_elapsed_ms: 1200000,\n  },\n  binary: item.binary,\n}];"
+        },
+        "id": "93c3d6d3-f38f-4e77-b3f4-0cce1d4f71a1",
+        "name": "Init Marker Poll Guard",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          48,
+          864
+        ]
+      },
+      {
+        "parameters": {
+          "amount": 30
+        },
+        "id": "95abc7e7-2c11-4a40-bc03-2ecdb91cc20d",
+        "name": "Wait 30s Before Marker Result",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          272,
+          864
+        ],
+        "webhookId": "75dfd2cc-66d0-4704-9642-664a9126fd28"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst now = Date.now();\nconst pollCount = Number(item.json.marker_poll_count ?? 0) + 1;\nconst startedAt = Number(item.json.marker_started_at ?? now);\nconst maxPolls = Number(item.json.marker_max_polls ?? 10);\nconst maxElapsedMs = Number(item.json.marker_max_elapsed_ms ?? 300000);\nconst elapsedMs = now - startedAt;\nconst timedOut = pollCount >= maxPolls || elapsedMs >= maxElapsedMs;\n\nreturn [{\n  json: {\n    ...item.json,\n    marker_timed_out: timedOut,\n    marker_poll_count: pollCount,\n    marker_started_at: startedAt,\n    marker_max_polls: maxPolls,\n    marker_max_elapsed_ms: maxElapsedMs,\n    marker_elapsed_ms: elapsedMs,\n    marker_last_poll_at: now,\n  },\n  binary: item.binary,\n}];"
+        },
+        "id": "6d2373fe-49fe-431c-9f92-0f0d1a6ae5dd",
+        "name": "Increment Marker Poll Guard",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          496,
+          800
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.marker_timed_out }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "2e0f2f7d-c6d3-4880-9929-b4cd609d4b12",
+        "name": "Marker Timeout Reached?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          720,
+          1088
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $('Build Document Context').first().json.marker_status_url + '/' + $json.job_id }}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "timeout": 30000
+          }
+        },
+        "id": "84d09392-1a04-45d2-b4b5-29f18ce8d2e4",
+        "name": "Get Marker Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          944,
+          992
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "mode": "combine",
+          "combineBy": "combineByPosition",
+          "options": {}
+        },
+        "id": "41730874-6e4f-468d-9f1f-306a0a14d4f6",
+        "name": "Merge Marker Result With Guard",
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          1168,
+          752
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.status }}",
+                      "rightValue": "completed",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Completed"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.status }}",
+                      "rightValue": "processing",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Processing"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.status }}",
+                      "rightValue": "failed",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Failed"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "b87bba0d-68c6-44fa-a041-07c39b866e09",
+        "name": "Check Marker Status",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3.4,
+        "position": [
+          1392,
+          736
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $('Build Document Context').first().json.marker_result_url + '/' + $json.job_id }}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "timeout": 30000
+          }
+        },
+        "id": "29c2f26a-5ca9-43b3-96de-29d0cb04b56b",
+        "name": "Get Marker Result",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1456,
+          864
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nlet text;\n\nif (item.binary && Object.keys(item.binary).length > 0) {\n  const binaryKey = Object.keys(item.binary)[0];\n  const buffer = await this.helpers.getBinaryDataBuffer(0, binaryKey);\n  text = buffer.toString('utf-8');\n} else {\n  text = item.json.markdown;\n}\n\nreturn [{\n  json: {\n    ...item.json,\n    text,\n    markdown: text,\n  },\n}];"
+        },
+        "id": "42a7d8b6-2201-4e79-8391-e28ee3dae72d",
+        "name": "Read Markdown as Text",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1616,
+          752
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context=$('Build Document Context').first().json; const item=$input.first().json??{}; const finished=new Date().toISOString();\nconst stage=String(item.error_stage||(\"Prepare Marker Failure Callback\".includes('Marker')?'PARSER':'UNKNOWN')); const code=String(item.error_code||(\"Prepare Marker Failure Callback\".includes('Timeout')?'PARSER_TIMEOUT':'DOCUMENT_PROCESSING_FAILED')); const message=String(item.error_message||item.error?.message||item.error||'Le traitement documentaire a echoue.');\nconst payload={event:'document.processing.failed',contract_version:context.contract_version,processing_job_id:context.processing_job_id,appel_offre_id:context.appel_offre_id,code_interne:context.code_interne,correlation_id:context.correlation_id,execution_id:context.execution_id,status:'FAILED',started_at:context.started_at,finished_at:finished,duration_ms:Math.max(0,Date.parse(finished)-Date.parse(context.started_at)),metadata:{parser_provider:context.parser_provider},error:{stage:['WEBHOOK','UPLOAD','PARSER','MARKDOWN','CALLBACK'].includes(stage)?stage:'UNKNOWN',code,message,retryable:stage==='PARSER'||stage==='UPLOAD'}};\nreturn [{json:{callback_sign_request:{callback_url:context.callback_url,contract_version:context.contract_version,callback_timestamp:new Date().toISOString(),callback_raw_body:JSON.stringify(payload),terminal_status:'FAILED'}}}];"
+        },
+        "id": "26e93a1c-9e75-48a5-8569-0f691324359a",
+        "name": "Prepare Marker Failure Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2736,
+          1488
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context=$('Build Document Context').first().json; const item=$input.first().json??{}; const finished=new Date().toISOString();\nconst stage=String(item.error_stage||(\"Prepare Marker Timeout Callback\".includes('Marker')?'PARSER':'UNKNOWN')); const code=String(item.error_code||(\"Prepare Marker Timeout Callback\".includes('Timeout')?'PARSER_TIMEOUT':'DOCUMENT_PROCESSING_FAILED')); const message=String(item.error_message||item.error?.message||item.error||'Le traitement documentaire a echoue.');\nconst payload={event:'document.processing.failed',contract_version:context.contract_version,processing_job_id:context.processing_job_id,appel_offre_id:context.appel_offre_id,code_interne:context.code_interne,correlation_id:context.correlation_id,execution_id:context.execution_id,status:'FAILED',started_at:context.started_at,finished_at:finished,duration_ms:Math.max(0,Date.parse(finished)-Date.parse(context.started_at)),metadata:{parser_provider:context.parser_provider},error:{stage:['WEBHOOK','UPLOAD','PARSER','MARKDOWN','CALLBACK'].includes(stage)?stage:'UNKNOWN',code,message,retryable:stage==='PARSER'||stage==='UPLOAD'}};\nreturn [{json:{callback_sign_request:{callback_url:context.callback_url,contract_version:context.contract_version,callback_timestamp:new Date().toISOString(),callback_raw_body:JSON.stringify(payload),terminal_status:'FAILED'}}}];"
+        },
+        "id": "15318d69-7df8-4f22-9302-78d856ecdaf9",
+        "name": "Prepare Marker Timeout Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2736,
+          1680
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context=$('Build Document Context').first().json; const item=$input.first().json??{}; const finished=new Date().toISOString();\nconst stage=String(item.error_stage||(\"Prepare Validation Failure Callback\".includes('Marker')?'PARSER':'UNKNOWN')); const code=String(item.error_code||(\"Prepare Validation Failure Callback\".includes('Timeout')?'PARSER_TIMEOUT':'DOCUMENT_PROCESSING_FAILED')); const message=String(item.error_message||item.error?.message||item.error||'Le traitement documentaire a echoue.');\nconst payload={event:'document.processing.failed',contract_version:context.contract_version,processing_job_id:context.processing_job_id,appel_offre_id:context.appel_offre_id,code_interne:context.code_interne,correlation_id:context.correlation_id,execution_id:context.execution_id,status:'FAILED',started_at:context.started_at,finished_at:finished,duration_ms:Math.max(0,Date.parse(finished)-Date.parse(context.started_at)),metadata:{parser_provider:context.parser_provider},error:{stage:['WEBHOOK','UPLOAD','PARSER','MARKDOWN','CALLBACK'].includes(stage)?stage:'UNKNOWN',code,message,retryable:stage==='PARSER'||stage==='UPLOAD'}};\nreturn [{json:{callback_sign_request:{callback_url:context.callback_url,contract_version:context.contract_version,callback_timestamp:new Date().toISOString(),callback_raw_body:JSON.stringify(payload),terminal_status:'FAILED'}}}];"
+        },
+        "id": "7642c041-5fa6-4753-9059-82f972f08c6e",
+        "name": "Prepare Validation Failure Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2736,
+          1104
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Build Document Context').first().json.callback_signer_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.callback_sign_request || $json) }}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "timeout": "={{ Number($('Build Document Context').first().json.callback_timeout_ms || 30000) }}"
+          }
+        },
+        "id": "e30820bd-2af3-462a-87f6-7b61390d9178",
+        "name": "Sign Canonical Callback",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          2960,
+          1152
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst signed = item.json?.body && typeof item.json.body === 'object'\n  ? item.json.body\n  : item.json;\n\nreturn [{\n  json: {\n    callback_url: signed.callback_url,\n    contract_version: signed.contract_version,\n    callback_timestamp: signed.callback_timestamp,\n    callback_signature: signed.callback_signature,\n    callback_raw_body: signed.callback_raw_body,\n    terminal_status: signed.terminal_status,\n  },\n}];"
+        },
+        "id": "7836fbb3-f645-488f-a055-418eceda4721",
+        "name": "Unwrap Signed Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3184,
+          1152
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.callback_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.PLATFORM_CALLBACK_TOKEN}}"
+              },
+              {
+                "name": "X-Contract-Version",
+                "value": "={{ $json.contract_version }}"
+              },
+              {
+                "name": "X-Callback-Timestamp",
+                "value": "={{ $json.callback_timestamp }}"
+              },
+              {
+                "name": "X-Callback-Signature",
+                "value": "={{ 'sha256=' + $json.callback_signature }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json.callback_raw_body }}",
+          "options": {
+            "timeout": "={{ Number($('Build Document Context').first().json.callback_timeout_ms || 30000) }}"
+          }
+        },
+        "id": "acbcd0d9-ad0b-4cc4-b620-372b8d3cef8f",
+        "name": "Send Document Callback",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          3408,
+          1152
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst markdown = String(item.json.markdown || item.json.text || '');\nconst bytes = Buffer.byteLength(markdown, 'utf8');\nconst clean = markdown.trim().length > 0 && !/data:image\\/[^;]+;base64,/i.test(markdown);\nreturn [{json:{...item.json, markdown, markdown_valid:clean, markdown_byte_size:bytes, error_stage:'MARKDOWN', error_code:clean?null:'MARKDOWN_INVALID', error_message:clean?null:'Markdown vide ou contenant une image base64.'}}];"
+        },
+        "id": "d1b88067-e570-4c3a-98f1-b753db3709c8",
+        "name": "Validate Clean Markdown",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1840,
+          752
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "leftValue": "={{ $json.markdown_valid }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "0144ee3a-3a07-4ee6-afcf-9076297906dd",
+        "name": "Markdown Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          2064,
+          752
+        ]
+      },
+      {
+        "parameters": {
+          "action": "hash",
+          "type": "SHA256",
+          "value": "={{ $json.markdown }}",
+          "dataPropertyName": "markdown_sha256"
+        },
+        "id": "19728434-1c5c-40c1-87fa-169a88b4532a",
+        "name": "Hash Markdown",
+        "type": "n8n-nodes-base.crypto",
+        "typeVersion": 1,
+        "position": [
+          2288,
+          672
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const context=$('Build Document Context').first().json; const item=$input.first().json; const finished=new Date().toISOString();\nconst payload={event:'document.processing.completed',contract_version:context.contract_version,processing_job_id:context.processing_job_id,appel_offre_id:context.appel_offre_id,code_interne:context.code_interne,correlation_id:context.correlation_id,execution_id:context.execution_id,status:'COMPLETED',parser:{provider:context.parser_provider,job_id:String(item.job_id||'unknown')},started_at:context.started_at,finished_at:finished,duration_ms:Math.max(0,Date.parse(finished)-Date.parse(context.started_at)),metadata:{parser_poll_count:$('Increment Marker Poll Guard').first()?.json?.marker_poll_count??null},result:{markdown:item.markdown,byte_size:item.markdown_byte_size,content_hash:'sha256:'+item.markdown_sha256,mime_type:'text/markdown'}};\nreturn [{json:{callback_sign_request:{callback_url:context.callback_url,contract_version:context.contract_version,callback_timestamp:new Date().toISOString(),callback_raw_body:JSON.stringify(payload),terminal_status:'COMPLETED'}}}];"
+        },
+        "id": "ad982765-699b-49c8-8c99-3cd57d29f83d",
+        "name": "Prepare Document Success Callback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2512,
+          672
+        ]
+      }
+    ],
+    "connections": {
+      "Validate Canonical Launch": {
+        "main": [
+          [
+            {
+              "node": "Launch Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Launch Valid?": {
+        "main": [
+          [
+            {
+              "node": "Build Document Context",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Launch Rejected",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Launch Ready?": {
+        "main": [
+          [
+            {
+              "node": "Respond 202 Accepted",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Read Source PDF From Disk",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Launch Rejected",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Source PDF From Disk": {
+        "main": [
+          [
+            {
+              "node": "Validate Source PDF Binary",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Source PDF Read Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Source PDF Read Failure": {
+        "main": [
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Source PDF Binary": {
+        "main": [
+          [
+            {
+              "node": "Source PDF Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Source PDF Valid?": {
+        "main": [
+          [
+            {
+              "node": "Convert PDF via Document Parser",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Init Marker Poll Guard": {
+        "main": [
+          [
+            {
+              "node": "Wait 30s Before Marker Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait 30s Before Marker Result": {
+        "main": [
+          [
+            {
+              "node": "Increment Marker Poll Guard",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Increment Marker Poll Guard": {
+        "main": [
+          [
+            {
+              "node": "Marker Timeout Reached?",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Merge Marker Result With Guard",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merge Marker Result With Guard": {
+        "main": [
+          [
+            {
+              "node": "Check Marker Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Marker Status": {
+        "main": [
+          [
+            {
+              "node": "Get Marker Result",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Wait 30s Before Marker Result",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Marker Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Markdown as Text": {
+        "main": [
+          [
+            {
+              "node": "Validate Clean Markdown",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Marker Timeout Reached?": {
+        "main": [
+          [
+            {
+              "node": "Prepare Marker Timeout Callback",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Get Marker Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Marker Failure Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Marker Timeout Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Validation Failure Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sign Canonical Callback": {
+        "main": [
+          [
+            {
+              "node": "Unwrap Signed Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Unwrap Signed Callback": {
+        "main": [
+          [
+            {
+              "node": "Send Document Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Marker Status": {
+        "main": [
+          [
+            {
+              "node": "Merge Marker Result With Guard",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "Get Marker Result": {
+        "main": [
+          [
+            {
+              "node": "Read Markdown as Text",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook Document Processing": {
+        "main": [
+          [
+            {
+              "node": "Validate Canonical Launch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Document Context": {
+        "main": [
+          [
+            {
+              "node": "Launch Ready?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Convert PDF via Document Parser": {
+        "main": [
+          [
+            {
+              "node": "Init Marker Poll Guard",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Clean Markdown": {
+        "main": [
+          [
+            {
+              "node": "Markdown Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Markdown Valid?": {
+        "main": [
+          [
+            {
+              "node": "Hash Markdown",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Prepare Validation Failure Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Hash Markdown": {
+        "main": [
+          [
+            {
+              "node": "Prepare Document Success Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Document Success Callback": {
+        "main": [
+          [
+            {
+              "node": "Sign Canonical Callback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "timeSavedMode": "fixed",
+      "callerPolicy": "workflowsFromSameOwner",
+      "availableInMCP": true
+    }
+  }
+]

@@ -6,12 +6,12 @@ import {
   resolveAppelOffresWorkspaceView
 } from "./dossier-experience.ts";
 
-test("DG dossier navigation is reduced to Decision and Historique", () => {
+test("DG dossier navigation exposes the submitted evidence read-only", () => {
   const tabs = getAppelOffresWorkspaceTabs("DIRECTION_GENERALE");
 
   assert.deepEqual(
     tabs.map((tab) => tab.label),
-    ["Decision", "Historique"]
+    ["Synthèse", "Fiche CDC", "FCI A / B / C", "Décision", "Historique"]
   );
 });
 
@@ -24,7 +24,7 @@ test("business roles keep the generic dossier workspace tabs", () => {
   );
 });
 
-test("DG defaults to the decision center and never falls back to the worker FCI shell", () => {
+test("DG defaults to the decision center and can open read-only evidence", () => {
   assert.equal(
     resolveAppelOffresWorkspaceView({
       requestedView: undefined,
@@ -37,14 +37,14 @@ test("DG defaults to the decision center and never falls back to the worker FCI 
       requestedView: "fci",
       role: "DIRECTION_GENERALE"
     }),
-    "go-no-go"
+    "fci"
   );
   assert.equal(
     resolveAppelOffresWorkspaceView({
       requestedView: "overview",
       role: "DIRECTION_GENERALE"
     }),
-    "go-no-go"
+    "overview"
   );
 });
 

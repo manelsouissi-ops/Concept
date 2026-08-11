@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
 import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
+import { hasPermission } from "@/lib/auth/rbac.ts";
 import {
   readFicheBundle,
   readFicheIndexSource,
@@ -36,9 +37,12 @@ export async function PUT(
   { params }: { params: Promise<{ code: string }> }
 ) {
   try {
-    const { deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
-    if (deniedResponse) {
+    const { currentUser, deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    if (deniedResponse || !currentUser) {
       return deniedResponse;
+    }
+    if (!hasPermission(currentUser.role, "fiche_cdc.edit")) {
+      return NextResponse.json({ error: "La Fiche CDC est accessible en lecture seule pour ce role." }, { status: 403 });
     }
 
     const { code } = await params;

@@ -38,6 +38,15 @@ test("ADMIN lands on administration and cannot keep forbidden next paths", () =>
   assert.equal(canAccessPath("COMMERCIAL", "/administration"), false);
 });
 
+test("Commercial secondary workspaces are not valid redirect targets for other roles", () => {
+  for (const path of ["/fiches-cdc", "/mes-fci", "/go-no-go", "/history"]) {
+    assert.equal(canAccessPath("COMMERCIAL", path), true);
+    assert.equal(canAccessPath("FINANCE", path), false);
+    assert.equal(canAccessPath("OPERATIONS", path), false);
+    assert.equal(canAccessPath("DIRECTION_GENERALE", path), false);
+  }
+});
+
 test("all business roles can view departmental FCI modules A to D but ADMIN cannot", () => {
   for (const moduleCode of ["A", "B", "C", "D"] as const) {
     assert.equal(canViewFciModule("ADMIN", moduleCode), false);

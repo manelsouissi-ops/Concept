@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { AppelOffresWorkspace } from "@/components/appel-offres-workspace.tsx";
 import { resolveAppelOffresWorkspaceView } from "@/lib/appels-offres/dossier-experience.ts";
-import { getFciSetByAppelOffresCode } from "@/lib/appels-offres/fci/repository.ts";
+import { getFciDetailByAppelOffresCode } from "@/lib/appels-offres/fci/repository.ts";
+import { deriveTenderWorkflowState } from "@/lib/appels-offres/workflow/service.ts";
+import { getLatestGoNoGoDecisionByAppelOffresId } from "@/lib/appels-offres/go-no-go/repository.ts";
 import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import {
   getAppelOffresDetailByCode,
@@ -40,7 +42,7 @@ export default async function AppelOffresDetailPage({
       ? viewValue === "fiche-cdc" || viewValue === "information"
         ? "fiche"
         : viewValue === "processing"
-          ? "fci"
+          ? "overview"
           : ["overview", "fiche", "fci", "go-no-go", "documents", "history"].includes(viewValue)
             ? (viewValue as WorkspaceView)
             : undefined
@@ -57,8 +59,12 @@ export default async function AppelOffresDetailPage({
     notFound();
   }
 
-  const fciSet = await getFciSetByAppelOffresCode(code).catch(() => null);
-  const fciStatus = fciSet?.overallStatus ?? null;
+  const [fciDetail, workflow, decision] = await Promise.all([
+    getFciDetailByAppelOffresCode(code).catch(() => null),
+    deriveTenderWorkflowState(code).catch(() => null),
+    getLatestGoNoGoDecisionByAppelOffresId(appel.id).catch(() => null)
+  ]);
+  const fciStatus = fciDetail?.set.overallStatus ?? null;
 
   return (
     <div className="page-stack">
@@ -67,6 +73,9 @@ export default async function AppelOffresDetailPage({
         flash={flash}
         initialTab={initialView}
         fciStatus={fciStatus}
+        fciDetail={fciDetail}
+        workflow={workflow}
+        decision={decision}
         currentUserRole={currentUser.role}
       />
     </div>

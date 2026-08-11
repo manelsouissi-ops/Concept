@@ -479,6 +479,14 @@ textarea {
   margin-top: auto;
   padding-top: 14px;
   border-top: 1px solid var(--sidebar-line);
+  color: inherit;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: background 160ms ease;
+}
+
+.sidebar-user:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .sidebar-user-avatar {
@@ -997,6 +1005,7 @@ textarea {
 .page-stack {
   display: grid;
   gap: 24px;
+  min-width: 0;
 }
 
 .page-header {
@@ -1168,6 +1177,153 @@ textarea {
   gap: 20px;
 }
 
+/* Commercial home: a calm, executive-style landing page - a handful of
+   stats, one static workflow reminder, at most three derived next actions,
+   and quick links. No tables, no activity feed, no operational queue. */
+.commercial-dashboard { gap: 22px; }
+
+.commercial-dashboard-welcome {
+  padding: 22px 26px;
+  border-block: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.48);
+}
+.commercial-dashboard-welcome h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 2.8vw, 2.45rem); line-height: 1.08; }
+.commercial-dashboard-welcome p { margin: 0 0 4px; color: var(--muted); font-size: 1.02rem; }
+.commercial-dashboard-welcome .commercial-welcome-sub { margin: 0 0 18px; font-size: 0.92rem; }
+.commercial-dashboard-welcome .button { margin-top: 6px; }
+
+.commercial-stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+.commercial-stat-cell {
+  display: grid;
+  gap: 4px;
+  padding: 20px 18px;
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+  transition: background 160ms ease;
+}
+.commercial-stat-cell:hover { background: var(--accent-soft); }
+.commercial-stat-cell strong { font-size: clamp(1.9rem, 2.4vw, 2.3rem); font-weight: 800; line-height: 1; color: var(--ink); }
+.commercial-stat-cell span { color: var(--ink-soft); font-size: 0.82rem; font-weight: 600; }
+
+.commercial-workflow-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 22px 18px;
+  flex-wrap: wrap;
+}
+.commercial-workflow-visual-step { display: flex; align-items: center; gap: 14px; }
+.commercial-workflow-visual-step > span { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 0.86rem; font-weight: 700; white-space: nowrap; }
+.commercial-workflow-visual-step i { font-style: normal; color: var(--accent); font-size: 0.7rem; }
+.commercial-workflow-visual-step:first-child > span { color: var(--ink); }
+.commercial-workflow-visual-step em { font-style: normal; color: var(--line-strong); }
+
+.commercial-all-clear { display: flex; align-items: center; gap: 14px; padding: 18px 4px; }
+.commercial-all-clear > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--success-soft); color: var(--success); font-weight: 900; }
+.commercial-all-clear strong { color: var(--ink); }
+.commercial-all-clear p { margin: 3px 0 0; color: var(--muted); }
+
+.commercial-next-actions .section-header { padding-block: 14px; }
+.commercial-next-actions .section-header h2 { margin: 0; font-size: 1.15rem; }
+.commercial-next-action-list { padding-block: 0; }
+.commercial-next-action-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(24, 36, 47, 0.08);
+}
+.commercial-next-action-row:last-child { border-bottom: 0; }
+.commercial-next-action-index { color: var(--accent-strong); font-size: 0.9rem; font-weight: 800; }
+.commercial-next-action-row div { display: grid; gap: 2px; min-width: 0; }
+.commercial-next-action-row strong { color: var(--ink); }
+.commercial-next-action-row p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+.commercial-next-action-link { color: var(--accent-strong); font-weight: 700; font-size: 0.86rem; text-decoration: none; white-space: nowrap; }
+
+.commercial-dashboard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 4px 2px;
+}
+.commercial-unassigned-note { color: var(--muted); font-size: 0.86rem; font-weight: 600; text-decoration: none; }
+.commercial-unassigned-note:hover { color: var(--ink); }
+
+.commercial-quick-access { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin-left: auto; }
+.commercial-quick-access span:first-child { color: var(--muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.commercial-quick-access a { color: var(--ink-soft); font-size: 0.9rem; font-weight: 700; text-decoration: none; }
+.commercial-quick-access a:hover { color: var(--accent-strong); }
+
+@media (max-width: 1100px) {
+  .commercial-stats-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .commercial-dashboard-welcome { padding-inline: 14px; }
+  .commercial-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .commercial-workflow-visual { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .commercial-workflow-visual-step { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .commercial-workflow-visual-step em { display: none; }
+  .commercial-next-action-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .commercial-next-action-link { grid-column: 2; }
+  .commercial-dashboard-footer { flex-direction: column; align-items: flex-start; }
+  .commercial-quick-access { margin-left: 0; }
+}
+
+.commercial-section-workspace { gap: 16px; }
+.commercial-section-header { padding: 3px 2px 6px; }
+.commercial-section-header h1 { margin: 0 0 4px; font-size: clamp(1.6rem, 2.3vw, 2.05rem); }
+.commercial-section-header p { margin: 0; color: var(--muted); }
+.commercial-section-summary { display: flex; align-items: stretch; border-block: 1px solid var(--line); background: rgba(255,255,255,.5); }
+.commercial-section-summary > div { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 9px; min-width: 180px; padding: 12px 20px; border-right: 1px solid var(--line); }
+.commercial-section-summary strong { color: var(--accent-strong); font-size: 1.4rem; }
+.commercial-section-summary span { color: var(--ink-soft); font-size: .82rem; font-weight: 700; }
+.commercial-filter-bar { display: flex; gap: 4px; padding: 12px 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.commercial-filter-bar button { display: inline-flex; gap: 7px; padding: 7px 11px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: .82rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.commercial-filter-bar button.active { background: var(--accent-soft); color: var(--accent-strong); }
+.commercial-filter-bar button span { opacity: .75; }
+.commercial-workspace-list { padding: 0 18px 4px; }
+.commercial-workspace-row { display: grid; align-items: center; gap: 16px; min-width: 0; padding: 13px 0; border-bottom: 1px solid rgba(24,36,47,.08); }
+.commercial-workspace-row:last-child { border-bottom: 0; }
+.commercial-workspace-row.cdc { grid-template-columns: minmax(260px,1.5fr) minmax(170px,.7fr) max-content; }
+.commercial-workspace-row.fci { grid-template-columns: minmax(220px,1fr) minmax(260px,1.25fr) minmax(150px,.7fr) max-content; }
+.commercial-workspace-row.gonogo { grid-template-columns: minmax(220px,1.1fr) 150px minmax(150px,.7fr) max-content max-content; }
+.commercial-workspace-row > div { display: grid; gap: 3px; min-width: 0; }
+.commercial-workspace-row > div > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commercial-workspace-row small { color: var(--muted); }
+.commercial-workspace-row .status-badge { justify-self: start; }
+.fci-lane { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.fci-lane span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78rem; }
+.fci-lane b { color: var(--ink); }
+.availability { color: var(--muted); font-size: .8rem; }
+.availability.yes { color: var(--success); font-weight: 700; }
+.gonogo-readiness span { color: var(--success); font-size: .78rem; }
+.commercial-history-stream { padding: 4px 18px 12px; }
+.commercial-history-event { display: grid; grid-template-columns: 150px 12px minmax(0,1fr); gap: 14px; padding: 13px 0; border-bottom: 1px solid rgba(24,36,47,.08); }
+.commercial-history-event time { color: var(--muted); font-size: .78rem; }
+.commercial-history-event > div { display: grid; gap: 3px; }
+.commercial-history-event > div span,.commercial-history-event > div small { color: var(--muted); }
+.commercial-history-description { font-style: italic; }
+.history-dot { width: 9px; height: 9px; margin-top: 4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.history-dot.fci { background: var(--status-info); box-shadow: 0 0 0 3px rgba(36,95,168,.12); }
+.history-dot.gonogo { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-soft); }
+.history-dot.decision { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+.history-dot.tone-warning { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-soft); }
+.history-dot.tone-danger { background: var(--danger); box-shadow: 0 0 0 3px rgba(190,60,60,.14); }
+@media (max-width: 1050px) { .commercial-section-summary { overflow-x:auto; } .commercial-workspace-row.cdc,.commercial-workspace-row.fci,.commercial-workspace-row.gonogo { grid-template-columns: minmax(220px,1fr) minmax(220px,1fr) max-content; } .commercial-workspace-row.fci .availability,.commercial-workspace-row.gonogo > div:nth-child(3) { display:none; } }
+@media (max-width: 700px) { .commercial-section-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .commercial-section-summary > div { min-width:0; border-bottom:1px solid var(--line); } .commercial-workspace-row.cdc,.commercial-workspace-row.fci,.commercial-workspace-row.gonogo { grid-template-columns:1fr; align-items:start; } .commercial-workspace-row .button { width:100%; } .commercial-history-event { grid-template-columns:12px minmax(0,1fr); } .commercial-history-event time { grid-column:2; } }
+
 .finance-hero {
   position: relative;
   overflow: hidden;
@@ -1218,6 +1374,66 @@ textarea {
 
 .finance-dossiers-panel {
   min-width: 0;
+}
+
+/* The Commercial tracking view is a semantic seven-column table. Keep it out
+   of the five-column CSS Grid used by the Finance/Operations dossier cards. */
+.commercial-tracking-table-shell {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.commercial-tracking-table {
+  display: table;
+  width: 100%;
+  min-width: 1120px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.commercial-tracking-table th,
+.commercial-tracking-table td {
+  padding: 13px 14px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(24, 36, 47, 0.08);
+}
+
+.commercial-tracking-table th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.commercial-tracking-table th:nth-child(1) { width: 28%; }
+.commercial-tracking-table th:nth-child(2),
+.commercial-tracking-table th:nth-child(3),
+.commercial-tracking-table th:nth-child(4) { width: 13%; }
+.commercial-tracking-table th:nth-child(5) { width: 13%; }
+.commercial-tracking-table th:nth-child(6) { width: 12%; }
+.commercial-tracking-table th:nth-child(7) { width: 8%; }
+
+.commercial-tracking-table .finance-dossiers-main,
+.commercial-tracking-table .finance-dossiers-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.commercial-tracking-table .finance-dossiers-copy strong,
+.commercial-tracking-table .finance-dossiers-copy span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.commercial-tracking-table td:nth-child(5) .status-badge,
+.commercial-tracking-table td:last-child .button {
+  white-space: nowrap;
 }
 
 /* Same 4th-column-less table as finance-dossiers-table, minus Priorite/Echeance:
@@ -2964,6 +3180,9 @@ textarea {
 }
 
 .workspace-tabs-scroll {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -3730,13 +3949,212 @@ textarea {
 
 .workspace-stack {
   gap: 18px;
+  min-width: 0;
+}
+
+/* Tender overview: one visual stepper, one connected status panel, a
+   compact key-facts list and recent activity. Scoped to the overview tab
+   only - other tabs keep their existing card styles. */
+.tender-overview { gap: 20px; }
+
+.tender-overview-summary {
+  display: grid;
+  gap: 22px;
+  padding: 26px 28px;
+  border: 1px solid rgba(24, 36, 47, 0.08);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, #ffffff 0%, #fafcfb 100%);
+}
+
+.tender-stepper {
+  display: flex;
+  align-items: flex-start;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tender-stepper-item {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.tender-stepper-item:last-child { flex: 0 0 auto; }
+
+.tender-stepper-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  min-width: 76px;
+  text-align: center;
+}
+
+.tender-stepper-marker {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.tender-stepper-step.is-complete .tender-stepper-marker {
+  border-color: var(--success);
+  background: var(--success);
+  color: #fff;
+}
+
+.tender-stepper-step.is-current .tender-stepper-marker {
+  border-color: var(--accent);
+  background: var(--panel);
+  position: relative;
+}
+
+.tender-stepper-step.is-current .tender-stepper-marker::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.tender-stepper-step.is-blocked .tender-stepper-marker {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.tender-stepper-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.tender-stepper-step.is-complete .tender-stepper-label,
+.tender-stepper-step.is-current .tender-stepper-label {
+  color: var(--ink);
+}
+
+.tender-stepper-connector {
+  flex: 1;
+  height: 2px;
+  min-width: 20px;
+  margin: 0 6px;
+  margin-top: 13px;
+  background: var(--line);
+}
+
+.tender-stepper-connector.is-complete {
+  background: var(--success);
+}
+
+.tender-status-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(24, 36, 47, 0.08);
+}
+
+.tender-status-panel h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: var(--ink);
+}
+
+.tender-decision-panel {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 20px 22px;
+  border-radius: 16px;
+}
+
+.tender-decision-panel.is-go {
+  background: var(--success-soft);
+}
+
+.tender-decision-panel.is-nogo {
+  background: rgba(24, 36, 47, 0.06);
+}
+
+.tender-decision-outcome {
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.tender-decision-panel.is-go .tender-decision-outcome { color: var(--success); }
+.tender-decision-panel.is-nogo .tender-decision-outcome { color: var(--ink-soft); }
+
+.tender-decision-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.tender-decision-rationale {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.tender-key-info {
+  display: grid;
+  margin: 0;
+}
+
+.tender-key-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(24, 36, 47, 0.07);
+}
+
+.tender-key-info-row:last-child { border-bottom: 0; }
+
+.tender-key-info-row dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.tender-key-info-row dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .tender-overview-summary { padding: 20px; }
+  .tender-stepper { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .tender-stepper-item { flex-direction: column; align-items: flex-start; width: 100%; }
+  .tender-stepper-step { flex-direction: row; min-width: 0; text-align: left; }
+  .tender-stepper-connector { display: none; }
+  .tender-key-info-row { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .tender-key-info-row dd { text-align: left; }
 }
 
 .workspace-tabs-card {
+  min-width: 0;
   overflow: hidden;
 }
 
 .workspace-tabs-panel {
+  min-width: 0;
   padding-top: 14px;
 }
 
@@ -4077,6 +4495,28 @@ textarea {
 .appel-offres-create-body {
   gap: 18px;
 }
+
+.appel-offres-create-steps {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.appel-offres-create-step { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.86rem; font-weight: 700; }
+.appel-offres-create-step-index {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  font-size: 0.78rem;
+}
+.appel-offres-create-step.is-current { color: var(--ink); }
+.appel-offres-create-step.is-current .appel-offres-create-step-index { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
+.appel-offres-create-step.is-done .appel-offres-create-step-index { border-color: var(--success); color: var(--success); }
+.appel-offres-create-step > i { font-style: normal; color: var(--line-strong); }
 
 .minimal-create-layout {
   align-items: stretch;

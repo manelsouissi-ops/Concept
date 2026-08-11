@@ -216,6 +216,61 @@ test("applyValidatedExtractionIdentity fills country and a parseable deadline fr
   assert.equal(updated?.dueDate, "2026-04-20");
 });
 
+test("applyValidatedExtractionIdentity safely fills only an empty reference", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await ensureAppelsOffresSchema();
+
+  async function createReferenceTender(reference: string) {
+    const code = `IDENTITY-TEST-${randomUUID().slice(0, 8).toUpperCase()}`;
+    cleanupCodes.add(code);
+    await createAppelOffres({
+      code,
+      title: code,
+      reference,
+      buyer: "",
+      country: "",
+      dueDate: null,
+      notes: "",
+      priorite: "normale",
+      responsableCommercial: "",
+      status: "ready",
+      businessStatus: "fiche_validee",
+      source: "manual"
+    });
+    return code;
+  }
+
+  const emptyCode = await createReferenceTender("");
+  const populated = await applyValidatedExtractionIdentity(emptyCode, {
+    title: null,
+    buyer: null,
+    reference: "CI-PARU-365151-CS-QCBS/003/2024"
+  });
+  assert.equal(populated?.reference, "CI-PARU-365151-CS-QCBS/003/2024");
+
+  const manualCode = await createReferenceTender("Reference saisie manuellement");
+  const preserved = await applyValidatedExtractionIdentity(manualCode, {
+    title: null,
+    buyer: null,
+    reference: "CI-PARU-365151-CS-QCBS/003/2024"
+  });
+  assert.equal(preserved?.reference, "Reference saisie manuellement");
+
+  for (const missingReference of ["Non trouvé", "", null]) {
+    const missingCode = await createReferenceTender("");
+    const unchanged = await applyValidatedExtractionIdentity(missingCode, {
+      title: null,
+      buyer: null,
+      reference: missingReference
+    });
+    assert.equal(unchanged?.reference, "");
+  }
+});
+
 test("applyValidatedExtractionIdentity never overwrites a confirmed country/due date with an empty or unparseable extraction", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");

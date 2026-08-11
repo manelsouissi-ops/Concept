@@ -1,9 +1,10 @@
 import { AppelsOffresListView } from "@/components/appels-offres-list-view.tsx";
 import { EmptyState } from "@/components/empty-state.tsx";
 import { PageHeader } from "@/components/page-header.tsx";
-import { buildDashboardRowAction, buildDashboardStatusDisplay } from "@/lib/appels-offres/dashboard.ts";
+import { buildDashboardRowAction } from "@/lib/appels-offres/dashboard.ts";
 import { listFciOverallStatusesByAppelOffresCodes } from "@/lib/appels-offres/fci/repository.ts";
 import { buildAppelOffresSummary } from "@/lib/appels-offres/presentation.ts";
+import { deriveTenderStage } from "@/lib/appels-offres/tender-stage.ts";
 import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
 import {
   getAppelOffresDetailByCode,
@@ -37,10 +38,11 @@ export default async function AppelsOffresPage({
     const items = details.map((detail) => {
       const summary = buildAppelOffresSummary(detail);
       const fciStatus = fciStatusByCode.get(detail.code) ?? null;
+      const stage = deriveTenderStage({ detail, fciOverallStatus: fciStatus });
 
       return {
         ...summary,
-        statusDisplay: buildDashboardStatusDisplay(summary, fciStatus),
+        statusDisplay: { label: stage.label, tone: stage.tone },
         rowAction: buildDashboardRowAction(detail.code, summary, fciStatus)
       };
     });

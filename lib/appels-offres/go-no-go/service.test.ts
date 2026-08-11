@@ -8,7 +8,12 @@ import { randomUUID } from "node:crypto";
 import { EVALUATION_FIELD_DEFINITIONS, EXTRACTION_FIELD_DEFINITIONS, type FichePayload } from "../../types.ts";
 import { serializeFiche } from "../../fiche-xml.ts";
 import { DATA_ROOT, createDraftBundle, markFicheValidated, projectDir } from "../../storage.ts";
-import { closeAppelsOffresPool, createAppelOffres, ensureAppelsOffresSchema } from "../repository.ts";
+import {
+  closeAppelsOffresPool,
+  createAppelOffres,
+  ensureAppelsOffresSchema,
+  setAppelOffresBusinessStatus
+} from "../repository.ts";
 import { closeFciPool, ensureFciSchema } from "../fci/repository.ts";
 import {
   FciServiceError,
@@ -267,6 +272,9 @@ async function createTestAppelOffres() {
     markdown: `# ${code}`
   });
   await markFicheValidated(code);
+  // Mirrors the real /api/fiche/[code]/validate route, which flips both the
+  // file-based fiche status and the DB businessStatus column together.
+  await setAppelOffresBusinessStatus(code, "fiche_validee");
 
   await loadPersistedActors();
   await assignCommercialOwner({

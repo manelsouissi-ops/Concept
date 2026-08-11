@@ -38,7 +38,7 @@ export function buildNotificationCopy(input: {
   switch (input.eventType) {
     case "FCI_ASSIGNED":
       return {
-        title: `Contribution ${moduleLabel} affectee`,
+        title: `Nouvelle FCI ${moduleLabel} à compléter`,
         message: assignedUserName
           ? `Le module ${moduleLabel} du dossier ${input.appelOffreCode} vous a ete affecte.`
           : `Le module ${moduleLabel} du dossier ${input.appelOffreCode} a ete affecte.`

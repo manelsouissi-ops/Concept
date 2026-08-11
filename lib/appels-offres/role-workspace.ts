@@ -43,16 +43,16 @@ const DEPARTMENT_NAVIGATION: NavigationItemDefinition[] = [
     area: "dashboard"
   },
   {
-    label: "Mes dossiers",
-    href: "/dashboard?section=dossiers#finance-dossiers",
+    label: "Mes FCI",
+    href: "/dashboard?section=modules#finance-modules",
     iconKey: "folder",
     area: "dashboard"
   },
   {
-    label: "Mes modules FCI",
-    href: "/dashboard?section=modules#finance-modules",
-    iconKey: "database",
-    area: "dashboard"
+    label: "Appels d'offres",
+    href: "/appels-offres",
+    iconKey: "folder",
+    area: "appels_offres"
   },
   {
     label: "Historique",
@@ -70,9 +70,7 @@ const DEPARTMENT_NAVIGATION: NavigationItemDefinition[] = [
 
 // FINANCE/OPERATIONS have one job (complete + validate their own FCI module), so
 // their home page IS the module task list - "Mes dossiers" would just duplicate it.
-const DEPARTMENT_MINIMAL_NAVIGATION: NavigationItemDefinition[] = DEPARTMENT_NAVIGATION.filter(
-  (item) => item.label !== "Mes dossiers"
-);
+const DEPARTMENT_MINIMAL_NAVIGATION: NavigationItemDefinition[] = DEPARTMENT_NAVIGATION;
 
 const DECISION_NAVIGATION: NavigationItemDefinition[] = [
   {
@@ -83,7 +81,7 @@ const DECISION_NAVIGATION: NavigationItemDefinition[] = [
   },
   {
     label: "Décisions Go/No-Go",
-    href: "/dashboard?section=queue#decision-queue",
+    href: "/dashboard?section=decisions#decision-queue",
     iconKey: "folder",
     area: "dashboard"
   },
@@ -109,32 +107,32 @@ const COMMERCIAL_COORDINATION_NAVIGATION: NavigationItemDefinition[] = [
     area: "dashboard"
   },
   {
-    label: "Mes dossiers",
+    label: "Appels d'offres",
     href: "/appels-offres",
     iconKey: "folder",
     area: "appels_offres"
   },
   {
-    label: "FCIs a suivre",
-    href: "/dashboard?section=tracking#commercial-tracking",
+    label: "Mes Fiches CDC",
+    href: "/fiches-cdc",
+    iconKey: "library",
+    area: "appels_offres"
+  },
+  {
+    label: "Mes FCI",
+    href: "/mes-fci",
     iconKey: "database",
     area: "dashboard"
   },
   {
-    label: "Prets pour Go/No-Go",
-    href: "/dashboard?section=ready#commercial-ready",
+    label: "Go/No-Go",
+    href: "/go-no-go",
     iconKey: "library",
     area: "dashboard"
   },
   {
-    label: "En attente DG",
-    href: "/dashboard?section=dg#commercial-awaiting-dg",
-    iconKey: "folder",
-    area: "dashboard"
-  },
-  {
     label: "Historique",
-    href: "/dashboard?section=history#commercial-history",
+    href: "/history",
     iconKey: "library",
     area: "dashboard"
   },

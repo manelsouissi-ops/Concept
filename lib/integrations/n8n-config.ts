@@ -62,3 +62,24 @@ export function getN8nIntegrationConfig(): N8nIntegrationConfig {
 export function buildCanonicalCallbackUrl(baseUrl: string) {
   return `${normalizeBaseUrl(baseUrl)}/api/fiche/callbacks/n8n`;
 }
+
+export function buildDocumentProcessingCallbackUrl(baseUrl: string) {
+  return `${normalizeBaseUrl(baseUrl)}/api/documents/callbacks/n8n`;
+}
+
+export type CdcWorkflowMode = "legacy" | "split";
+
+export function getCdcWorkflowMode(): CdcWorkflowMode {
+  const value = process.env.CDC_WORKFLOW_MODE?.trim().toLowerCase() || "legacy";
+  if (value !== "legacy" && value !== "split") {
+    throw new Error("La variable d'environnement CDC_WORKFLOW_MODE doit valoir legacy ou split.");
+  }
+  return value;
+}
+
+export function getSplitN8nWebhookUrls() {
+  return {
+    documentProcessingUrl: requireNonEmptyEnv("N8N_DOCUMENT_PROCESSING_WEBHOOK_URL"),
+    cdcExtractionUrl: requireNonEmptyEnv("N8N_CDC_EXTRACTION_WEBHOOK_URL")
+  };
+}
