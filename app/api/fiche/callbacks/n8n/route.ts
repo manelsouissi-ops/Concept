@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { applyCanonicalN8nCallback } from "@/lib/appels-offres/analysis.ts";
 import { validateCallbackPayload, N8nContractValidationError } from "@/lib/integrations/n8n-contract.ts";
 import { getN8nIntegrationConfig } from "@/lib/integrations/n8n-config.ts";
@@ -6,6 +6,7 @@ import {
   N8nCallbackAuthError,
   verifyN8nCallbackAuthentication
 } from "@/lib/integrations/n8n-callback-auth.ts";
+import { runLocalRagShadowAfterOfficialSuccess } from "@/lib/integrations/local-rag-shadow.ts";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,19 @@ export async function POST(request: Request) {
 
     const payload = validateCallbackPayload(parsedBody, config.contractVersion);
     const result = await applyCanonicalN8nCallback(payload);
+    if (
+      payload.status === "COMPLETED"
+      && result.httpStatus === 200
+      && result.body.applied === true
+    ) {
+      after(async () => {
+        await runLocalRagShadowAfterOfficialSuccess({
+          codeInterne: payload.code_interne,
+          processingJobId: payload.processing_job_id,
+          correlationId: payload.correlation_id
+        });
+      });
+    }
     return NextResponse.json(result.body, { status: result.httpStatus });
   } catch (error) {
     if (error instanceof N8nCallbackAuthError) {

@@ -114,6 +114,31 @@ class LocalRagBoundaryTests(unittest.TestCase):
             )
         )
 
+    def test_shadow_comparison_has_exact_34_field_statuses(self):
+        local = {
+            "fields": {
+                key: {"value": None, "source_chunks": []}
+                for key in server.EXTRACTION_FIELDS
+            },
+            "validation": {"passed": True},
+        }
+        local["fields"]["reference_officielle"]["value"] = "DP 123"
+        xml = server.build_xml(
+            "AO-TEST",
+            local["fields"],
+            {
+                "complexite_technique": {"note": 1, "justification": "Test"},
+                "difficulte_terrain": {"note": 1, "justification": "Test"},
+                "risque_sous_dimensionnement": {"note": 1, "justification": "Test", "charge_estimee": "Test"},
+            },
+            server.deterministic_control(local["fields"]),
+        )
+        comparison = server.compare_shadow(local, xml)
+        self.assertEqual(comparison["fields_total"], 34)
+        self.assertEqual(len(comparison["fields"]), 34)
+        self.assertEqual(comparison["fields"]["reference_officielle"]["match_status"], "EXACT_MATCH")
+        self.assertEqual(comparison["both_null"], 33)
+
     def test_semantic_comparison_rejects_different_values(self):
         self.assertFalse(server.values_agree("06/08/2024", "08/06/2024"))
 

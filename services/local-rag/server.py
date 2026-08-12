@@ -50,6 +50,7 @@ from canonical import (  # noqa: E402
     FIELD_QUERIES,
     FIELD_ROUTES,
     FIELD_RULES,
+    NON_TROUVE,
     build_xml,
     deterministic_control,
     validate_canonical_xml,
@@ -459,24 +460,51 @@ def xml_values(xml: str) -> dict[str, str | None]:
         root = ET.fromstring(xml)
     except ET.ParseError as error:
         raise ServiceError("Authoritative Gemini XML is invalid.", code="AUTHORITATIVE_XML_INVALID", status=422) from error
-    return {key: ((root.findtext(f"./extraction/{tag}") or "").strip() or None) for key, tag in XML_FIELD_MAP.items()}
+    values = {}
+    for key, tag in XML_FIELD_MAP.items():
+        text = (root.findtext(f"./extraction/{tag}") or "").strip()
+        values[key] = None if not text or normalize_for_compare(text) == normalize_for_compare(NON_TROUVE) else text
+    return values
 
 
 def compare_shadow(local: dict, authoritative_xml: str) -> dict:
     gemini = xml_values(authoritative_xml)
     comparisons = {}
-    disagreements = []
-    missing = []
+    counts = {status: 0 for status in ("EXACT_MATCH", "NORMALIZED_MATCH", "DIFFERENT", "GEMINI_ONLY", "LOCAL_ONLY", "BOTH_NULL")}
     for key in EXTRACTION_FIELDS:
         local_value = local["fields"][key]["value"]
         gemini_value = gemini[key]
-        agrees = values_agree(local_value, gemini_value)
-        comparisons[key] = {"gemini": gemini_value, "local": local_value, "agrees": agrees, "source_chunks": local["fields"][key]["source_chunks"]}
-        if not local_value or not gemini_value:
-            missing.append(key)
-        elif not agrees:
-            disagreements.append(key)
-    return {"fields": comparisons, "disagreements": disagreements, "missing_fields": missing, "local_validation_passed": local["validation"]["passed"]}
+        if not gemini_value and not local_value:
+            status = "BOTH_NULL"
+        elif gemini_value and not local_value:
+            status = "GEMINI_ONLY"
+        elif local_value and not gemini_value:
+            status = "LOCAL_ONLY"
+        elif str(gemini_value).strip() == str(local_value).strip():
+            status = "EXACT_MATCH"
+        elif values_agree(local_value, gemini_value):
+            status = "NORMALIZED_MATCH"
+        else:
+            status = "DIFFERENT"
+        counts[status] += 1
+        comparisons[key] = {
+            "field_name": key,
+            "gemini_value": gemini_value,
+            "local_value": local_value,
+            "match_status": status,
+            "source_chunks": local["fields"][key]["source_chunks"],
+        }
+    return {
+        "fields_total": len(EXTRACTION_FIELDS),
+        "fields": comparisons,
+        "exact_matches": counts["EXACT_MATCH"],
+        "normalized_matches": counts["NORMALIZED_MATCH"],
+        "differences": counts["DIFFERENT"],
+        "gemini_only": counts["GEMINI_ONLY"],
+        "local_only": counts["LOCAL_ONLY"],
+        "both_null": counts["BOTH_NULL"],
+        "local_validation_passed": local["validation"]["passed"],
+    }
 
 
 def normalize_for_compare(value: object) -> str:
@@ -598,7 +626,17 @@ class Handler(BaseHTTPRequestHandler):
                 "comparison": comparison,
             }
             log_path, recorded = write_shadow_log(record)
-            self.send_json(200, {"status": "recorded" if recorded else "duplicate", "authoritative_provider": "gemini", "local_persisted": False, "comparison": comparison, "local_metrics": local["metrics"], "log_file": str(log_path)})
+            self.send_json(200, {
+                "status": "recorded" if recorded else "duplicate",
+                "authoritative_provider": "gemini",
+                "local_persisted": False,
+                "local_model": local["generation_model"],
+                "embedding_model": local["embedding_model"],
+                "local_validation_status": "SUCCESS",
+                "comparison": comparison,
+                "local_metrics": local["metrics"],
+                "log_file": str(log_path),
+            })
         except ServiceError as error:
             self.send_json(error.status, {"error": str(error), "code": error.code})
         except Exception as error:
