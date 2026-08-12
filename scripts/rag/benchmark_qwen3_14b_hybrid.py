@@ -169,14 +169,17 @@ def preceding_headings(markdown: str, text: str, start: int, all_headings: list[
 def populated_front_matter(markdown: str) -> str | None:
     """Build a compact populated cover block and stop before TOC contamination."""
     lines = markdown.splitlines()
-    start = next((i for i, line in enumerate(lines) if re.match(r"^##\s+(DP|DAO|AMI)\s+(No|N[o°])\s*:", line, re.I)), None)
+    start = next((i for i, line in enumerate(lines) if re.match(
+        r"^##\s+(?:(?:DP|DAO|AMI)\s+(?:No|N[o°])\s*:|DOSSIER\s+DE\s+DEMANDE\s+DE\s+PROPOSITIONS)",
+        line, re.I,
+    )), None)
     if start is None:
         return None
     end = next((i for i in range(start + 1, min(len(lines), start + 80)) if re.match(r"^##\s+TABLE DES MATI", lines[i], re.I)), min(len(lines), start + 40))
     raw = lines[start:end]
     kept = []
     pending_label = None
-    labels = re.compile(r"^(Client|Pays|Emis le|Date|DP\s*N[o°]|Pr[eê]t/Cr[eé]dit/Don\s*N[o°]|Services de Consultant pour|D[eé]signation de la Mission)\s*:\s*(.*)$", re.I)
+    labels = re.compile(r"^(Client|Pays|Emis le|Date|DP\s*N[o°]|Cr[eé]dit\s*N[o°]|Pr[eê]t\s*N[o°]|Don\s*N[o°]|Pr[eê]t/Cr[eé]dit/Don\s*N[o°]|Services de Consultant pour|D[eé]signation de la Mission|Passation de March[eé]s de)\s*:\s*(.*)$", re.I)
     for line in raw:
         clean = line.strip()
         if not clean or "insérer" in clean.lower() or re.fullmatch(r"[.…/\s-]+(?:20\d\d)?", clean):
@@ -200,13 +203,13 @@ def populated_front_matter(markdown: str) -> str | None:
 
 def populated_financing_matter(markdown: str) -> str | None:
     """Compact populated financing/project facts from the invitation section."""
-    start = markdown.find("## DP No :")
-    if start < 0:
-        start = 0
-    end = markdown.find("## Section 2 Instructions aux Candidats", start)
+    starts = [position for marker in ("## DP No :", "## Lettre de Demande de Propositions", "## Services de Consultant") if (position := markdown.find(marker)) >= 0]
+    start = min(starts) if starts else 0
+    ends = [position for marker in ("## Section 2 Instructions aux Candidats", "## E. Données particulières") if (position := markdown.find(marker, start)) > start]
+    end = min(ends) if ends else -1
     probe = markdown[start:end if end > start else min(len(markdown), start + 60000)]
     kept = []
-    label_pattern = re.compile(r"^(Pr[eê]t/Cr[eé]dit/Don\s*N[o°]?|DP\s*N[o°]?|D[eé]signation de la Mission|Pays)\s*:\s*(.*)$", re.I)
+    label_pattern = re.compile(r"^(Pr[eê]t/Cr[eé]dit/Don\s*N[o°]?|Cr[eé]dit\s*N[o°]?|Pr[eê]t\s*N[o°]?|Don\s*N[o°]?|DP\s*N[o°]?|D[eé]signation de la Mission|Client|Pays|Date|Emis le)\s*:\s*(.*)$", re.I)
     lines = probe.splitlines()
     for index, line in enumerate(lines):
         clean = line.strip().removeprefix("## ")
@@ -395,7 +398,39 @@ def placeholder_penalty(text: str) -> float:
     normalized = " ".join(tokens(text))
     placeholder = bool(re.search(r"\bins[eé]rer\b|\bà compl[eé]ter\b|\.{4,}|…{2,}|\[\s*(nom|date|r[eé]f)", text, re.I))
     populated = bool(re.search(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b|\b[A-Z]{2,}(?:[-/][A-Z0-9]+){2,}\b|\b[A-Z]{2,}-[A-Z]{2,}\b", text))
-    return 0.0 if not placeholder or populated else 0.025
+    alternatives = bool(re.search(r"\bPTC\s+(?:ou|et|/)\s+PTS\b|\bpr[eê]t\s*/\s*cr[eé]dit\s*/\s*don\b", text, re.I))
+    instructional = bool(re.search(r"\b(?:veuillez|doit indiquer|indiquer|s[eé]lectionnez|comme indiqu[eé]|selon les donn[eé]es particuli[eè]res)\b", text, re.I))
+    if placeholder and not populated:
+        return 0.07
+    if alternatives or instructional:
+        return 0.045
+    return 0.0
+
+
+def populated_value_score(key: str, text: str) -> float:
+    """Reward project-populated structural values, independent of tender vocabulary."""
+    if key == "type_proposition" and re.search(r"\bPTC\b", text, re.I) and re.search(r"\bPTS\b", text, re.I):
+        return 0.0
+    patterns = {
+        "intitule_mission": r"(?:d[eé]signation de la mission|services? de consultants? pour)\s*:\s*\S.{8,}",
+        "client_maitre_ouvrage": r"(?:nom du client|client|ma[iî]tre d.ouvrage)\s*:\s*\S.{3,}",
+        "pays": r"\bpays\s*:\s*[A-ZÀ-ÖØ-Þ][^|\n]{2,}",
+        "projet_rattachement": r"(?:financer le co[uû]t du|dans le cadre du)\s+projet\s+\S.{5,}",
+        "credit_financement": r"(?:cr[eé]dit|pr[eê]t|don|financement)\s*(?:n[o°.]|num[eé]ro)?\s*:\s*[A-Z0-9][A-Z0-9./_-]*\d[A-Z0-9./_-]*",
+        "methode_selection": r"(?:mode|m[eé]thode) de s[eé]lection\s*:\s*\S.{3,}|sera choisi par la m[eé]thode de\s+\S.{3,}",
+        "nature_prestation": r"(?:d[eé]signation de la mission|services? de consultants? pour)\s*:\s*\S.{8,}",
+        "zone_execution": r"(?:localisation des zones|lieu d.ex[eé]cution|zones? des travaux).{0,500}(?:commune|quartier|site|talweg|bassin)",
+        "type_proposition": r"(?:\b15\.2\b.{0,180}|(?:doit fournir|est demand[eé]e)\s+une\s+proposition\s+technique\s+)(?:compl[eè]te|simplifi[eé]e?)\s*\(?(?:PTC|PTS)\)?",
+        "type_contrat": r"(?:section\s*8.{0,80}|contrat\s+type\s*:)\s*r[eé]mun[eé]ration\s+(?:au\s+temps\s+pass[eé]|forfaitaire)",
+        "date_emission": r"(?:emis le|date)\s*:\s*\d{1,2}[/-]\d{1,2}[/-]\d{4}",
+        "date_limite_depot": r"(?:17\.7|date et.{0,30}heure).{0,180}\d{1,2}[/-]\d{1,2}[/-]\d{4}",
+        "ponderation_technique_financiere": r"\bT\s*=\s*\d+.{0,80}\bF\s*=\s*\d+",
+        "duree_totale": r"(?:\b14\.1\.2\b.{0,160}|d[eé]lai de r[eé]alisation de la mission (?:est|:).{0,80})\b(?:jours?|mois)\b",
+        "volume_hommes_mois": r"\b14\.1\.3\b.{0,180}\d+(?:[,.]\d+)?\s*(?:expert|homme|H\.)[- .]?mois",
+        "phases_mission": r"\b14\.1\.2\b.{0,600}\bmobilisation\b.{0,600}\b(?:phase des travaux|garantie)\b",
+    }
+    pattern = patterns.get(key)
+    return 0.13 if pattern and re.search(pattern, text, re.I | re.S) else 0.0
 
 
 def field_signal(key: str, text: str) -> float:
@@ -453,6 +488,36 @@ def field_signal(key: str, text: str) -> float:
     return 0.04 if key in patterns and re.search(patterns[key], text, re.I | re.S) else 0.0
 
 
+def clause_semantics_score(key: str, text: str) -> float:
+    """Prefer operative/current clauses only for fields whose value is an obligation."""
+    operative_fields = {"contraintes_site", "outils_methodes", "moyens_materiels", "exigences_es", "normes_referentiels"}
+    if key not in operative_fields:
+        return 0.0
+    operative = bool(re.search(
+        r"\b(?:le consultant|le titulaire|l.entreprise|les prestations)\b.{0,100}\b(?:doit|devra|est tenu|comprennent?|mettre en [oœ]uvre|respecter|veiller|assurer|fournir)\b",
+        text, re.I | re.S,
+    ))
+    definition = bool(re.search(r"\b(?:signifie|d[eé]signe|est d[eé]fini(?:e)? comme|le terme|l.expression)\b", text, re.I))
+    qualification = bool(re.search(r"\b(?:dipl[oô]me|ann[eé]es? d.exp[eé]rience|qualification|CV)\b", text, re.I))
+    return (0.12 if operative else 0.0) - (0.09 if definition else 0.0) - (0.09 if qualification and key == "exigences_es" else 0.0)
+
+
+def historical_context_penalty(key: str, text: str) -> float:
+    """Down-rank past-project narrative for current procurement facts."""
+    current_fact_fields = {
+        "intitule_mission", "client_maitre_ouvrage", "credit_financement", "nature_prestation",
+        "type_procedure", "type_proposition", "type_contrat", "duree_totale", "volume_hommes_mois",
+        "nombre_profils_experts", "phases_mission", "livrables_principaux", "exigences_es",
+    }
+    if key not in current_fact_fields:
+        return 0.0
+    historical = bool(re.search(
+        r"\b(?:[eé]tudes? (?:d[eé]j[aà]|ant[eé]rieurement) r[eé]alis[eé]es?|projet (?:ant[eé]rieur|pr[eé]c[eé]dent)|anciens? travaux|en \d{4}.{0,80}(?:a [eé]t[eé]|ont [eé]t[eé])|historique)\b",
+        text, re.I | re.S,
+    ))
+    return 0.08 if historical else 0.0
+
+
 def section_route_score(key: str, node: TextNode) -> tuple[float, dict]:
     route = FIELD_ROUTES.get(key)
     family = str(node.metadata.get("section_family") or "other")
@@ -463,12 +528,32 @@ def section_route_score(key: str, node: TextNode) -> tuple[float, dict]:
     normalized = " ".join(tokens(node.text + " " + str(node.metadata.get("section_heading") or "")))
     anchor_hits = sum(1 for anchor in anchors if " ".join(tokens(anchor)) in normalized)
     exclusion_hits = sum(1 for signal in exclusions if " ".join(tokens(signal)) in normalized)
+    if key == "contraintes_site" and anchor_hits:
+        exclusion_hits = 0
     anchor_boost = min(0.045, anchor_hits * 0.018)
     exclusion_penalty = min(0.07, exclusion_hits * 0.035)
     # Compact structural nodes are preferred only when routed or anchored.
     profile_boost = 0.03 if node.metadata.get("chunk_profile") in {"compact_front_matter", "compact_table"} and (section_boost or anchor_boost) else 0.0
-    score = section_boost + anchor_boost + profile_boost - exclusion_penalty
-    return score, {"section_family": family, "section_boost": section_boost, "anchor_boost": anchor_boost, "exclusion_penalty": exclusion_penalty, "profile_boost": profile_boost}
+    targeted_patterns = {
+        "type_procedure": r"dossier de demande de propositions services de consultants|la pr[eé]sente demande de propositions",
+        "type_proposition": r"15\.2.{0,120}doit fournir une proposition technique compl[eè]te|doit fournir une proposition technique compl[eè]te \(PTC\)",
+        "note_technique_minimale": r"note technique \(nt\) minimum de qualification est\s*:\s*\d+\s*points",
+        "disciplines_techniques": r"tableau \d+\s*:\s*(composition|temps d.intervention).*personnel cl[eé]",
+        "contraintes_site": r"ravinement|[eé]rosion r[eé]gressive|inondation|profondeur moyenne|occupations anarchiques|d[eé]p[oô]ts sauvages|sites? (?:sont|[eé]tant) ind[eé]pendants|d[eé]calage de .{0,20} mois|maintien du service",
+        "exigences_es": r"doit soumettre son code de conduite|mesures pour faire face aux risques sociaux|travail forc[eé]|travail des enfants|EAS.{0,50}HS",
+    }
+    targeted_match = key in targeted_patterns and re.search(targeted_patterns[key], node.text, re.I | re.S)
+    targeted_allowed = (
+        key == "note_technique_minimale"
+        or key == "contraintes_site" and family == "sites"
+        or key not in {"note_technique_minimale", "contraintes_site"} and exclusion_hits == 0
+    )
+    targeted_boost = 0.14 if targeted_match and targeted_allowed else 0.0
+    populated_boost = populated_value_score(key, node.text)
+    clause_boost = clause_semantics_score(key, node.text)
+    historical_penalty = historical_context_penalty(key, node.text)
+    score = section_boost + anchor_boost + profile_boost + targeted_boost + populated_boost + clause_boost - exclusion_penalty - historical_penalty
+    return score, {"section_family": family, "section_boost": section_boost, "anchor_boost": anchor_boost, "exclusion_penalty": exclusion_penalty, "profile_boost": profile_boost, "targeted_boost": targeted_boost, "populated_value_boost": populated_boost, "clause_semantics_boost": clause_boost, "historical_penalty": historical_penalty}
 
 
 def ensure_collection(client: QdrantClient, collection: str, vector_size: int) -> None:

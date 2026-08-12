@@ -32,7 +32,9 @@ from benchmark_qwen3_14b_hybrid import (  # noqa: E402
     BM25,
     build_enhanced_nodes,
     ensure_collection,
+    populated_value_score,
     retrieve_modes,
+    section_route_score,
 )
 from poc_tender_rag import (  # noqa: E402
     DATA_ROOT,
@@ -133,9 +135,93 @@ def compact_field_snippet(key: str, text_value: str, heading: str | None) -> str
     return (prefix + body)[:3200]
 
 
+def select_field_candidates(key: str, ranked: list[dict], nodes: list) -> list[dict]:
+    """Select bounded structural continuations without changing global retrieval Top-K."""
+    limit = 1 if key in {"contraintes_site", "exigences_es"} else 2
+    structural_limits = {
+        "zone_execution": 4,
+        "volume_hommes_mois": 4,
+        "nombre_profils_experts": 5,
+        "profils_cles": 5,
+        "disciplines_techniques": 5,
+        "phases_mission": 4,
+        "livrables_principaux": 4,
+        "nombre_livrables_structurants": 4,
+        "moyens_materiels": 3,
+        "normes_referentiels": 3,
+        "points_techniques_structurants": 3,
+    }
+    selected = []
+
+    def add(item: dict) -> None:
+        if all(existing["node"].node_id != item["node"].node_id for existing in selected):
+            selected.append(item)
+
+    # A populated structural clause is authoritative over nearby templates.
+    populated = [node for node in nodes if populated_value_score(key, node.text) > 0]
+    populated.sort(key=lambda node: (-section_route_score(key, node)[0], str(node.node_id)))
+    scalar_populated_fields = {
+        "intitule_mission", "client_maitre_ouvrage", "pays", "zone_execution", "projet_rattachement",
+        "credit_financement", "nature_prestation", "type_proposition", "type_contrat",
+        "date_emission", "date_limite_depot", "ponderation_technique_financiere",
+        "methode_selection", "duree_totale", "volume_hommes_mois",
+    }
+    for node in populated[:1 if key in scalar_populated_fields else 2]:
+        existing = next((item for item in ranked if item["node"].node_id == node.node_id), None)
+        add(existing or {"node": node, **section_route_score(key, node)[1], "dense_rank": None, "lexical_rank": None, "routed_rank": None, "fused_rank": None, "reranked_rank": None})
+
+    if not populated or key not in scalar_populated_fields:
+        for item in ranked[:limit]:
+            add(item)
+
+    if key == "zone_execution":
+        continuations = [node for node in nodes if node.metadata.get("chunk_profile") == "structured_section" and node.metadata.get("section_family") == "sites" and not re.search(r"D[eé]signation des experts|Qualification|Temps de mobilisation", node.text, re.I)]
+    elif key in {"volume_hommes_mois", "nombre_profils_experts", "profils_cles", "disciplines_techniques"}:
+        continuations = [node for node in nodes if node.metadata.get("chunk_profile") == "compact_table" and re.search(
+            r"D[eé]signation des experts|Total Personnel cl[eé]|Temps de mobilisation|Composition de l.[eé]quipe",
+            node.text, re.I,
+        )]
+    elif key in {"livrables_principaux", "nombre_livrables_structurants", "phases_mission"}:
+        continuations = [node for node in nodes if node.metadata.get("chunk_profile") in {"compact_table", "structured_section"} and re.search(
+            r"Rapport de d[eé]marrage|rapport final|livrables?|production des rapports|phase (?:des travaux|pr[eé]paratoire|de garantie)",
+            node.text, re.I,
+        ) and not re.search(r"FORMULAIRE TECH-5|liste des livrables/t[aâ]ches", node.text, re.I)]
+    elif key in structural_limits:
+        primary = set(FIELD_ROUTES[key][0])
+        continuations = [node for node in nodes if node.metadata.get("section_family") in primary and section_route_score(key, node)[0] > 0]
+    else:
+        continuations = []
+    if key == "contraintes_site":
+        constraints = [node for node in nodes if re.search(
+            r"ravinement|[eé]rosion r[eé]gressive|inondation|occupations anarchiques|d[eé]p[oô]ts sauvages|sites? (?:sont|[eé]tant) ind[eé]pendants|d[eé]calage de .{0,20} mois|maintien du service",
+            node.text, re.I,
+        )]
+        constraints.sort(key=lambda node: (-section_route_score(key, node)[0], str(node.node_id)))
+        selected = []
+        for node in constraints[:1]:
+            existing = next((item for item in ranked if item["node"].node_id == node.node_id), None)
+            add(existing or {"node": node, **section_route_score(key, node)[1], "dense_rank": None, "lexical_rank": None, "routed_rank": None, "fused_rank": None, "reranked_rank": None})
+    continuations.sort(key=lambda node: (str(node.metadata.get("section_heading") or ""), str(node.metadata.get("chunk_index"))))
+    for node in continuations:
+        if len(selected) >= structural_limits.get(key, limit):
+            break
+        existing = next((item for item in ranked if item["node"].node_id == node.node_id), None)
+        add(existing or {"node": node, **section_route_score(key, node)[1], "dense_rank": None, "lexical_rank": None, "routed_rank": None, "fused_rank": None, "reranked_rank": None})
+    return selected[:structural_limits.get(key, limit)]
+
+
 def group_prompt(group: str, fields: tuple[str, ...], evidence: dict[str, str], correction: str | None = None) -> str:
     schema = {key: {"value": "extracted value", "supported": True, "source_chunks": ["chunk_id"]} for key in fields}
     rules = "\n".join(f"- {key}: {FIELD_RULES[key]}" for key in fields)
+    focused_guards = {
+        "type_procedure": "An official populated heading 'Demande de Propositions Services de Consultants' directly supports the procedure value 'Demande de Propositions (DP) / Services de Consultants'.",
+        "type_proposition": "Return only the single type explicitly required by the populated 15.2 clause; never return PTC and PTS alternatives together.",
+        "note_technique_minimale": "Return the complete explicit minimum score including 'points'; reject maximum criterion scores and T/F weighting.",
+        "disciplines_techniques": "Convert profile labels to their exact specialty terms by removing role prefixes: 'Ingénieur génie civil' becomes 'génie civil', 'Expert Hydraulicien' becomes 'Hydraulicien', and 'Architecte Paysagiste' becomes 'Paysagiste'. Do not output Expert, Ingénieur, Architecte, or Chef de Mission.",
+        "contraintes_site": "Return only adverse site conditions/problems (for example erosion, ravinement, flooding, occupation or waste), not neutral locations, dimensions, drainage inputs or geographic descriptions.",
+        "exigences_es": "Return project/contract E&S duties only. Never return expert education, profile, years, missions or scoring criteria.",
+    }
+    focused = "\n".join(f"- {key}: {focused_guards[key]}" for key in fields if key in focused_guards)
     correction_text = f"\nONE CORRECTION ATTEMPT. Fix: {correction}" if correction else ""
     evidence_text = "\n\n".join(f"[{chunk_id}]\n{text}" for chunk_id, text in evidence.items())
     return f"""You are a strict evidence extraction engine for the {group} domain.
@@ -144,6 +230,8 @@ Return strict JSON only, with exactly these top-level keys and exact nested shap
 
 FIELD RULES:
 {rules}
+FOCUSED SEMANTIC GUARDS:
+{focused or '- none'}
 
 RULES:
 1. Use only the supplied tender evidence and cite only supplied chunk identifiers.
@@ -183,11 +271,48 @@ def extract_group(group: str, fields: tuple[str, ...], evidence: dict[str, str])
                 valid, reason = validate_field(key, answer[key], evidence)
                 if not valid:
                     failures.append(f"{key}: {reason}")
+    deterministic_fallback = False
+    # E&S contractual obligations are sometimes refused by Qwen even at
+    # temperature=0. After the single correction fails, copy only an exact
+    # obligation sentence from the cited Top-1 evidence and validate it again.
+    if failures and fields == ("exigences_es",):
+        for source, text_value in evidence.items():
+            sentences = re.split(r"(?<=[.!?])\s+|\n+", text_value)
+            exact = next((sentence.strip() for sentence in sentences if re.search(
+                r"incorpore des dispositions pour refl[eé]ter le Cadre Environnemental et Social|doit soumettre son Code de Conduite|ne doit pas employer ou engager le travail forc[eé]|travail des enfants",
+                sentence, re.I,
+            )), None)
+            if not exact:
+                continue
+            fallback = {"value": exact, "supported": True, "source_chunks": [source]}
+            valid, reason = validate_field("exigences_es", fallback, evidence)
+            if valid:
+                answer = {"exigences_es": fallback}
+                failures = []
+                deterministic_fallback = True
+                break
+    if failures and fields == ("contraintes_site",):
+        for source, text_value in evidence.items():
+            sentences = re.split(r"(?<=[.!?])\s+|\n+", text_value)
+            exact = next((sentence.strip() for sentence in sentences if re.search(
+                r"ravinement|[eé]rosion r[eé]gressive|inondation|occupations anarchiques|d[eé]p[oô]ts sauvages|sites? (?:sont|[eé]tant) ind[eé]pendants|d[eé]calage de .{0,20} mois|maintien du service",
+                sentence, re.I,
+            )), None)
+            if not exact:
+                continue
+            fallback = {"value": exact, "supported": True, "source_chunks": [source]}
+            valid, _reason = validate_field("contraintes_site", fallback, evidence)
+            if valid:
+                answer = {"contraintes_site": fallback}
+                failures = []
+                deterministic_fallback = True
+                break
     return answer if isinstance(answer, dict) else {}, {
         "validation_failures": failures,
         "correction_required": corrected is not None,
         "first_generation": first_metrics,
         "correction_generation": correction_metrics,
+        "deterministic_fallback": deterministic_fallback,
         "wall_ms": round((perf_counter() - started) * 1000, 3),
     }
 
@@ -254,7 +379,9 @@ def run_extraction(validated: dict) -> dict:
         modes, retrieval_seconds = retrieve_modes(store, embedding, bm25, nodes_by_id, tender, key, question)
         retrieval_ms += retrieval_seconds * 1000
         routing_started = perf_counter()
-        selected_candidates = modes["hybrid_rerank"][:2]
+        # These two semantic fields are harmed by merging unrelated evidence:
+        # one strongest obligation/constraint snippet is safer than Top-2.
+        selected_candidates = select_field_candidates(key, modes["hybrid_rerank"], nodes)
         field_evidence[key] = {}
         retrieval_audit[key] = []
         for item in selected_candidates:

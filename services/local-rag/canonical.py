@@ -47,15 +47,15 @@ FIELD_RULES = {
     "credit_financement": "credit, loan or grant identifier",
     "secteur": "mission sector",
     "nature_prestation": "nature and scope category of consulting services",
-    "type_procedure": "procurement procedure",
+    "type_procedure": "official procurement procedure label, not the consultant selection method",
     "methode_selection": "consultant selection method and acronym",
-    "type_proposition": "technical proposal type",
+    "type_proposition": "populated technical proposal type actually required (complete/PTC or simplified/PTS); reject template alternatives",
     "type_contrat": "contract/remuneration type",
     "date_emission": "issue/emission date, not submission deadline",
     "date_limite_depot": "actual proposal submission deadline; reject blank templates",
     "langue_offre": "required proposal language",
     "ponderation_technique_financiere": "technical and financial weights",
-    "note_technique_minimale": "minimum technical score",
+    "note_technique_minimale": "explicit minimum technical qualification score; never return weighting or maximum criterion points",
     "duree_totale": "total mission duration, preserving equivalent units",
     "volume_hommes_mois": "total expert/person-month effort",
     "nombre_profils_experts": "count of distinct required key expert profiles; prefer an explicit Total Personnel clé row over counting a partial table fragment",
@@ -63,12 +63,12 @@ FIELD_RULES = {
     "livrables_principaux": "principal deliverables",
     "nombre_livrables_structurants": "count of explicitly structured principal deliverable milestones",
     "profils_cles": "required key expert profiles",
-    "disciplines_techniques": "technical disciplines required by the mission",
+    "disciplines_techniques": "technical specialties explicitly represented by required profiles; remove role prefixes Expert/Ingénieur/Chef and preserve the remaining tender terms (for example Hydraulicien, Routier, Topographe), supporting every item",
     "nombre_sites": "count of distinct execution sites",
-    "contraintes_site": "explicit site and field constraints",
+    "contraintes_site": "explicit physical, access, occupation, safety, climate, network or operating constraints; pure locations are not constraints",
     "outils_methodes": "required methods, calculations, models and tools",
     "moyens_materiels": "required material, equipment and software resources",
-    "exigences_es": "environmental and social requirements",
+    "exigences_es": "project environmental/social obligations, safeguards, mitigation or compliance requirements; reject expert diplomas and experience criteria",
     "normes_referentiels": "applicable standards, codes and reference frameworks",
     "points_techniques_structurants": "major technical features shaping the assignment",
 }
@@ -90,15 +90,15 @@ FIELD_ROUTES = {
     "credit_financement": (("financing", "front_matter"), ("procurement",), ("Prêt/Crédit/Don No", "Crédit IDA", "accord de crédit", "loan", "grant"), ("crédit-temps", "ATTENDU QUE", "conditions du contrat"), "scalar"),
     "secteur": (("scope", "technical"), ("front_matter",), ("assainissement", "drainage", "secteur", "infrastructure"), ("secteur privé",), "synthesized"),
     "nature_prestation": (("front_matter", "scope"), ("procurement",), ("services de consultants", "études", "mission"), ("formulaire",), "synthesized"),
-    "type_procedure": (("procurement", "front_matter"), (), ("demande de propositions", "appel d'offres", "liste restreinte"), ("table des matières",), "scalar"),
+    "type_procedure": (("procurement", "front_matter"), (), ("demande de propositions", "dossier de demande", "services de consultants"), ("table des matières", "consultants/firmes", "adresse", "critères d'évaluation"), "scalar"),
     "methode_selection": (("procurement",), ("scope",), ("méthode de sélection", "SFQC", "qualité et le coût"), ("indiquer le mode",), "scalar"),
-    "type_proposition": (("procurement",), (), ("proposition technique complète", "PTC", "PTS"), ("formulaire TECH",), "scalar"),
+    "type_proposition": (("procurement",), (), ("15.2", "doit fournir une proposition technique complète", "proposition technique complète", "PTC"), ("formulaire TECH", "instructions : insérez", "consultant retenu", "sélectionnez", "ou proposition technique simplifiée"), "scalar"),
     "type_contrat": (("procurement",), (), ("rémunération forfaitaire", "temps passé", "contrat type"), ("table des matières",), "scalar"),
     "date_emission": (("front_matter", "procurement"), (), ("émis le", "date d'émission", "date :"), ("date limite", "date de publication"), "scalar"),
     "date_limite_depot": (("procurement",), ("front_matter",), ("date limite", "dépôt", "17.7", "soumettre au plus tard"), ("modèle",), "scalar"),
     "langue_offre": (("procurement", "deliverables"), (), ("langue", "rédigés en français", "proposition"), ("langue du contrat",), "scalar"),
     "ponderation_technique_financiere": (("procurement",), (), ("pondération", "T =", "F =", "poids technique"), (), "scalar"),
-    "note_technique_minimale": (("procurement",), (), ("note technique", "minimum", "qualification", "points"), (), "scalar"),
+    "note_technique_minimale": (("procurement",), (), ("note technique (Nt) minimum", "minimum de qualification", "seuil technique"), ("points maxi", "critères de pré-sélection", "pondération", "T =", "F ="), "scalar"),
     "duree_totale": (("schedule",), ("scope",), ("lieu et durée", "délai de réalisation", "jours calendaires", "mois"), ("hommes/mois", "validité"), "scalar"),
     "volume_hommes_mois": (("personnel", "schedule"), (), ("hommes/mois", "expert-mois", "crédit-temps"), ("durée de la mission",), "table_derived"),
     "nombre_profils_experts": (("personnel",), (), ("composition de l'équipe", "total personnel clé", "profils des experts"), ("CV", "formulaire type"), "table_derived"),
@@ -106,12 +106,12 @@ FIELD_ROUTES = {
     "livrables_principaux": (("deliverables",), ("schedule",), ("livrables", "rapports", "résultats attendus"), ("formulaire TECH-5", "annexe"), "table_derived"),
     "nombre_livrables_structurants": (("deliverables",), ("schedule",), ("liste et délais", "tableau", "livrables"), ("annexe",), "table_derived"),
     "profils_cles": (("personnel",), (), ("composition de l'équipe", "total personnel clé", "expert hydraulicien", "chef de mission"), ("CV", "formulaire TECH", "approche technique", "points", "accord de groupement"), "table_derived"),
-    "disciplines_techniques": (("personnel", "technical"), ("scope",), ("expert hydraulicien", "géotechnicien", "topographe", "disciplines"), ("expérience du consultant",), "synthesized"),
+    "disciplines_techniques": (("personnel", "technical"), ("scope",), ("composition de l'équipe", "expert hydraulicien", "géotechnicien", "topographe"), ("expérience du consultant", "CV", "années d'expérience"), "synthesized"),
     "nombre_sites": (("sites",), ("scope",), ("localisation des zones", "sites", "communes", "talweg", "cuvette", "bassin"), ("sites des ouvrages",), "table_derived"),
-    "contraintes_site": (("sites",), ("technical", "scope"), ("inondation", "ravinement", "érosion", "contraintes", "risques naturels"), (), "list"),
+    "contraintes_site": (("sites",), ("technical", "scope", "schedule"), ("inondation", "ravinement", "érosion", "profondeur", "occupations", "déchets", "risques naturels", "sites indépendants", "décalage", "maintien du service"), ("localisation des zones", "commune", "district", "ville"), "list"),
     "outils_methodes": (("technical",), ("scope", "equipment"), ("modélisation", "calcul", "levés", "sondages", "méthodologie"), ("formulaire TECH-4",), "list"),
     "moyens_materiels": (("equipment",), ("technical",), ("moyens logistiques", "matériel", "équipement", "laboratoire", "véhicules"), ("personnel de contrepartie",), "list"),
-    "exigences_es": (("environmental_social",), ("technical", "scope"), ("environnemental", "social", "EAS", "HS", "VBG", "sauvegarde"), ("formulaire vierge",), "list"),
+    "exigences_es": (("environmental_social",), ("scope", "technical"), ("cadre environnemental et social", "code de conduite", "EAS", "HS", "VBG", "travail forcé", "travail des enfants"), ("diplôme", "qualification", "expert", "profil", "CV", "années d'expérience", "missions relatives"), "list"),
     "normes_referentiels": (("standards", "technical"), ("procurement",), ("normes", "règlement", "code", "directives", "fascicules"), ("table des matières",), "list"),
     "points_techniques_structurants": (("technical", "scope"), ("sites",), ("ouvrages", "aménagement", "SBN", "dimensionnement", "modélisation"), ("expérience du consultant",), "synthesized"),
 }
@@ -126,6 +126,17 @@ def validate_field(field: str, item: object, evidence: dict[str, str]) -> tuple[
         return False, "exactly value, supported and source_chunks are required"
     value, supported, sources = item["value"], item["supported"], item["source_chunks"]
     if value is None:
+        evidence_text = "\n".join(evidence.values())
+        direct_patterns = {
+            "type_procedure": r"demande de propositions services de consultants|dossier de demande de propositions|la pr[eé]sente demande de propositions",
+            "type_proposition": r"15\.2.{0,120}doit fournir une proposition technique compl[eè]te|doit fournir une proposition technique compl[eè]te \(PTC\)",
+            "note_technique_minimale": r"note technique \(Nt\) minimum de qualification est\s*:\s*\d+\s*points",
+            "disciplines_techniques": r"tableau \d+\s*:\s*(composition|temps d.intervention).*personnel cl[eé]",
+            "contraintes_site": r"ravinement|[eé]rosion r[eé]gressive|inondation|profondeur moyenne|occupations anarchiques|d[eé]p[oô]ts sauvages|sites? (?:sont|[eé]tant) ind[eé]pendants|d[eé]calage de .{0,20} mois|maintien du service",
+            "exigences_es": r"doit soumettre son code de conduite|travail forc[eé]|travail des enfants|EAS.{0,50}HS",
+        }
+        if field in direct_patterns and re.search(direct_patterns[field], evidence_text, re.I | re.S):
+            return False, "direct field evidence was supplied; null requires one correction attempt"
         return (supported is False and sources == [], "valid absence" if supported is False and sources == [] else "null must be unsupported and uncited")
     if supported is not True or not isinstance(sources, list) or not sources:
         return False, "populated value must be supported and cited"
@@ -142,6 +153,15 @@ def validate_field(field: str, item: object, evidence: dict[str, str]) -> tuple[
     if field in {"date_emission", "date_limite_depot"} and not re.fullmatch(r"\s*\d{1,2}[/-]\d{1,2}[/-]\d{4}\s*", str(value)):
         return False, "date must be complete"
     cited = "\n".join(evidence[str(source)] for source in sources)
+    if field == "contraintes_site" and not re.search(r"inondation|ravinement|[eé]rosion|profondeur|occupation|acc[eè]s|circulation|s[eé]curit[eé]|r[eé]seau|d[eé]chets?|risque|restriction|sites? (?:sont|[eé]tant) ind[eé]pendants|d[eé]calage|maintien du service", cited, re.I):
+        return False, "site evidence contains locations but no actual constraint"
+    if field == "exigences_es":
+        obligation = re.search(r"doit|exig[eé]|obligation|code de conduite|mesures|att[eé]nuation|travail forc[eé]|travail des enfants|EAS|harc[eè]lement sexuel", cited, re.I)
+        qualification = re.search(r"dipl[oô]me|ann[eé]es? d.exp[eé]rience|expert environnementaliste|profil|CV|missions relatives", cited, re.I)
+        if not obligation or qualification and not re.search(r"code de conduite|mesures d.att[eé]nuation|travail forc[eé]|travail des enfants", cited, re.I):
+            return False, "expert qualification evidence is not a project E&S obligation"
+    if field == "disciplines_techniques" and re.search(r"\b(?:Expert|Chef de Mission|Architecte|Ing[eé]nieur)\b", str(value), re.I):
+        return False, "return technical disciplines, not personnel job titles"
     value_tokens = {token for token in re.findall(r"[a-z0-9]+", _normalize(str(value))) if len(token) > 2}
     evidence_tokens = set(re.findall(r"[a-z0-9]+", _normalize(cited)))
     if field not in INTEGER_FIELDS and value_tokens and len(value_tokens & evidence_tokens) / len(value_tokens) < 0.65:
