@@ -1,0 +1,585 @@
+{
+  "benchmark": {
+    "model": "qwen3:14b",
+    "embedding_model": "qwen3-embedding:0.6b",
+    "collection": "concept_rag_qwen3_14b_benchmark",
+    "markdown": "/home/concept/Concept/data/AO-20260810-0958/cdc.md",
+    "sha256": "268288785f9b22fcb7e933a04869188597ed9fe352d37e85bb8051a26009527a",
+    "appel_offre_id": 1812,
+    "document_id": 1759
+  },
+  "model_verification": {
+    "generation_probe": {
+      "status": "ok"
+    },
+    "metrics": {
+      "wall_seconds": 0.4504,
+      "total_duration_seconds": 0.4495,
+      "load_duration_seconds": 0.1241,
+      "prompt_tokens": 31,
+      "generated_tokens": 6,
+      "tokens_per_second": 156.531
+    },
+    "model_details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen3",
+      "families": [
+        "qwen3"
+      ],
+      "parameter_size": "14.8B",
+      "quantization_level": "Q4_K_M",
+      "context_length": 40960,
+      "embedding_length": 5120
+    }
+  },
+  "direct_extraction": {
+    "strategy": "keyword line windows ±5/6, deduplicated, capped at 60k characters",
+    "selected_line_count": 552,
+    "context_characters": 60000,
+    "json_valid": true,
+    "fields": {
+      "official_reference": {
+        "actual": "DP No : CI-PARU-365151-CS-QCBS/003/2024",
+        "correct": true
+      },
+      "client": {
+        "actual": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+        "correct": true
+      },
+      "country": {
+        "actual": "Côte d'Ivoire",
+        "correct": true
+      },
+      "issue_date": {
+        "actual": "06/08/2024",
+        "correct": true
+      },
+      "credit_number": {
+        "actual": "Crédit IDA N°66860",
+        "correct": true
+      },
+      "selection_method": {
+        "actual": "Sélection fondée sur la Qualité technique et le Coût (SFQC)",
+        "correct": true
+      },
+      "mission_duration": {
+        "actual": "21,00 expert-mois",
+        "correct": false
+      },
+      "financed_project": {
+        "actual": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+        "correct": true
+      }
+    },
+    "metrics": {
+      "wall_seconds": 2.8959,
+      "total_duration_seconds": 2.8716,
+      "load_duration_seconds": 0.1235,
+      "prompt_tokens": 8995,
+      "generated_tokens": 180,
+      "tokens_per_second": 128.212
+    }
+  },
+  "rag": {
+    "chunk_count": 206,
+    "content_hash": "268288785f9b22fcb7e933a04869188597ed9fe352d37e85bb8051a26009527a",
+    "embedding_seconds": 6.389,
+    "qdrant_index_seconds": 0.1143,
+    "questions": [
+      {
+        "key": "official_reference",
+        "question": "Quelle est la référence officielle de la Demande de Propositions ?",
+        "expected": "CI-PARU-365151-CS-QCBS/003/2024",
+        "retrieved_chunk_ids": [
+          "chunk_14",
+          "chunk_48",
+          "chunk_4",
+          "chunk_5",
+          "chunk_200",
+          "chunk_10",
+          "chunk_32",
+          "chunk_33"
+        ],
+        "similarity_scores": [
+          0.568975,
+          0.55106,
+          0.544964,
+          0.519818,
+          0.511664,
+          0.504392,
+          0.500826,
+          0.498164
+        ],
+        "relevant_excerpt": null,
+        "evidence_in_top_k": false,
+        "answer": "Le présent DTPM comprend deux formulaires de contrats types : l'un pour les missions rémunérées au temps passé, l'autre pour les missions à rémunération forfaitaire. Les préfaces de ces deux formulaires de contrats indiquent les situations dans lesquelles l'un et l'autre sont préférables.",
+        "sources": [
+          "chunk_4"
+        ],
+        "answer_correct": false,
+        "citation_correct": false,
+        "classification": "RETRIEVAL_FAILURE",
+        "retrieval_seconds": 0.0945,
+        "generation": {
+          "wall_seconds": 2.1816,
+          "total_duration_seconds": 2.1707,
+          "load_duration_seconds": 0.1221,
+          "prompt_tokens": 4914,
+          "generated_tokens": 86,
+          "tokens_per_second": 131.792
+        }
+      },
+      {
+        "key": "client",
+        "question": "Quel est le nom du Client ?",
+        "expected": "UC-PARU",
+        "retrieved_chunk_ids": [
+          "chunk_204",
+          "chunk_19",
+          "chunk_88",
+          "chunk_74",
+          "chunk_153",
+          "chunk_203",
+          "chunk_173",
+          "chunk_185"
+        ],
+        "similarity_scores": [
+          0.449616,
+          0.438077,
+          0.430773,
+          0.42165,
+          0.419473,
+          0.418694,
+          0.414414,
+          0.414271
+        ],
+        "relevant_excerpt": null,
+        "evidence_in_top_k": false,
+        "answer": null,
+        "sources": [
+          "chunk_204",
+          "chunk_19",
+          "chunk_88",
+          "chunk_74",
+          "chunk_153",
+          "chunk_203",
+          "chunk_173",
+          "chunk_185"
+        ],
+        "answer_correct": false,
+        "citation_correct": false,
+        "classification": "RETRIEVAL_FAILURE",
+        "retrieval_seconds": 0.0952,
+        "generation": {
+          "wall_seconds": 1.6656,
+          "total_duration_seconds": 1.6575,
+          "load_duration_seconds": 0.1219,
+          "prompt_tokens": 5136,
+          "generated_tokens": 62,
+          "tokens_per_second": 133.592
+        }
+      },
+      {
+        "key": "country",
+        "question": "Quel est le pays du Client ?",
+        "expected": "Côte d'Ivoire",
+        "retrieved_chunk_ids": [
+          "chunk_173",
+          "chunk_19",
+          "chunk_73",
+          "chunk_97",
+          "chunk_151",
+          "chunk_88",
+          "chunk_153",
+          "chunk_48"
+        ],
+        "similarity_scores": [
+          0.454941,
+          0.449523,
+          0.440425,
+          0.424398,
+          0.420696,
+          0.418519,
+          0.411225,
+          0.410347
+        ],
+        "relevant_excerpt": null,
+        "evidence_in_top_k": false,
+        "answer": null,
+        "sources": [
+          "chunk_173",
+          "chunk_19",
+          "chunk_73",
+          "chunk_97",
+          "chunk_151",
+          "chunk_88",
+          "chunk_153",
+          "chunk_48"
+        ],
+        "answer_correct": false,
+        "citation_correct": false,
+        "classification": "RETRIEVAL_FAILURE",
+        "retrieval_seconds": 0.0952,
+        "generation": {
+          "wall_seconds": 1.7315,
+          "total_duration_seconds": 1.7213,
+          "load_duration_seconds": 0.126,
+          "prompt_tokens": 5285,
+          "generated_tokens": 60,
+          "tokens_per_second": 128.18
+        }
+      },
+      {
+        "key": "issue_date",
+        "question": "À quelle date la Demande de Propositions a-t-elle été émise ?",
+        "expected": "06/08/2024",
+        "retrieved_chunk_ids": [
+          "chunk_51",
+          "chunk_36",
+          "chunk_14",
+          "chunk_13",
+          "chunk_58",
+          "chunk_15",
+          "chunk_34",
+          "chunk_56"
+        ],
+        "similarity_scores": [
+          0.535447,
+          0.504797,
+          0.50463,
+          0.503473,
+          0.490644,
+          0.487516,
+          0.484299,
+          0.481197
+        ],
+        "relevant_excerpt": null,
+        "evidence_in_top_k": false,
+        "answer": null,
+        "sources": [
+          "chunk_51",
+          "chunk_36",
+          "chunk_14",
+          "chunk_13",
+          "chunk_58",
+          "chunk_15",
+          "chunk_34",
+          "chunk_56"
+        ],
+        "answer_correct": false,
+        "citation_correct": false,
+        "classification": "RETRIEVAL_FAILURE",
+        "retrieval_seconds": 0.098,
+        "generation": {
+          "wall_seconds": 1.6424,
+          "total_duration_seconds": 1.6324,
+          "load_duration_seconds": 0.1205,
+          "prompt_tokens": 3619,
+          "generated_tokens": 57,
+          "tokens_per_second": 131.417
+        }
+      },
+      {
+        "key": "credit_number",
+        "question": "Quel est le numéro du crédit IDA ?",
+        "expected": "Crédit IDA N°66860",
+        "retrieved_chunk_ids": [
+          "chunk_7",
+          "chunk_8",
+          "chunk_19",
+          "chunk_52",
+          "chunk_9",
+          "chunk_151",
+          "chunk_197",
+          "chunk_199"
+        ],
+        "similarity_scores": [
+          0.451451,
+          0.37608,
+          0.348331,
+          0.333232,
+          0.308522,
+          0.307778,
+          0.307143,
+          0.30675
+        ],
+        "relevant_excerpt": "Fraude et Corruption ......................................................................... | 82 | | Section 7. Termes de référence .......................................................................... | 85 | | PARTIE II .................................................................................................................... | 131 | | Section 8. Conditions de Contrat et Formulaires de Contrat ........................... | 131 | | PARTIE III ....................................",
+        "evidence_in_top_k": true,
+        "answer": "66860",
+        "sources": [
+          "chunk_7"
+        ],
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS",
+        "retrieval_seconds": 0.0966,
+        "generation": {
+          "wall_seconds": 1.1092,
+          "total_duration_seconds": 1.101,
+          "load_duration_seconds": 0.1261,
+          "prompt_tokens": 4173,
+          "generated_tokens": 19,
+          "tokens_per_second": 134.579
+        }
+      },
+      {
+        "key": "selection_method",
+        "question": "Quelle méthode de sélection du Consultant est utilisée ?",
+        "expected": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+        "retrieved_chunk_ids": [
+          "chunk_130",
+          "chunk_24",
+          "chunk_3",
+          "chunk_10",
+          "chunk_34",
+          "chunk_167",
+          "chunk_103",
+          "chunk_25"
+        ],
+        "similarity_scores": [
+          0.641853,
+          0.566155,
+          0.556136,
+          0.532625,
+          0.523566,
+          0.522041,
+          0.521877,
+          0.510933
+        ],
+        "relevant_excerpt": "L'ensemble des informations auxquelles le Consultant aura accès dans le cadre de cette prestation, revêt un caractère confidentiel. A cet effet, il s'engage à ne pas utiliser à d'autres fins, divulguer ou publier toute ou une partie de ces informations qu'elles soient collectées auprès l'UCP ou de l'ONAD, des entreprises et fournisseurs. Il tiendra un inventaire des documents reçus et transmis. Pour les documents ou tout bien reçu de l'UCP et de l'ONAD, il se fera fort de les restituer à la fin ",
+        "evidence_in_top_k": true,
+        "answer": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+        "sources": [
+          "chunk_130"
+        ],
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS",
+        "retrieval_seconds": 0.0996,
+        "generation": {
+          "wall_seconds": 1.4336,
+          "total_duration_seconds": 1.4234,
+          "load_duration_seconds": 0.1247,
+          "prompt_tokens": 5532,
+          "generated_tokens": 31,
+          "tokens_per_second": 129.414
+        }
+      },
+      {
+        "key": "mission_duration",
+        "question": "Quel est le délai de réalisation de la mission ?",
+        "expected": "90 jours calendaires, soit 03 mois",
+        "retrieved_chunk_ids": [
+          "chunk_126",
+          "chunk_103",
+          "chunk_127",
+          "chunk_45",
+          "chunk_78",
+          "chunk_61",
+          "chunk_42",
+          "chunk_84"
+        ],
+        "similarity_scores": [
+          0.525032,
+          0.515961,
+          0.498926,
+          0.471705,
+          0.464356,
+          0.456443,
+          0.453565,
+          0.452979
+        ],
+        "relevant_excerpt": "Le crédit-temps d'intervention des experts clés ne dépassera pas 21,00 hommes/mois . Le détail du temps d'intervention du personnel clé est indiqué dans le tableau ci-dessous. Tableau 2 : Temps d'intervention du personnel clé du Consultant | Personnel clé | Effectif | Temps d'intervention (Homme/Mois) | |-------------------------------------------------------------|------------|-------------------------------------| | Ingénieur génie civil, Chef de Mission | 01 | 03 | | Expert Hydraulicien | 01 ",
+        "evidence_in_top_k": true,
+        "answer": "90 jours calendaire, soit 03 mois",
+        "sources": [
+          "chunk_126"
+        ],
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS",
+        "retrieval_seconds": 0.0958,
+        "generation": {
+          "wall_seconds": 1.3699,
+          "total_duration_seconds": 1.3592,
+          "load_duration_seconds": 0.1287,
+          "prompt_tokens": 4709,
+          "generated_tokens": 28,
+          "tokens_per_second": 129.39
+        }
+      },
+      {
+        "key": "financed_project",
+        "question": "Quel projet finance cette mission ?",
+        "expected": "Projet d’Assainissement et de Résilience Urbaine (PARU)",
+        "retrieved_chunk_ids": [
+          "chunk_31",
+          "chunk_151",
+          "chunk_7",
+          "chunk_97",
+          "chunk_4",
+          "chunk_107",
+          "chunk_61",
+          "chunk_197"
+        ],
+        "similarity_scores": [
+          0.424416,
+          0.411777,
+          0.400418,
+          0.392938,
+          0.391887,
+          0.390701,
+          0.382849,
+          0.378041
+        ],
+        "relevant_excerpt": "Fraude et Corruption ......................................................................... | 82 | | Section 7. Termes de référence .......................................................................... | 85 | | PARTIE II .................................................................................................................... | 131 | | Section 8. Conditions de Contrat et Formulaires de Contrat ........................... | 131 | | PARTIE III ....................................",
+        "evidence_in_top_k": true,
+        "answer": "Le projet est financé par un crédit de l'Association Internationale de Développement (IDA) sous le numéro IDA N°66860.",
+        "sources": [
+          "chunk_7"
+        ],
+        "answer_correct": false,
+        "citation_correct": true,
+        "classification": "GENERATION_FAILURE",
+        "retrieval_seconds": 0.1063,
+        "generation": {
+          "wall_seconds": 1.4488,
+          "total_duration_seconds": 1.439,
+          "load_duration_seconds": 0.121,
+          "prompt_tokens": 5008,
+          "generated_tokens": 48,
+          "tokens_per_second": 137.35
+        }
+      }
+    ]
+  },
+  "structured_rag": {
+    "json_valid": true,
+    "fields": {
+      "official_reference": {
+        "value": "DP No : ……………/2024",
+        "sources": [
+          "chunk_7"
+        ],
+        "correct": false,
+        "evidence_references_valid": true
+      },
+      "client": {
+        "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+        "sources": [
+          "chunk_7",
+          "chunk_51"
+        ],
+        "correct": true,
+        "evidence_references_valid": true
+      },
+      "country": {
+        "value": "Côte d'Ivoire",
+        "sources": [
+          "chunk_7"
+        ],
+        "correct": true,
+        "evidence_references_valid": true
+      },
+      "issue_date": {
+        "value": "………/………/2024",
+        "sources": [
+          "chunk_7"
+        ],
+        "correct": false,
+        "evidence_references_valid": true
+      },
+      "credit_number": {
+        "value": "Crédit IDA N°66860",
+        "sources": [
+          "chunk_7"
+        ],
+        "correct": true,
+        "evidence_references_valid": true
+      },
+      "selection_method": {
+        "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+        "sources": [
+          "chunk_130",
+          "chunk_10"
+        ],
+        "correct": true,
+        "evidence_references_valid": true
+      },
+      "mission_duration": {
+        "value": "90 jours calendaire, soit 03 mois",
+        "sources": [
+          "chunk_126"
+        ],
+        "correct": true,
+        "evidence_references_valid": true
+      },
+      "financed_project": {
+        "value": "Etudes techniques détaillées et des spécifications techniques des DAO des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody",
+        "sources": [
+          "chunk_7"
+        ],
+        "correct": false,
+        "evidence_references_valid": true
+      }
+    },
+    "metrics": {
+      "wall_seconds": 7.1957,
+      "total_duration_seconds": 7.1642,
+      "load_duration_seconds": 0.1293,
+      "prompt_tokens": 19557,
+      "generated_tokens": 360,
+      "tokens_per_second": 111.438
+    }
+  },
+  "anti_hallucination": {
+    "tests": [
+      {
+        "question": "Quel est le budget exact de la mission en FCFA ?",
+        "answer": null,
+        "passed": true,
+        "generation": {
+          "wall_seconds": 2.2295,
+          "total_duration_seconds": 2.2213,
+          "load_duration_seconds": 0.1273,
+          "prompt_tokens": 3301,
+          "generated_tokens": 11,
+          "tokens_per_second": 148.586
+        }
+      },
+      {
+        "question": "Quel est le nom du chef de projet proposé par le consultant ?",
+        "answer": null,
+        "passed": true,
+        "generation": {
+          "wall_seconds": 0.778,
+          "total_duration_seconds": 0.7722,
+          "load_duration_seconds": 0.1204,
+          "prompt_tokens": 2955,
+          "generated_tokens": 11,
+          "tokens_per_second": 149.849
+        }
+      },
+      {
+        "question": "Quelle est la date exacte de démarrage des travaux ?",
+        "answer": null,
+        "passed": true,
+        "generation": {
+          "wall_seconds": 0.8945,
+          "total_duration_seconds": 0.8822,
+          "load_duration_seconds": 0.1232,
+          "prompt_tokens": 3201,
+          "generated_tokens": 11,
+          "tokens_per_second": 146.199
+        }
+      }
+    ],
+    "hallucination_count": 0
+  },
+  "isolation": {
+    "mismatched_code": "AO-20260810-0958-MISMATCH",
+    "retrieved_count": 0,
+    "passed": true
+  }
+}

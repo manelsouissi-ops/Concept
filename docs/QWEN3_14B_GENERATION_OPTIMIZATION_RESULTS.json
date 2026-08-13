@@ -1,0 +1,2304 @@
+{
+  "benchmark": {
+    "generation_model": "qwen3:14b",
+    "embedding_model": "qwen3-embedding:0.6b",
+    "embedding_dimension": 1024,
+    "collection": "concept_rag_qwen3_14b_generation_benchmark",
+    "code_interne": "AO-20260810-0958",
+    "content_hash": "268288785f9b22fcb7e933a04869188597ed9fe352d37e85bb8051a26009527a"
+  },
+  "performance": {
+    "embedding_seconds": 6.3347,
+    "index_seconds": 0.1037,
+    "mean_retrieval_seconds": 0.0916
+  },
+  "context_experiment": {
+    "top_k_scores": {
+      "1": 7,
+      "2": 8,
+      "3": 8,
+      "5": 7
+    },
+    "selected_top_k": 2,
+    "runs": {
+      "1": [
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Services  de  Consultant  pour  :  la  réalisation  des  études techniques  détaillées  et  des  spécifications  techniques  des dao des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et  du  bassin  d'orage  des  rosiers  dans  la  commune  de Cocody.\n## DP No : CI-PARU-365151-CS-QCBS/003/2024\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody."
+            }
+          ],
+          "first_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4822,
+            "total_duration_seconds": 0.4799,
+            "load_duration_seconds": 0.1206,
+            "prompt_tokens": 436,
+            "generated_tokens": 41,
+            "tokens_per_second": 148.499
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000852,
+          "validation_seconds": 0.000215,
+          "key": "official_reference",
+          "question": "Quelle est la référence officielle de la Demande de Propositions ?",
+          "expected": "CI-PARU-365151-CS-QCBS/003/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_182",
+              "text": "CGC 4.1          | La langue est : Le Français\nCGC 6.1 et 6.2   | Les adresses sont : Client : Unité de Coordination du PARU Attention : OUATTARA Lazéni, Coordonnateur Télécopie : +225 07 09 95 18 18 Courriel (si permis) : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com Consultant : Attention : Télécopie :\nCGC 8.1          | [Note: Si le Consultant est constitué par une seule entité, indiquer : 'Sans objet'; OU Si le Consultant est constitué par un groupement de plus d'une entité juridique, le nom de l'entité dont l'adresse figure à la clause CPC 6.1 doit être inséré ici.] Le Chef de File au nom du groupement est ______________ [insérer le nom du Chef de File]"
+            }
+          ],
+          "first_answer": {
+            "value": null,
+            "supported": false,
+            "source_chunks": []
+          },
+          "first_generation": {
+            "wall_seconds": 0.2931,
+            "total_duration_seconds": 0.2912,
+            "load_duration_seconds": 0.1203,
+            "prompt_tokens": 436,
+            "generated_tokens": 16,
+            "tokens_per_second": 152.061
+          },
+          "correction_required": true,
+          "validation_failure": "A populated field-bearing evidence snippet was selected; null is not accepted.",
+          "corrected_answer": {
+            "value": "Unité de Coordination du PARU",
+            "supported": true,
+            "source_chunks": [
+              "chunk_182"
+            ]
+          },
+          "correction_generation": {
+            "wall_seconds": 0.3606,
+            "total_duration_seconds": 0.3586,
+            "load_duration_seconds": 0.119,
+            "prompt_tokens": 488,
+            "generated_tokens": 28,
+            "tokens_per_second": 150.808
+          },
+          "final_answer": {
+            "value": "Unité de Coordination du PARU",
+            "supported": true,
+            "source_chunks": [
+              "chunk_182"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000561,
+          "validation_seconds": 6.2e-05,
+          "key": "client",
+          "question": "Quel est le nom du Client ?",
+          "expected": "UC-PARU",
+          "answer_correct": false,
+          "citation_correct": false,
+          "classification": "GENERATION_FAILURE"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Urbaine (UC-PARU)\nPays : Côte d'Ivoire\nEmis le :"
+            }
+          ],
+          "first_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.3322,
+            "total_duration_seconds": 0.3308,
+            "load_duration_seconds": 0.1219,
+            "prompt_tokens": 228,
+            "generated_tokens": 24,
+            "tokens_per_second": 150.314
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000656,
+          "validation_seconds": 3.3e-05,
+          "key": "country",
+          "question": "Quel est le pays du Client ?",
+          "expected": "Côte d'Ivoire",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            }
+          ],
+          "first_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.3849,
+            "total_duration_seconds": 0.3831,
+            "load_duration_seconds": 0.1206,
+            "prompt_tokens": 393,
+            "generated_tokens": 31,
+            "tokens_per_second": 148.653
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 5e-06,
+          "validation_seconds": 0.000141,
+          "key": "issue_date",
+          "question": "À quelle date la Demande de Propositions a-t-elle été émise ?",
+          "expected": "06/08/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "Prêt/Crédit/Don No :\nCrédit IDA N°66860\nPays :"
+            }
+          ],
+          "first_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.3416,
+            "total_duration_seconds": 0.3401,
+            "load_duration_seconds": 0.1223,
+            "prompt_tokens": 237,
+            "generated_tokens": 23,
+            "tokens_per_second": 149.645
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000556,
+          "validation_seconds": 8.1e-05,
+          "key": "credit_number",
+          "question": "Quel est le numéro du crédit IDA ?",
+          "expected": "Crédit IDA N°66860",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_130",
+              "text": "MÉTHODE DE SÉLECTION\nLa Firme sera recrutée sur la base de la méthode de sélection dite Sélection Fondée sur la Qualité et le Coût ( SFQC ) définies dans les Directives Passation des Marchés dans le cadre du Financement de Projets  d'Investissement (FPI)  pour les  Fournitures,  Travaux,  Services  autres  que  des  Services  de Consultants  et  Services  de  Consultants  de  la  Banque  mondiale  version  de  Juillet  2016,  révisions Novembre 2017 et Août 2018.\n## 13.2."
+            }
+          ],
+          "first_answer": {
+            "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4146,
+            "total_duration_seconds": 0.4129,
+            "load_duration_seconds": 0.1204,
+            "prompt_tokens": 368,
+            "generated_tokens": 35,
+            "tokens_per_second": 149.681
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000442,
+          "validation_seconds": 4.4e-05,
+          "key": "selection_method",
+          "question": "Quelle méthode de sélection du Consultant est utilisée ?",
+          "expected": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_126",
+              "text": "Le Consultant pourra élire domicile dans l'une de ces deux communes ou dans la ville d'Abidjan.\nLe délai de réalisation de la mission est de 90 jours calendaire ,  soit 03 mois ,  hors délais de validation des rapports par l'UCP et l'ONAD.\nLe consultant devra se coller strictement au timing du projet, le démarrage de la mission devra se concevoir comme une action rapide qui devra se conformer aux délais  contractuels  fixés  pour  le déploiement après notification du marché."
+            }
+          ],
+          "first_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4087,
+            "total_duration_seconds": 0.4069,
+            "load_duration_seconds": 0.119,
+            "prompt_tokens": 366,
+            "generated_tokens": 33,
+            "tokens_per_second": 151.265
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.00042,
+          "validation_seconds": 0.000227,
+          "key": "mission_duration",
+          "question": "Quel est le délai de réalisation de la mission ?",
+          "expected": "90 jours calendaires, soit 03 mois",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "1.\nLe  Gouvernement  de  la  République  de  Côte  d'Ivoire (ci-après  dénommé  l' « Emprunteur ») a reçu un financement de l'Association Internationale de Développement (IDA)] (la « Banque ») sous la forme d'un « crédit » (ci-après dénommé « fonds » ] en  vue  de  financer  le  coût  du Projet  d'Assainissement  et  de  Résilience Urbaine  (PARU).\nL'Unité  de  Coordination  du  PARU  (UC-PARU) ,  l'agence d'exécution  du  Client,  se  propose  d'utiliser  une  partie  des  fonds  pour  effectuer  des paiements autorisés au titre du contrat pour lequel cette Demande de Propositions est émise."
+            }
+          ],
+          "first_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4101,
+            "total_duration_seconds": 0.408,
+            "load_duration_seconds": 0.1195,
+            "prompt_tokens": 438,
+            "generated_tokens": 36,
+            "tokens_per_second": 150.988
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000445,
+          "validation_seconds": 5.5e-05,
+          "key": "financed_project",
+          "question": "Quel projet finance cette mission ?",
+          "expected": "Projet d’Assainissement et de Résilience Urbaine (PARU)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        }
+      ],
+      "2": [
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Services  de  Consultant  pour  :  la  réalisation  des  études techniques  détaillées  et  des  spécifications  techniques  des dao des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et  du  bassin  d'orage  des  rosiers  dans  la  commune  de Cocody.\n## DP No : CI-PARU-365151-CS-QCBS/003/2024\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody."
+            },
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            }
+          ],
+          "first_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.505,
+            "total_duration_seconds": 0.5028,
+            "load_duration_seconds": 0.1197,
+            "prompt_tokens": 613,
+            "generated_tokens": 46,
+            "tokens_per_second": 149.354
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.00057,
+          "validation_seconds": 6.5e-05,
+          "key": "official_reference",
+          "question": "Quelle est la référence officielle de la Demande de Propositions ?",
+          "expected": "CI-PARU-365151-CS-QCBS/003/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_182",
+              "text": "CGC 4.1          | La langue est : Le Français\nCGC 6.1 et 6.2   | Les adresses sont : Client : Unité de Coordination du PARU Attention : OUATTARA Lazéni, Coordonnateur Télécopie : +225 07 09 95 18 18 Courriel (si permis) : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com Consultant : Attention : Télécopie :\nCGC 8.1          | [Note: Si le Consultant est constitué par une seule entité, indiquer : 'Sans objet'; OU Si le Consultant est constitué par un groupement de plus d'une entité juridique, le nom de l'entité dont l'adresse figure à la clause CPC 6.1 doit être inséré ici.] Le Chef de File au nom du groupement est ______________ [insérer le nom du Chef de File]"
+            },
+            {
+              "chunk_id": "chunk_52",
+              "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com\n14.1.1 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non"
+            }
+          ],
+          "first_answer": {
+            "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_52"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5172,
+            "total_duration_seconds": 0.5144,
+            "load_duration_seconds": 0.1194,
+            "prompt_tokens": 783,
+            "generated_tokens": 45,
+            "tokens_per_second": 148.132
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_52"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000904,
+          "validation_seconds": 6.7e-05,
+          "key": "client",
+          "question": "Quel est le nom du Client ?",
+          "expected": "UC-PARU",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Urbaine (UC-PARU)\nPays : Côte d'Ivoire\nEmis le :"
+            },
+            {
+              "chunk_id": "chunk_182",
+              "text": "------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\nCGC 1.1 (a)      | Le Contrat sera régi par les lois et autres textes ayant force de loi dans le pays : République de Côte d'Ivoire\nCGC 4.1          | La langue est : Le Français"
+            }
+          ],
+          "first_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_182"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4113,
+            "total_duration_seconds": 0.4096,
+            "load_duration_seconds": 0.1187,
+            "prompt_tokens": 302,
+            "generated_tokens": 30,
+            "tokens_per_second": 151.318
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_182"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001088,
+          "validation_seconds": 4.1e-05,
+          "key": "country",
+          "question": "Quel est le pays du Client ?",
+          "expected": "Côte d'Ivoire",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            },
+            {
+              "chunk_id": "chunk_51",
+              "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions.\nL'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions."
+            }
+          ],
+          "first_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4206,
+            "total_duration_seconds": 0.4183,
+            "load_duration_seconds": 0.1203,
+            "prompt_tokens": 780,
+            "generated_tokens": 31,
+            "tokens_per_second": 149.215
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000244,
+          "validation_seconds": 4.5e-05,
+          "key": "issue_date",
+          "question": "À quelle date la Demande de Propositions a-t-elle été émise ?",
+          "expected": "06/08/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "Prêt/Crédit/Don No :\nCrédit IDA N°66860\nPays :"
+            },
+            {
+              "chunk_id": "chunk_8",
+              "text": "L'UC-PARU sollicite maintenant des propositions en vue de la fourniture des services de consultants ci-après : études techniques détaillées et des spécifications techniques des DAO des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody .\n2 [Le terme « accord de prêt » est utilisé dans le cas d'un prêt de la BIRD, le terme « accord de crédit » est utilisé dans le cas d'un crédit de l'IDA et le terme « accord de don » est utilisé dans le cas d'un don fiduciaire exécuté par le Récipiendaire et administré par la BIRD ou l'IDA.\nPour de plus amples renseignements sur les services en question, veuillez consulter les Termes de référence (Section 7)."
+            }
+          ],
+          "first_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.3689,
+            "total_duration_seconds": 0.3669,
+            "load_duration_seconds": 0.1191,
+            "prompt_tokens": 450,
+            "generated_tokens": 23,
+            "tokens_per_second": 152.923
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000685,
+          "validation_seconds": 3.2e-05,
+          "key": "credit_number",
+          "question": "Quel est le numéro du crédit IDA ?",
+          "expected": "Crédit IDA N°66860",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_130",
+              "text": "MÉTHODE DE SÉLECTION\nLa Firme sera recrutée sur la base de la méthode de sélection dite Sélection Fondée sur la Qualité et le Coût ( SFQC ) définies dans les Directives Passation des Marchés dans le cadre du Financement de Projets  d'Investissement (FPI)  pour les  Fournitures,  Travaux,  Services  autres  que  des  Services  de Consultants  et  Services  de  Consultants  de  la  Banque  mondiale  version  de  Juillet  2016,  révisions Novembre 2017 et Août 2018.\n## 13.2."
+            },
+            {
+              "chunk_id": "chunk_3",
+              "text": "L'utilisation de ce DTPM n'est pas exigée lors de la sélection dans le cadre de pratiques commerciales,  modalités  alternatives  de  passation  de  marchés,  de  la  sélection  de consultants individuels, ni lors de la conclusion d'un accord avec une agence des NationsUnies selon un format approuvé par la Banque.\nDans le cas du recours à la méthode de Sélection  fondée  sur  les  Qualifications  du  Consultant  (« SQC »)  ou  dans  le  cas  de missions  dont  le  coût est estimé  à un  montant  inférieur  à la contre-valeur  de 300.000 dollars  des  États-Unis,  quelle  que  soit  la  méthode  de  sélection  utilisée,  des\n1 Les références dans ce DTPM à la « Banque mondiale » ou « Banque » incluent à la fois la BIRD et l'IDA."
+            }
+          ],
+          "first_answer": {
+            "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4378,
+            "total_duration_seconds": 0.4355,
+            "load_duration_seconds": 0.122,
+            "prompt_tokens": 598,
+            "generated_tokens": 35,
+            "tokens_per_second": 150.203
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000796,
+          "validation_seconds": 5.7e-05,
+          "key": "selection_method",
+          "question": "Quelle méthode de sélection du Consultant est utilisée ?",
+          "expected": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_126",
+              "text": "Le Consultant pourra élire domicile dans l'une de ces deux communes ou dans la ville d'Abidjan.\nLe délai de réalisation de la mission est de 90 jours calendaire ,  soit 03 mois ,  hors délais de validation des rapports par l'UCP et l'ONAD.\nLe consultant devra se coller strictement au timing du projet, le démarrage de la mission devra se concevoir comme une action rapide qui devra se conformer aux délais  contractuels  fixés  pour  le déploiement après notification du marché."
+            },
+            {
+              "chunk_id": "chunk_127",
+              "text": "Le support numérique inclura en plus du rapport, un dossier de plans PDF au format A0.\nLes rapports provisoires feront l'objet de séances de validation devant un comité technique dont les  commentaires et recommandations devront être pris en compte dans l'établissement des rapports  définitifs  qui  seront  remis  dans  un  délai  de  sept  (07)  jours  après  réception  des commentaires écrits du Maître d'Ouvrage.\nLes  versions  définitives  des  rapports  seront  transmises  en  six  (06)  exemplaires  sur  support physique et cinq (05) exemplaires au format PDF sur support numérique."
+            }
+          ],
+          "first_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.43,
+            "total_duration_seconds": 0.4279,
+            "load_duration_seconds": 0.1206,
+            "prompt_tokens": 534,
+            "generated_tokens": 33,
+            "tokens_per_second": 146.449
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001094,
+          "validation_seconds": 9.7e-05,
+          "key": "mission_duration",
+          "question": "Quel est le délai de réalisation de la mission ?",
+          "expected": "90 jours calendaires, soit 03 mois",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "1.\nLe  Gouvernement  de  la  République  de  Côte  d'Ivoire (ci-après  dénommé  l' « Emprunteur ») a reçu un financement de l'Association Internationale de Développement (IDA)] (la « Banque ») sous la forme d'un « crédit » (ci-après dénommé « fonds » ] en  vue  de  financer  le  coût  du Projet  d'Assainissement  et  de  Résilience Urbaine  (PARU).\nL'Unité  de  Coordination  du  PARU  (UC-PARU) ,  l'agence d'exécution  du  Client,  se  propose  d'utiliser  une  partie  des  fonds  pour  effectuer  des paiements autorisés au titre du contrat pour lequel cette Demande de Propositions est émise."
+            },
+            {
+              "chunk_id": "chunk_151",
+              "text": "- (b) le Consultant, ayant démontré au Client qu'il a la capacité professionnelle, l'expertise et les ressources techniques requises, a convenu d'exécuter les Services conformément aux termes et conditions arrêtés au Contrat;\n- (c) le Client a reçu [ ou a sollicité] un [prêt/crédit/don] de la Banque internationale pour la Reconstruction et le Développement [ ou un crédit/don de l'Association internationale de Développement (appelée ci-après 'l'Association')] (appelée ci-après la 'Banque') en vue de contribuer au financement du coût du Projet et des Prestations et se propose d'utiliser une partie de ce [prêt/crédit/don] pour régler les paiements autorisés dans le cadre du présent Contrat, étant entendu (i) que les paiements effectués par la Banque ne seront effectués qu'à la demande du Client et sur approbation de la Banque, (ii) que ces paiements seront soumis à tous égards aux termes et conditions de l'Accord de [prêt/crédit/don] ; ledit accord de financement interdit tout retrait du compte de prêt destiné au paiement de toute personne physique ou morale, ou de toute importation de fournitures lorsque, ledit paiement, ou ladite importation, tombe sous le coup d'une interdiction prononcée par le Conseil de Sécurité de l'Organisation des Nations Unies, au titre du Chapitre VII de la Charte des Nations Unies. et (iii) qu'aucune Partie autre que le Client ne peut se prévaloir des dispositions de l'Accord de [prêt/crédit/don], ni prétend détenir une créance sur les fonds provenant du [prêt/crédit/don].\n## EN CONSÉQUENCE, les Parties ont convenu ce qui suit:"
+            }
+          ],
+          "first_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4757,
+            "total_duration_seconds": 0.4732,
+            "load_duration_seconds": 0.1196,
+            "prompt_tokens": 890,
+            "generated_tokens": 36,
+            "tokens_per_second": 146.202
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000969,
+          "validation_seconds": 5.5e-05,
+          "key": "financed_project",
+          "question": "Quel projet finance cette mission ?",
+          "expected": "Projet d’Assainissement et de Résilience Urbaine (PARU)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        }
+      ],
+      "3": [
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Services  de  Consultant  pour  :  la  réalisation  des  études techniques  détaillées  et  des  spécifications  techniques  des dao des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et  du  bassin  d'orage  des  rosiers  dans  la  commune  de Cocody.\n## DP No : CI-PARU-365151-CS-QCBS/003/2024\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody."
+            },
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            },
+            {
+              "chunk_id": "chunk_10",
+              "text": "7.\nVeuillez  porter  votre  attention  au  Règlement  de  Passation  de  Marchés  exigeant  que l'Emprunteur révèle la propriété effective du Consultant, au titre de la Notification de l'Attribution du Contrat, en utilisant les Formulaires de Divulgations des Bénéficiaires Effectifs inclus dans le Dossier de Demande de Propositions.\n8."
+            }
+          ],
+          "first_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5586,
+            "total_duration_seconds": 0.5564,
+            "load_duration_seconds": 0.1218,
+            "prompt_tokens": 715,
+            "generated_tokens": 49,
+            "tokens_per_second": 148.456
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001181,
+          "validation_seconds": 6.1e-05,
+          "key": "official_reference",
+          "question": "Quelle est la référence officielle de la Demande de Propositions ?",
+          "expected": "CI-PARU-365151-CS-QCBS/003/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_182",
+              "text": "CGC 4.1          | La langue est : Le Français\nCGC 6.1 et 6.2   | Les adresses sont : Client : Unité de Coordination du PARU Attention : OUATTARA Lazéni, Coordonnateur Télécopie : +225 07 09 95 18 18 Courriel (si permis) : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com Consultant : Attention : Télécopie :\nCGC 8.1          | [Note: Si le Consultant est constitué par une seule entité, indiquer : 'Sans objet'; OU Si le Consultant est constitué par un groupement de plus d'une entité juridique, le nom de l'entité dont l'adresse figure à la clause CPC 6.1 doit être inséré ici.] Le Chef de File au nom du groupement est ______________ [insérer le nom du Chef de File]"
+            },
+            {
+              "chunk_id": "chunk_52",
+              "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com\n14.1.1 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non"
+            },
+            {
+              "chunk_id": "chunk_154",
+              "text": "## 1.2.1 Relations entre les Parties\nl'autorité afin de mener les affaires au nom et pour le compte de tous les partenaires du groupement, et dont les partenaires sont conjointement et solidairement responsables de l'exécution du Contrat vis-à-vis du Client.\n- (o)  ' Personnel-Clé ' désigne un expert fourni par le Consultant, dont les qualifications  professionnelles,  le  savoir-faire,  les  connaissances  et l'expérience  sont  essentielles  à  la  réalisation  des  Services  dans  le cadre du Contrat, et dont le CV a été pris en compte pour l'évaluation technique de la Proposition du Consultant."
+            }
+          ],
+          "first_answer": {
+            "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_52"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5581,
+            "total_duration_seconds": 0.5551,
+            "load_duration_seconds": 0.1192,
+            "prompt_tokens": 952,
+            "generated_tokens": 45,
+            "tokens_per_second": 148.507
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_52"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001139,
+          "validation_seconds": 8.6e-05,
+          "key": "client",
+          "question": "Quel est le nom du Client ?",
+          "expected": "UC-PARU",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Urbaine (UC-PARU)\nPays : Côte d'Ivoire\nEmis le :"
+            },
+            {
+              "chunk_id": "chunk_182",
+              "text": "------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\nCGC 1.1 (a)      | Le Contrat sera régi par les lois et autres textes ayant force de loi dans le pays : République de Côte d'Ivoire\nCGC 4.1          | La langue est : Le Français"
+            },
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            }
+          ],
+          "first_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_182",
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4731,
+            "total_duration_seconds": 0.4712,
+            "load_duration_seconds": 0.1194,
+            "prompt_tokens": 480,
+            "generated_tokens": 37,
+            "tokens_per_second": 149.335
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_182",
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001117,
+          "validation_seconds": 6.1e-05,
+          "key": "country",
+          "question": "Quel est le pays du Client ?",
+          "expected": "Côte d'Ivoire",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            },
+            {
+              "chunk_id": "chunk_51",
+              "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions.\nL'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions."
+            },
+            {
+              "chunk_id": "chunk_36",
+              "text": "- 22.4 La date d'ouverture de la Proposition Financière ou de l'invitation  du  Consultant  le  mieux  classé  à  soumettre  sa Proposition Financière, selon le cas, ne doit pas être antérieure à dix (10) jours ouvrables à compter de la date de notification des résultats  de  l'évaluation  technique,  décrite  aux  articles  22.1  et 22.2 des IC.\nToutefois, si le Client reçoit une réclamation sur les résultats  de  l'évaluation  technique  dans  les  dix  (10)  jours ouvrables, la date d'ouverture ou la date d'invitation à soumettre\n- Ouverture en séance publique des Propositions financières (pour les méthodes SFQC, SBD et SMC)"
+            }
+          ],
+          "first_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4246,
+            "total_duration_seconds": 0.4222,
+            "load_duration_seconds": 0.1194,
+            "prompt_tokens": 984,
+            "generated_tokens": 31,
+            "tokens_per_second": 149.677
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000732,
+          "validation_seconds": 4.4e-05,
+          "key": "issue_date",
+          "question": "À quelle date la Demande de Propositions a-t-elle été émise ?",
+          "expected": "06/08/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "Prêt/Crédit/Don No :\nCrédit IDA N°66860\nPays :"
+            },
+            {
+              "chunk_id": "chunk_8",
+              "text": "L'UC-PARU sollicite maintenant des propositions en vue de la fourniture des services de consultants ci-après : études techniques détaillées et des spécifications techniques des DAO des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody .\n2 [Le terme « accord de prêt » est utilisé dans le cas d'un prêt de la BIRD, le terme « accord de crédit » est utilisé dans le cas d'un crédit de l'IDA et le terme « accord de don » est utilisé dans le cas d'un don fiduciaire exécuté par le Récipiendaire et administré par la BIRD ou l'IDA.\nPour de plus amples renseignements sur les services en question, veuillez consulter les Termes de référence (Section 7)."
+            },
+            {
+              "chunk_id": "chunk_151",
+              "text": "- (b) le Consultant, ayant démontré au Client qu'il a la capacité professionnelle, l'expertise et les ressources techniques requises, a convenu d'exécuter les Services conformément aux termes et conditions arrêtés au Contrat;\n- (c) le Client a reçu [ ou a sollicité] un [prêt/crédit/don] de la Banque internationale pour la Reconstruction et le Développement [ ou un crédit/don de l'Association internationale de Développement (appelée ci-après 'l'Association')] (appelée ci-après la 'Banque') en vue de contribuer au financement du coût du Projet et des Prestations et se propose d'utiliser une partie de ce [prêt/crédit/don] pour régler les paiements autorisés dans le cadre du présent Contrat, étant entendu (i) que les paiements effectués par la Banque ne seront effectués qu'à la demande du Client et sur approbation de la Banque, (ii) que ces paiements seront soumis à tous égards aux termes et conditions de l'Accord de [prêt/crédit/don] ; ledit accord de financement interdit tout retrait du compte de prêt destiné au paiement de toute personne physique ou morale, ou de toute importation de fournitures lorsque, ledit paiement, ou ladite importation, tombe sous le coup d'une interdiction prononcée par le Conseil de Sécurité de l'Organisation des Nations Unies, au titre du Chapitre VII de la Charte des Nations Unies. et (iii) qu'aucune Partie autre que le Client ne peut se prévaloir des dispositions de l'Accord de [prêt/crédit/don], ni prétend détenir une créance sur les fonds provenant du [prêt/crédit/don].\n## EN CONSÉQUENCE, les Parties ont convenu ce qui suit:"
+            }
+          ],
+          "first_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4178,
+            "total_duration_seconds": 0.415,
+            "load_duration_seconds": 0.1185,
+            "prompt_tokens": 902,
+            "generated_tokens": 23,
+            "tokens_per_second": 149.818
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.00097,
+          "validation_seconds": 3.2e-05,
+          "key": "credit_number",
+          "question": "Quel est le numéro du crédit IDA ?",
+          "expected": "Crédit IDA N°66860",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_130",
+              "text": "MÉTHODE DE SÉLECTION\nLa Firme sera recrutée sur la base de la méthode de sélection dite Sélection Fondée sur la Qualité et le Coût ( SFQC ) définies dans les Directives Passation des Marchés dans le cadre du Financement de Projets  d'Investissement (FPI)  pour les  Fournitures,  Travaux,  Services  autres  que  des  Services  de Consultants  et  Services  de  Consultants  de  la  Banque  mondiale  version  de  Juillet  2016,  révisions Novembre 2017 et Août 2018.\n## 13.2."
+            },
+            {
+              "chunk_id": "chunk_3",
+              "text": "L'utilisation de ce DTPM n'est pas exigée lors de la sélection dans le cadre de pratiques commerciales,  modalités  alternatives  de  passation  de  marchés,  de  la  sélection  de consultants individuels, ni lors de la conclusion d'un accord avec une agence des NationsUnies selon un format approuvé par la Banque.\nDans le cas du recours à la méthode de Sélection  fondée  sur  les  Qualifications  du  Consultant  (« SQC »)  ou  dans  le  cas  de missions  dont  le  coût est estimé  à un  montant  inférieur  à la contre-valeur  de 300.000 dollars  des  États-Unis,  quelle  que  soit  la  méthode  de  sélection  utilisée,  des\n1 Les références dans ce DTPM à la « Banque mondiale » ou « Banque » incluent à la fois la BIRD et l'IDA."
+            },
+            {
+              "chunk_id": "chunk_39",
+              "text": "- 27.3 Le  Client  retiendra  le  Consultant  avec  la  Proposition  la  Plus Avantageuse,  qui  est la Proposition ayant obtenu  la note technique la plus élevée dans les limites du budget indiqué dans la DP, et invitera ce Consultant à négocier le Contrat.\n- 27.4 En cas de Sélection au moindre coût (SMC), le Client retiendra le Consultant ayant présenté la Proposition le Plus Avantageuse, qui est la Proposition de moindre coût évalué parmi celles qui ont obtenu le score technique minimum  requis, et invite ce Consultant à négocier le Contrat.\n## D."
+            }
+          ],
+          "first_answer": {
+            "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4637,
+            "total_duration_seconds": 0.4612,
+            "load_duration_seconds": 0.118,
+            "prompt_tokens": 757,
+            "generated_tokens": 35,
+            "tokens_per_second": 148.203
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001379,
+          "validation_seconds": 4.4e-05,
+          "key": "selection_method",
+          "question": "Quelle méthode de sélection du Consultant est utilisée ?",
+          "expected": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_126",
+              "text": "Le Consultant pourra élire domicile dans l'une de ces deux communes ou dans la ville d'Abidjan.\nLe délai de réalisation de la mission est de 90 jours calendaire ,  soit 03 mois ,  hors délais de validation des rapports par l'UCP et l'ONAD.\nLe consultant devra se coller strictement au timing du projet, le démarrage de la mission devra se concevoir comme une action rapide qui devra se conformer aux délais  contractuels  fixés  pour  le déploiement après notification du marché."
+            },
+            {
+              "chunk_id": "chunk_127",
+              "text": "Le support numérique inclura en plus du rapport, un dossier de plans PDF au format A0.\nLes rapports provisoires feront l'objet de séances de validation devant un comité technique dont les  commentaires et recommandations devront être pris en compte dans l'établissement des rapports  définitifs  qui  seront  remis  dans  un  délai  de  sept  (07)  jours  après  réception  des commentaires écrits du Maître d'Ouvrage.\nLes  versions  définitives  des  rapports  seront  transmises  en  six  (06)  exemplaires  sur  support physique et cinq (05) exemplaires au format PDF sur support numérique."
+            },
+            {
+              "chunk_id": "chunk_45",
+              "text": "Une  demande  de débriefing reçue après le délai de (3) jours ouvrables ne donnera pas lieu à une prolongation de la Période d'Attente.\n- 33.4 Le débriefing des Consultants non retenus peut être oral ou par écrit. Les Consultants devront prendre à leur charge leurs propres frais de participation à la réunion de débriefing.\n- 34.1 Le Contrat sera signé avant l'expiration de la date de la validité de la Proposition et rapidement après l'expiration de la Période d'Attente, spécifiée en 30.1 IC ou toute date prorogée, et après le traitement  satisfaisant  de  toute  réclamation  présentée  durant  la Période d'Attente.\n- 34.2 Le Consultant est prévu commencer la mission à la date et au lieu spécifié dans les Données Particulières .\n- 35.1 Les procédures pour présenter une Réclamation  liée à la Passation  de  Marchés  sont  celles  spécifiées  dans  les Données Particulières ."
+            }
+          ],
+          "first_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4496,
+            "total_duration_seconds": 0.4472,
+            "load_duration_seconds": 0.1193,
+            "prompt_tokens": 800,
+            "generated_tokens": 33,
+            "tokens_per_second": 149.811
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.000781,
+          "validation_seconds": 7.5e-05,
+          "key": "mission_duration",
+          "question": "Quel est le délai de réalisation de la mission ?",
+          "expected": "90 jours calendaires, soit 03 mois",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "1.\nLe  Gouvernement  de  la  République  de  Côte  d'Ivoire (ci-après  dénommé  l' « Emprunteur ») a reçu un financement de l'Association Internationale de Développement (IDA)] (la « Banque ») sous la forme d'un « crédit » (ci-après dénommé « fonds » ] en  vue  de  financer  le  coût  du Projet  d'Assainissement  et  de  Résilience Urbaine  (PARU).\nL'Unité  de  Coordination  du  PARU  (UC-PARU) ,  l'agence d'exécution  du  Client,  se  propose  d'utiliser  une  partie  des  fonds  pour  effectuer  des paiements autorisés au titre du contrat pour lequel cette Demande de Propositions est émise."
+            },
+            {
+              "chunk_id": "chunk_151",
+              "text": "- (b) le Consultant, ayant démontré au Client qu'il a la capacité professionnelle, l'expertise et les ressources techniques requises, a convenu d'exécuter les Services conformément aux termes et conditions arrêtés au Contrat;\n- (c) le Client a reçu [ ou a sollicité] un [prêt/crédit/don] de la Banque internationale pour la Reconstruction et le Développement [ ou un crédit/don de l'Association internationale de Développement (appelée ci-après 'l'Association')] (appelée ci-après la 'Banque') en vue de contribuer au financement du coût du Projet et des Prestations et se propose d'utiliser une partie de ce [prêt/crédit/don] pour régler les paiements autorisés dans le cadre du présent Contrat, étant entendu (i) que les paiements effectués par la Banque ne seront effectués qu'à la demande du Client et sur approbation de la Banque, (ii) que ces paiements seront soumis à tous égards aux termes et conditions de l'Accord de [prêt/crédit/don] ; ledit accord de financement interdit tout retrait du compte de prêt destiné au paiement de toute personne physique ou morale, ou de toute importation de fournitures lorsque, ledit paiement, ou ladite importation, tombe sous le coup d'une interdiction prononcée par le Conseil de Sécurité de l'Organisation des Nations Unies, au titre du Chapitre VII de la Charte des Nations Unies. et (iii) qu'aucune Partie autre que le Client ne peut se prévaloir des dispositions de l'Accord de [prêt/crédit/don], ni prétend détenir une créance sur les fonds provenant du [prêt/crédit/don].\n## EN CONSÉQUENCE, les Parties ont convenu ce qui suit:"
+            },
+            {
+              "chunk_id": "chunk_100",
+              "text": "collusives,  coercitives  ou  obstructives  pendant  la  procédure  de passation du marché, de sélection ou d'exécution du marché, sans que l'Emprunteur ait pris, en temps voulu et à la satisfaction de la Banque, les mesures nécessaires pour remédier à cette situation , y compris en manquant à son devoir d'informer la Banque lorsqu'il a eu connaissance desdites pratiques ;\n- d. sanctionnera une entreprise ou un individu, dans le cadre des Directives de la Banque en matière de lutte contre la fraude et la corruption, et conformément aux règles et procédures de sanctions applicables de la  Banque,  y  compris  en déclarant publiquement l'exclusion de l'entreprise ou de l'individu pour une période indéfinie ou déterminée (i) de l'attribution d'un marché financé par la Banque ou de pouvoir en  bénéficier  financièrement  ou  de  toute  autre  manière 5 (ii)  de  la  participation 6 comme sous-traitant, consultant, fabricant ou fournisseur de biens ou prestataire de services  désigné  d'une  entreprise  par  ailleurs  éligible  à  l'attribution  d'un  marché financé par la Banque ; et (iii) du bénéfice du versement de fonds émanant d'un prêt de la Banque ou de participer d'une autre manière à la préparation ou à la mise en œuvre d'un projet financé par la Banque ;\n- e. exigera que les dossiers d'appel d'offres/appel à propositions, et que les contrats et marchés financés par la Banque, contiennent une disposition exigeant des"
+            }
+          ],
+          "first_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5084,
+            "total_duration_seconds": 0.505,
+            "load_duration_seconds": 0.1206,
+            "prompt_tokens": 1304,
+            "generated_tokens": 36,
+            "tokens_per_second": 146.353
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001066,
+          "validation_seconds": 5.6e-05,
+          "key": "financed_project",
+          "question": "Quel projet finance cette mission ?",
+          "expected": "Projet d’Assainissement et de Résilience Urbaine (PARU)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        }
+      ],
+      "5": [
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Services  de  Consultant  pour  :  la  réalisation  des  études techniques  détaillées  et  des  spécifications  techniques  des dao des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et  du  bassin  d'orage  des  rosiers  dans  la  commune  de Cocody.\n## DP No : CI-PARU-365151-CS-QCBS/003/2024\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody."
+            },
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            },
+            {
+              "chunk_id": "chunk_10",
+              "text": "7.\nVeuillez  porter  votre  attention  au  Règlement  de  Passation  de  Marchés  exigeant  que l'Emprunteur révèle la propriété effective du Consultant, au titre de la Notification de l'Attribution du Contrat, en utilisant les Formulaires de Divulgations des Bénéficiaires Effectifs inclus dans le Dossier de Demande de Propositions.\n8."
+            },
+            {
+              "chunk_id": "chunk_3",
+              "text": "9.\nAvant  d'établir  une  Demande  de  Propositions  (DP)  pour  une  mission  spécifique, l'utilisateur  doit  se  familiariser  avec  le  Règlement  de  Passation  de  Marchés  pour  les Emprunteurs de FPI, et avoir choisi un mode de sélection ainsi que le type de contrat qui convient le mieux."
+            },
+            {
+              "chunk_id": "chunk_4",
+              "text": "9.\nAvant  d'établir  une  Demande  de  Propositions  (DP)  pour  une  mission  spécifique, l'utilisateur  doit  se  familiariser  avec  le  Règlement  de  Passation  de  Marchés  pour  les Emprunteurs de FPI, et avoir choisi un mode de sélection ainsi que le type de contrat qui convient le mieux.\nLe présente DTPM comprend deux formulaires de contrats types : l'un pour les missions rémunérées au temps passé, l'autre pour les missions à rémunération forfaitaire."
+            }
+          ],
+          "first_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5953,
+            "total_duration_seconds": 0.5924,
+            "load_duration_seconds": 0.1199,
+            "prompt_tokens": 950,
+            "generated_tokens": 48,
+            "tokens_per_second": 145.93
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "CI-PARU-365151-CS-QCBS/003/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.002018,
+          "validation_seconds": 6.5e-05,
+          "key": "official_reference",
+          "question": "Quelle est la référence officielle de la Demande de Propositions ?",
+          "expected": "CI-PARU-365151-CS-QCBS/003/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_182",
+              "text": "CGC 4.1          | La langue est : Le Français\nCGC 6.1 et 6.2   | Les adresses sont : Client : Unité de Coordination du PARU Attention : OUATTARA Lazéni, Coordonnateur Télécopie : +225 07 09 95 18 18 Courriel (si permis) : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com Consultant : Attention : Télécopie :\nCGC 8.1          | [Note: Si le Consultant est constitué par une seule entité, indiquer : 'Sans objet'; OU Si le Consultant est constitué par un groupement de plus d'une entité juridique, le nom de l'entité dont l'adresse figure à la clause CPC 6.1 doit être inséré ici.] Le Chef de File au nom du groupement est ______________ [insérer le nom du Chef de File]"
+            },
+            {
+              "chunk_id": "chunk_52",
+              "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com\n14.1.1 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non"
+            },
+            {
+              "chunk_id": "chunk_154",
+              "text": "## 1.2.1 Relations entre les Parties\nl'autorité afin de mener les affaires au nom et pour le compte de tous les partenaires du groupement, et dont les partenaires sont conjointement et solidairement responsables de l'exécution du Contrat vis-à-vis du Client.\n- (o)  ' Personnel-Clé ' désigne un expert fourni par le Consultant, dont les qualifications  professionnelles,  le  savoir-faire,  les  connaissances  et l'expérience  sont  essentielles  à  la  réalisation  des  Services  dans  le cadre du Contrat, et dont le CV a été pris en compte pour l'évaluation technique de la Proposition du Consultant."
+            },
+            {
+              "chunk_id": "chunk_155",
+              "text": "- (v) Le « Harcèlement Sexuel » « ( HS ) » est défini comme toute avance sexuelle importune, toute demande de faveurs sexuelles ou tout autre comportement  verbal  ou  physique  à  connotation  sexuelle  par  le Personnel à l'égard d'autres personnels du personnel de l'Entrepreneur ou du Client ;\n- (w)  'Sous-Traitant'  désigne  toute  personne  physique  ou  morale  avec laquelle  le  Consultant  passe  un  accord  en  vue  de  sous-traiter  une partie des prestations, le Consultant demeurant responsable vis-à-vis du Client tout au long de l'exécution du Contrat.\n- (x) 'Tiers' désigne toute personne ou entité autre que le Gouvernement, le Client, le Consultant ou un Sous-Traitant."
+            },
+            {
+              "chunk_id": "chunk_43",
+              "text": "- (d) les  noms  des  consultants  dont  les  Propositions  ont  été écartées et le motif du rejet ;\n- (e) le  nom et l'adresse du Consultant dont la Proposition est retenue, le montant total final du Contrat, la durée d'exécution et un résumé de l'objet du Contrat ; et\n- (f) le Formulaire de Divulgation des Bénéficiaires effectifs du Consultant retenu ."
+            }
+          ],
+          "first_answer": {
+            "value": "Unité de Coordination du PARU",
+            "supported": true,
+            "source_chunks": [
+              "chunk_182",
+              "chunk_52"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4903,
+            "total_duration_seconds": 0.4871,
+            "load_duration_seconds": 0.1206,
+            "prompt_tokens": 1269,
+            "generated_tokens": 33,
+            "tokens_per_second": 145.345
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Unité de Coordination du PARU",
+            "supported": true,
+            "source_chunks": [
+              "chunk_182",
+              "chunk_52"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001998,
+          "validation_seconds": 8.1e-05,
+          "key": "client",
+          "question": "Quel est le nom du Client ?",
+          "expected": "UC-PARU",
+          "answer_correct": false,
+          "citation_correct": false,
+          "classification": "GENERATION_FAILURE"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_6",
+              "text": "Urbaine (UC-PARU)\nPays : Côte d'Ivoire\nEmis le :"
+            },
+            {
+              "chunk_id": "chunk_182",
+              "text": "------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\nCGC 1.1 (a)      | Le Contrat sera régi par les lois et autres textes ayant force de loi dans le pays : République de Côte d'Ivoire\nCGC 4.1          | La langue est : Le Français"
+            },
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            },
+            {
+              "chunk_id": "chunk_173",
+              "text": "- 1.3.40 Paiements\n- autorisations d'importer dans le pays du Client des montants en monnaie étrangères  raisonnables  au  titre  de  l'exécution  des  Services  et  des besoins  du  Personnel,  et  de  réexporter  les  montants  en  monnaie étrangères qui ont été versés au Personnel au titre de l'exécution des Services ; et\n- (g) accorder au Consultant toute autre assistance indiquée, le cas échéant, dans les CPC."
+            },
+            {
+              "chunk_id": "chunk_186",
+              "text": "- (c) tout  équipement,  matériaux  et  fournitures  importés  dans  le  cadre  de l'exécution  des  Services,  payé  sur  des  fonds  fournis  par  le  Client  et considéré comme étant la propriété du Client ;\n- (d) tout  bien  importé  dans  le  pays  du  Client  par  le  Consultant,  les  Soustraitants, leur Personnel et leurs familles (à l'exception des ressortissants ou  des  résidents  permanents  du  pays  du  Client)  pour  leur  usage personnel, et qui en sera par la suite réexporté lorsqu'ils quitteront le pays du Client, à condition que :\ni) le Consultant, les Sous-traitants, leur Personnel et leurs personnes à charge respectent les procédures douanières en vigueur pour l'importation des biens dans le pays du Client; et ii) si le Consultant, les Sous-traitants, leur Personnel et leurs personnes à charge ne réexportent pas ces biens importés en franchise de droits et taxes mais en disposent dans le pays du Client, (a) ils s'acquitteront de ces droits et taxes conformément à la réglementation du pays du Client, ou (b) ils rembourseront au Client ces taxes et droits si ce dernier les avait payés au moment de l'introduction de ces biens dans le pays du Client."
+            }
+          ],
+          "first_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0",
+              "chunk_182"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5377,
+            "total_duration_seconds": 0.5349,
+            "load_duration_seconds": 0.1197,
+            "prompt_tokens": 951,
+            "generated_tokens": 37,
+            "tokens_per_second": 147.399
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Côte d'Ivoire",
+            "supported": true,
+            "source_chunks": [
+              "chunk_6",
+              "chunk_front_matter_0",
+              "chunk_182"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001568,
+          "validation_seconds": 5.6e-05,
+          "key": "country",
+          "question": "Quel est le pays du Client ?",
+          "expected": "Côte d'Ivoire",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_front_matter_0",
+              "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+            },
+            {
+              "chunk_id": "chunk_51",
+              "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions.\nL'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions."
+            },
+            {
+              "chunk_id": "chunk_36",
+              "text": "- 22.4 La date d'ouverture de la Proposition Financière ou de l'invitation  du  Consultant  le  mieux  classé  à  soumettre  sa Proposition Financière, selon le cas, ne doit pas être antérieure à dix (10) jours ouvrables à compter de la date de notification des résultats  de  l'évaluation  technique,  décrite  aux  articles  22.1  et 22.2 des IC.\nToutefois, si le Client reçoit une réclamation sur les résultats  de  l'évaluation  technique  dans  les  dix  (10)  jours ouvrables, la date d'ouverture ou la date d'invitation à soumettre\n- Ouverture en séance publique des Propositions financières (pour les méthodes SFQC, SBD et SMC)"
+            },
+            {
+              "chunk_id": "chunk_29",
+              "text": "Les  Consultants  de  la  liste  restreinte  devront accuser réception par écrit du modificatif.\n8. 13.1.2  Si le modificatif est d'importance, le Client peut proroger la date  limite  de  dépôt  des  propositions  afin  de  donner  aux Consultants  de  la  liste  restreinte  un  délai  suffisant  pour prendre le modificatif en compte dans leur Proposition.\n9. 13.2 Le Consultant peut soumettre une Proposition modifiée ou un modificatif à tout moment avant la date limite fixée pour le dépôt des propositions."
+            },
+            {
+              "chunk_id": "chunk_37",
+              "text": "- 23.3 La date d'ouverture des Propositions financières ne sera pas fixée moins  de  dix  (10)  jours  ouvrables  à  compter  de  la  date  de notification des résultats de l'évaluation technique, décrite aux articles 23.1 et 23.2 des IC.\nCependant, si le Client reçoit une réclamation  concernant  les  résultats  de  l'évaluation  technique dans les dix (10) jours ouvrables, la date d'ouverture sera sujette à l'article 35.1 des IC.\n- 23.4 La  participation  du  Consultant  à  l'ouverture  des  Propositions financières (en personne, ou en ligne si cette option est offerte dans les Données particulières ) est facultative et est laissée au choix du Consultant."
+            }
+          ],
+          "first_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4761,
+            "total_duration_seconds": 0.4731,
+            "load_duration_seconds": 0.1189,
+            "prompt_tokens": 1341,
+            "generated_tokens": 31,
+            "tokens_per_second": 147.168
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "06/08/2024",
+            "supported": true,
+            "source_chunks": [
+              "chunk_front_matter_0"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001562,
+          "validation_seconds": 4.9e-05,
+          "key": "issue_date",
+          "question": "À quelle date la Demande de Propositions a-t-elle été émise ?",
+          "expected": "06/08/2024",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "Prêt/Crédit/Don No :\nCrédit IDA N°66860\nPays :"
+            },
+            {
+              "chunk_id": "chunk_8",
+              "text": "L'UC-PARU sollicite maintenant des propositions en vue de la fourniture des services de consultants ci-après : études techniques détaillées et des spécifications techniques des DAO des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody .\n2 [Le terme « accord de prêt » est utilisé dans le cas d'un prêt de la BIRD, le terme « accord de crédit » est utilisé dans le cas d'un crédit de l'IDA et le terme « accord de don » est utilisé dans le cas d'un don fiduciaire exécuté par le Récipiendaire et administré par la BIRD ou l'IDA.\nPour de plus amples renseignements sur les services en question, veuillez consulter les Termes de référence (Section 7)."
+            },
+            {
+              "chunk_id": "chunk_151",
+              "text": "- (b) le Consultant, ayant démontré au Client qu'il a la capacité professionnelle, l'expertise et les ressources techniques requises, a convenu d'exécuter les Services conformément aux termes et conditions arrêtés au Contrat;\n- (c) le Client a reçu [ ou a sollicité] un [prêt/crédit/don] de la Banque internationale pour la Reconstruction et le Développement [ ou un crédit/don de l'Association internationale de Développement (appelée ci-après 'l'Association')] (appelée ci-après la 'Banque') en vue de contribuer au financement du coût du Projet et des Prestations et se propose d'utiliser une partie de ce [prêt/crédit/don] pour régler les paiements autorisés dans le cadre du présent Contrat, étant entendu (i) que les paiements effectués par la Banque ne seront effectués qu'à la demande du Client et sur approbation de la Banque, (ii) que ces paiements seront soumis à tous égards aux termes et conditions de l'Accord de [prêt/crédit/don] ; ledit accord de financement interdit tout retrait du compte de prêt destiné au paiement de toute personne physique ou morale, ou de toute importation de fournitures lorsque, ledit paiement, ou ladite importation, tombe sous le coup d'une interdiction prononcée par le Conseil de Sécurité de l'Organisation des Nations Unies, au titre du Chapitre VII de la Charte des Nations Unies. et (iii) qu'aucune Partie autre que le Client ne peut se prévaloir des dispositions de l'Accord de [prêt/crédit/don], ni prétend détenir une créance sur les fonds provenant du [prêt/crédit/don].\n## EN CONSÉQUENCE, les Parties ont convenu ce qui suit:"
+            },
+            {
+              "chunk_id": "chunk_19",
+              "text": "- (c) La « Banque » désigne la Banque Internationale pour la Reconstruction  et  le  Développement  (BIRD),  ou  l'Association Internationale de Développement (IDA) ;\n- (d) le  terme  « Emprunteur »  désigne  le  Gouvernement,  l'agence gouvernementale ou une autre entité ayant conclu avec la Banque un accord de [prêt/crédit/don ] 4 .\n- (e) le terme « Client » désigne l'agence d'exécution devant signer le Contrat de Services avec le Consultant retenu."
+            },
+            {
+              "chunk_id": "chunk_20",
+              "text": "Un jour ouvrable est tout\n4 [Le terme « accord de prêt » est utilisé dans le cas d'un prêt de la BIRD, le terme « accord de crédit » est utilisé dans le cas d'un crédit de l'IDA et le terme « accord de don » est utilisé dans le cas d'un don fiduciaire exécuté par le Récipiendaire et administré par la BIRD ou l'IDA.\n## Définitions"
+            }
+          ],
+          "first_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4288,
+            "total_duration_seconds": 0.4253,
+            "load_duration_seconds": 0.1184,
+            "prompt_tokens": 1153,
+            "generated_tokens": 23,
+            "tokens_per_second": 150.071
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "66860",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001995,
+          "validation_seconds": 2.9e-05,
+          "key": "credit_number",
+          "question": "Quel est le numéro du crédit IDA ?",
+          "expected": "Crédit IDA N°66860",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_130",
+              "text": "MÉTHODE DE SÉLECTION\nLa Firme sera recrutée sur la base de la méthode de sélection dite Sélection Fondée sur la Qualité et le Coût ( SFQC ) définies dans les Directives Passation des Marchés dans le cadre du Financement de Projets  d'Investissement (FPI)  pour les  Fournitures,  Travaux,  Services  autres  que  des  Services  de Consultants  et  Services  de  Consultants  de  la  Banque  mondiale  version  de  Juillet  2016,  révisions Novembre 2017 et Août 2018.\n## 13.2."
+            },
+            {
+              "chunk_id": "chunk_3",
+              "text": "L'utilisation de ce DTPM n'est pas exigée lors de la sélection dans le cadre de pratiques commerciales,  modalités  alternatives  de  passation  de  marchés,  de  la  sélection  de consultants individuels, ni lors de la conclusion d'un accord avec une agence des NationsUnies selon un format approuvé par la Banque.\nDans le cas du recours à la méthode de Sélection  fondée  sur  les  Qualifications  du  Consultant  (« SQC »)  ou  dans  le  cas  de missions  dont  le  coût est estimé  à un  montant  inférieur  à la contre-valeur  de 300.000 dollars  des  États-Unis,  quelle  que  soit  la  méthode  de  sélection  utilisée,  des\n1 Les références dans ce DTPM à la « Banque mondiale » ou « Banque » incluent à la fois la BIRD et l'IDA."
+            },
+            {
+              "chunk_id": "chunk_39",
+              "text": "- 27.3 Le  Client  retiendra  le  Consultant  avec  la  Proposition  la  Plus Avantageuse,  qui  est la Proposition ayant obtenu  la note technique la plus élevée dans les limites du budget indiqué dans la DP, et invitera ce Consultant à négocier le Contrat.\n- 27.4 En cas de Sélection au moindre coût (SMC), le Client retiendra le Consultant ayant présenté la Proposition le Plus Avantageuse, qui est la Proposition de moindre coût évalué parmi celles qui ont obtenu le score technique minimum  requis, et invite ce Consultant à négocier le Contrat.\n## D."
+            },
+            {
+              "chunk_id": "chunk_10",
+              "text": "5.\nUn Consultant sera choisi par la méthode de la Sélection Fondée sur la Qualité et le Coût (SFQC) 3 ]  et  une  Proposition  Technique  Complète  (PTC)  ou  une  Proposition Technique Simplifiée (PTS) est demandée selon le format prescrit dans la présente DP, conformément aux principes décrits dans les Règles de Passation de Marchés pour les Emprunteurs de FPI pour les Services autres que la Supervision/Contrôle de Travaux d'infrastructure de la Banque mondiale version Juillet 2016, révisions Novembre 2017, Août  2018,  Novembre  2020  et  Juillet  2023 (Règlement  de  Passation  de  Marchés), accessibles à l'adresse www.worldbank.org.\nLa présente DP comprend les sections suivantes :"
+            },
+            {
+              "chunk_id": "chunk_196",
+              "text": "Consultants de la liste restreinte [ INSTRUCTIONS : insérez les noms de tous les consultants  de  la  liste  restreinte  et  indiquez  quels  Consultants  ont  soumis  des Propositions.\nLorsque la méthode de sélection l'exige, indiquez le prix proposé par chaque Consultant tel que lu et tel qu'évalué.\nInclure les notes techniques globales et les  notes  attribuées  pour  chaque  critère  et  sous-critère."
+            }
+          ],
+          "first_answer": {
+            "value": "SFQC",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130",
+              "chunk_10"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4519,
+            "total_duration_seconds": 0.4488,
+            "load_duration_seconds": 0.1206,
+            "prompt_tokens": 1095,
+            "generated_tokens": 27,
+            "tokens_per_second": 149.291
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "SFQC",
+            "supported": true,
+            "source_chunks": [
+              "chunk_130",
+              "chunk_10"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001588,
+          "validation_seconds": 8.9e-05,
+          "key": "selection_method",
+          "question": "Quelle méthode de sélection du Consultant est utilisée ?",
+          "expected": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_126",
+              "text": "Le Consultant pourra élire domicile dans l'une de ces deux communes ou dans la ville d'Abidjan.\nLe délai de réalisation de la mission est de 90 jours calendaire ,  soit 03 mois ,  hors délais de validation des rapports par l'UCP et l'ONAD.\nLe consultant devra se coller strictement au timing du projet, le démarrage de la mission devra se concevoir comme une action rapide qui devra se conformer aux délais  contractuels  fixés  pour  le déploiement après notification du marché."
+            },
+            {
+              "chunk_id": "chunk_127",
+              "text": "Le support numérique inclura en plus du rapport, un dossier de plans PDF au format A0.\nLes rapports provisoires feront l'objet de séances de validation devant un comité technique dont les  commentaires et recommandations devront être pris en compte dans l'établissement des rapports  définitifs  qui  seront  remis  dans  un  délai  de  sept  (07)  jours  après  réception  des commentaires écrits du Maître d'Ouvrage.\nLes  versions  définitives  des  rapports  seront  transmises  en  six  (06)  exemplaires  sur  support physique et cinq (05) exemplaires au format PDF sur support numérique."
+            },
+            {
+              "chunk_id": "chunk_45",
+              "text": "Une  demande  de débriefing reçue après le délai de (3) jours ouvrables ne donnera pas lieu à une prolongation de la Période d'Attente.\n- 33.4 Le débriefing des Consultants non retenus peut être oral ou par écrit. Les Consultants devront prendre à leur charge leurs propres frais de participation à la réunion de débriefing.\n- 34.1 Le Contrat sera signé avant l'expiration de la date de la validité de la Proposition et rapidement après l'expiration de la Période d'Attente, spécifiée en 30.1 IC ou toute date prorogée, et après le traitement  satisfaisant  de  toute  réclamation  présentée  durant  la Période d'Attente.\n- 34.2 Le Consultant est prévu commencer la mission à la date et au lieu spécifié dans les Données Particulières .\n- 35.1 Les procédures pour présenter une Réclamation  liée à la Passation  de  Marchés  sont  celles  spécifiées  dans  les Données Particulières ."
+            },
+            {
+              "chunk_id": "chunk_44",
+              "text": "- 33.3 Lorsque la demande de débriefing par écrit est reçue par le Client après le délai de trois (3) jours ouvrables, le Client devra accorder le débriefing dès que possible, et normalement au plus tard dans le délai de quinze (15) jours ouvrables suivant la publication de la  Notification  d'Attribution  du  Contrat.\nUne  demande  de débriefing reçue après le délai de (3) jours ouvrables ne donnera pas lieu à une prolongation de la Période d'Attente.\n- 33.4 Le débriefing des Consultants non retenus peut être oral ou par écrit."
+            },
+            {
+              "chunk_id": "chunk_176",
+              "text": "- 1.3.48 Règlement des Différends\n- montant forfaitaire sera réputé avoir été approuvé pour paiement par le Client dans les quatre-vingt-dix (90) jours suivant réception du Rapport final par le Client, à moins que celui-ci dans ce même délai de (90) jours calendaires  ne  notifie  par  écrit  au  Consultant  les  insuffisances  et  les inexactitudes qu'il aurait relevées dans l'exécution des Services ou dans le Rapport final.\nLe Consultant apportera immédiatement les changements et les corrections nécessaires et la même procédure sera réitérée."
+            }
+          ],
+          "first_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.4895,
+            "total_duration_seconds": 0.4867,
+            "load_duration_seconds": 0.1203,
+            "prompt_tokens": 1124,
+            "generated_tokens": 33,
+            "tokens_per_second": 147.649
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "90 jours calendaire ,  soit 03 mois",
+            "supported": true,
+            "source_chunks": [
+              "chunk_126"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001708,
+          "validation_seconds": 9e-05,
+          "key": "mission_duration",
+          "question": "Quel est le délai de réalisation de la mission ?",
+          "expected": "90 jours calendaires, soit 03 mois",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        },
+        {
+          "selected_evidence": [
+            {
+              "chunk_id": "chunk_7",
+              "text": "1.\nLe  Gouvernement  de  la  République  de  Côte  d'Ivoire (ci-après  dénommé  l' « Emprunteur ») a reçu un financement de l'Association Internationale de Développement (IDA)] (la « Banque ») sous la forme d'un « crédit » (ci-après dénommé « fonds » ] en  vue  de  financer  le  coût  du Projet  d'Assainissement  et  de  Résilience Urbaine  (PARU).\nL'Unité  de  Coordination  du  PARU  (UC-PARU) ,  l'agence d'exécution  du  Client,  se  propose  d'utiliser  une  partie  des  fonds  pour  effectuer  des paiements autorisés au titre du contrat pour lequel cette Demande de Propositions est émise."
+            },
+            {
+              "chunk_id": "chunk_151",
+              "text": "- (b) le Consultant, ayant démontré au Client qu'il a la capacité professionnelle, l'expertise et les ressources techniques requises, a convenu d'exécuter les Services conformément aux termes et conditions arrêtés au Contrat;\n- (c) le Client a reçu [ ou a sollicité] un [prêt/crédit/don] de la Banque internationale pour la Reconstruction et le Développement [ ou un crédit/don de l'Association internationale de Développement (appelée ci-après 'l'Association')] (appelée ci-après la 'Banque') en vue de contribuer au financement du coût du Projet et des Prestations et se propose d'utiliser une partie de ce [prêt/crédit/don] pour régler les paiements autorisés dans le cadre du présent Contrat, étant entendu (i) que les paiements effectués par la Banque ne seront effectués qu'à la demande du Client et sur approbation de la Banque, (ii) que ces paiements seront soumis à tous égards aux termes et conditions de l'Accord de [prêt/crédit/don] ; ledit accord de financement interdit tout retrait du compte de prêt destiné au paiement de toute personne physique ou morale, ou de toute importation de fournitures lorsque, ledit paiement, ou ladite importation, tombe sous le coup d'une interdiction prononcée par le Conseil de Sécurité de l'Organisation des Nations Unies, au titre du Chapitre VII de la Charte des Nations Unies. et (iii) qu'aucune Partie autre que le Client ne peut se prévaloir des dispositions de l'Accord de [prêt/crédit/don], ni prétend détenir une créance sur les fonds provenant du [prêt/crédit/don].\n## EN CONSÉQUENCE, les Parties ont convenu ce qui suit:"
+            },
+            {
+              "chunk_id": "chunk_100",
+              "text": "collusives,  coercitives  ou  obstructives  pendant  la  procédure  de passation du marché, de sélection ou d'exécution du marché, sans que l'Emprunteur ait pris, en temps voulu et à la satisfaction de la Banque, les mesures nécessaires pour remédier à cette situation , y compris en manquant à son devoir d'informer la Banque lorsqu'il a eu connaissance desdites pratiques ;\n- d. sanctionnera une entreprise ou un individu, dans le cadre des Directives de la Banque en matière de lutte contre la fraude et la corruption, et conformément aux règles et procédures de sanctions applicables de la  Banque,  y  compris  en déclarant publiquement l'exclusion de l'entreprise ou de l'individu pour une période indéfinie ou déterminée (i) de l'attribution d'un marché financé par la Banque ou de pouvoir en  bénéficier  financièrement  ou  de  toute  autre  manière 5 (ii)  de  la  participation 6 comme sous-traitant, consultant, fabricant ou fournisseur de biens ou prestataire de services  désigné  d'une  entreprise  par  ailleurs  éligible  à  l'attribution  d'un  marché financé par la Banque ; et (iii) du bénéfice du versement de fonds émanant d'un prêt de la Banque ou de participer d'une autre manière à la préparation ou à la mise en œuvre d'un projet financé par la Banque ;\n- e. exigera que les dossiers d'appel d'offres/appel à propositions, et que les contrats et marchés financés par la Banque, contiennent une disposition exigeant des"
+            },
+            {
+              "chunk_id": "chunk_180",
+              "text": "s'est livré à la corruption ou à des manœuvres frauduleuses, collusives, coercitives ou obstructives pendant la procédure de passation du marché, de sélection ou d'exécution du marché, sans que l'Emprunteur ait pris, en temps voulu et à la satisfaction de la Banque, les mesures nécessaires pour remédier à cette situation , y compris en manquant  à  son  devoir  d'informer  la  Banque  lorsqu'il  a  eu  connaissance  desdites pratiques ;\n- d. sanctionnera une entreprise ou un individu, dans le cadre des Directives de la Banque en matière  de  lutte  contre  la  fraude  et  la  corruption,  et  conformément  aux  règles  et procédures de sanctions applicables de la Banque, y compris en déclarant publiquement l'exclusion de l'entreprise ou de l'individu pour une période indéfinie ou déterminée (i) de  l'attribution  d'un  marché  financé  par  la  Banque  ou  de  pouvoir  en  bénéficier financièrement ou de toute autre manière 8 (ii) de la participation 9 comme sous-traitant, consultant, fabricant ou fournisseur de biens ou prestataire de services désigné d'une entreprise par ailleurs éligible à l'attribution d'un marché financé par la Banque ; et (iii) du bénéfice du versement de fonds émanant d'un prêt de la Banque ou de participer d'une autre manière à la préparation ou à la mise en œuvre d'un projet financé par la Banque ;\nexigera  que  les  dossiers  d'appel  d'offres/appel  à  propositions,  et  que  les  contrats  et  marchés financés par la Banque, contiennent une disposition exigeant des Soumissionnaires (candidats/proposants), consultants, fournisseurs et entrepreneurs, ainsi que leurs sous-traitants, sous-consultants, prestataires de services, fournisseurs, agents, et personnel, autorisent la Banque à inspecter 10 les pièces comptables, relevés et autres documents relatifs à la passation du marché, à la sélection et/ou à l'exécution du marché ou contrat, et à les soumettre pour vérification à des auditeurs désignés par la Banque."
+            },
+            {
+              "chunk_id": "chunk_25",
+              "text": "## 6.3 A titre d'exceptions aux articles 6.1 et 6.2 des IC ci-dessus :\n- 6.3.1 Un Consultant qui a été sanctionné par la Banque en vertu des « Directives Anti-Corruption de la Banque » et conformément principes  et  procédures  de  sanctions  tels  qu'établis  dans  le Cadre des Sanctions du GBM décrits à la Section VI, Fraude et Corruption,  paragraphe  2.2  (d),  sera  inéligible  pour  être sélectionné sur une liste restreinte, soumettre des propositions, ou  être  attributaire  d'un  contrat  financé  par  la  Banque,  ou bénéficier  financièrement  ou  de  toute  autre  manière  d'un contrat  financé  par  la  Banque,  pendant  une  période  que  la Banque  aura  déterminée.\nLa  liste  des  firmes  et  personnes physiques  exclues  par  la  Banque  est  disponible  à  l'adresse électronique indiquée dans les Données particulières ."
+            }
+          ],
+          "first_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "first_generation": {
+            "wall_seconds": 0.5902,
+            "total_duration_seconds": 0.5864,
+            "load_duration_seconds": 0.1182,
+            "prompt_tokens": 2148,
+            "generated_tokens": 36,
+            "tokens_per_second": 144.494
+          },
+          "correction_required": false,
+          "validation_failure": null,
+          "corrected_answer": null,
+          "correction_generation": null,
+          "final_answer": {
+            "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+            "supported": true,
+            "source_chunks": [
+              "chunk_7"
+            ]
+          },
+          "validation_passed": true,
+          "final_validation_reason": "valid",
+          "selection_seconds": 0.001997,
+          "validation_seconds": 6e-05,
+          "key": "financed_project",
+          "question": "Quel projet finance cette mission ?",
+          "expected": "Projet d’Assainissement et de Résilience Urbaine (PARU)",
+          "answer_correct": true,
+          "citation_correct": true,
+          "classification": "SUCCESS"
+        }
+      ]
+    }
+  },
+  "optimized": {
+    "rows": [
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_6",
+            "text": "Services  de  Consultant  pour  :  la  réalisation  des  études techniques  détaillées  et  des  spécifications  techniques  des dao des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et  du  bassin  d'orage  des  rosiers  dans  la  commune  de Cocody.\n## DP No : CI-PARU-365151-CS-QCBS/003/2024\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody."
+          },
+          {
+            "chunk_id": "chunk_front_matter_0",
+            "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+          }
+        ],
+        "first_answer": {
+          "value": "CI-PARU-365151-CS-QCBS/003/2024",
+          "supported": true,
+          "source_chunks": [
+            "chunk_6",
+            "chunk_front_matter_0"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.505,
+          "total_duration_seconds": 0.5028,
+          "load_duration_seconds": 0.1197,
+          "prompt_tokens": 613,
+          "generated_tokens": 46,
+          "tokens_per_second": 149.354
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "CI-PARU-365151-CS-QCBS/003/2024",
+          "supported": true,
+          "source_chunks": [
+            "chunk_6",
+            "chunk_front_matter_0"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.00057,
+        "validation_seconds": 6.5e-05,
+        "key": "official_reference",
+        "question": "Quelle est la référence officielle de la Demande de Propositions ?",
+        "expected": "CI-PARU-365151-CS-QCBS/003/2024",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_182",
+            "text": "CGC 4.1          | La langue est : Le Français\nCGC 6.1 et 6.2   | Les adresses sont : Client : Unité de Coordination du PARU Attention : OUATTARA Lazéni, Coordonnateur Télécopie : +225 07 09 95 18 18 Courriel (si permis) : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com Consultant : Attention : Télécopie :\nCGC 8.1          | [Note: Si le Consultant est constitué par une seule entité, indiquer : 'Sans objet'; OU Si le Consultant est constitué par un groupement de plus d'une entité juridique, le nom de l'entité dont l'adresse figure à la clause CPC 6.1 doit être inséré ici.] Le Chef de File au nom du groupement est ______________ [insérer le nom du Chef de File]"
+          },
+          {
+            "chunk_id": "chunk_52",
+            "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com\n14.1.1 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non                                                                                                                                                                                                                                                                                                                                                 | Les Consultants figurants sur la liste restreinte peuvent s'associer avec (a) un (des) consultant(s) ne figurant pas sur la liste restreinte : non Ou (b) tout autre consultant figurant sur la liste restreinte : non"
+          }
+        ],
+        "first_answer": {
+          "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+          "supported": true,
+          "source_chunks": [
+            "chunk_52"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.5172,
+          "total_duration_seconds": 0.5144,
+          "load_duration_seconds": 0.1194,
+          "prompt_tokens": 783,
+          "generated_tokens": 45,
+          "tokens_per_second": 148.132
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+          "supported": true,
+          "source_chunks": [
+            "chunk_52"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.000904,
+        "validation_seconds": 6.7e-05,
+        "key": "client",
+        "question": "Quel est le nom du Client ?",
+        "expected": "UC-PARU",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_6",
+            "text": "Urbaine (UC-PARU)\nPays : Côte d'Ivoire\nEmis le :"
+          },
+          {
+            "chunk_id": "chunk_182",
+            "text": "------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\nCGC 1.1 (a)      | Le Contrat sera régi par les lois et autres textes ayant force de loi dans le pays : République de Côte d'Ivoire\nCGC 4.1          | La langue est : Le Français"
+          }
+        ],
+        "first_answer": {
+          "value": "Côte d'Ivoire",
+          "supported": true,
+          "source_chunks": [
+            "chunk_6",
+            "chunk_182"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.4113,
+          "total_duration_seconds": 0.4096,
+          "load_duration_seconds": 0.1187,
+          "prompt_tokens": 302,
+          "generated_tokens": 30,
+          "tokens_per_second": 151.318
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "Côte d'Ivoire",
+          "supported": true,
+          "source_chunks": [
+            "chunk_6",
+            "chunk_182"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.001088,
+        "validation_seconds": 4.1e-05,
+        "key": "country",
+        "question": "Quel est le pays du Client ?",
+        "expected": "Côte d'Ivoire",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_front_matter_0",
+            "text": "## DP No : CI-PARU-365151-CS-QCBS/003/2024\n\nServices de Consultant pour : la réalisation des études techniques détaillées et  des  spécifications  techniques  des  DAO  des  travaux  d'aménagement  du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody. Client : Unité de Coordination du Projet d'Assainissement et de Résilience\n\nUrbaine (UC-PARU)\n\nPays : Côte d'Ivoire\n\nEmis le :\n\n06/08/2024"
+          },
+          {
+            "chunk_id": "chunk_51",
+            "text": "L'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions.\nL'adresse du Client afin d'obtenir des éclaircissements est : Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU) Abidjan Cocody, deux plateaux, 7ème tranche, quartier Zinsou, Situé à l'opposé de l'Agence commerciale de la CITELCOM, 5ème rue à droite, lot 2818, Ilot 234 / Tél : 07 09 95 18 18 A l'attention du Coordonnateur du PARU Email : olazeni@gmail.com avec en copie djabakateissiaka@gmail.com | La demande d'éclaircissement doit être adressée 15 jours au plus tard, avant la date limite de dépôt des propositions."
+          }
+        ],
+        "first_answer": {
+          "value": "06/08/2024",
+          "supported": true,
+          "source_chunks": [
+            "chunk_front_matter_0"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.4206,
+          "total_duration_seconds": 0.4183,
+          "load_duration_seconds": 0.1203,
+          "prompt_tokens": 780,
+          "generated_tokens": 31,
+          "tokens_per_second": 149.215
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "06/08/2024",
+          "supported": true,
+          "source_chunks": [
+            "chunk_front_matter_0"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.000244,
+        "validation_seconds": 4.5e-05,
+        "key": "issue_date",
+        "question": "À quelle date la Demande de Propositions a-t-elle été émise ?",
+        "expected": "06/08/2024",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_7",
+            "text": "Prêt/Crédit/Don No :\nCrédit IDA N°66860\nPays :"
+          },
+          {
+            "chunk_id": "chunk_8",
+            "text": "L'UC-PARU sollicite maintenant des propositions en vue de la fourniture des services de consultants ci-après : études techniques détaillées et des spécifications techniques des DAO des travaux d'aménagement du talweg d'abobo 4 étages et de la 2eme cuvette de Bocabo dans la commune d'abobo et du bassin d'orage des rosiers dans la commune de Cocody .\n2 [Le terme « accord de prêt » est utilisé dans le cas d'un prêt de la BIRD, le terme « accord de crédit » est utilisé dans le cas d'un crédit de l'IDA et le terme « accord de don » est utilisé dans le cas d'un don fiduciaire exécuté par le Récipiendaire et administré par la BIRD ou l'IDA.\nPour de plus amples renseignements sur les services en question, veuillez consulter les Termes de référence (Section 7)."
+          }
+        ],
+        "first_answer": {
+          "value": "66860",
+          "supported": true,
+          "source_chunks": [
+            "chunk_7"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.3689,
+          "total_duration_seconds": 0.3669,
+          "load_duration_seconds": 0.1191,
+          "prompt_tokens": 450,
+          "generated_tokens": 23,
+          "tokens_per_second": 152.923
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "66860",
+          "supported": true,
+          "source_chunks": [
+            "chunk_7"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.000685,
+        "validation_seconds": 3.2e-05,
+        "key": "credit_number",
+        "question": "Quel est le numéro du crédit IDA ?",
+        "expected": "Crédit IDA N°66860",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_130",
+            "text": "MÉTHODE DE SÉLECTION\nLa Firme sera recrutée sur la base de la méthode de sélection dite Sélection Fondée sur la Qualité et le Coût ( SFQC ) définies dans les Directives Passation des Marchés dans le cadre du Financement de Projets  d'Investissement (FPI)  pour les  Fournitures,  Travaux,  Services  autres  que  des  Services  de Consultants  et  Services  de  Consultants  de  la  Banque  mondiale  version  de  Juillet  2016,  révisions Novembre 2017 et Août 2018.\n## 13.2."
+          },
+          {
+            "chunk_id": "chunk_3",
+            "text": "L'utilisation de ce DTPM n'est pas exigée lors de la sélection dans le cadre de pratiques commerciales,  modalités  alternatives  de  passation  de  marchés,  de  la  sélection  de consultants individuels, ni lors de la conclusion d'un accord avec une agence des NationsUnies selon un format approuvé par la Banque.\nDans le cas du recours à la méthode de Sélection  fondée  sur  les  Qualifications  du  Consultant  (« SQC »)  ou  dans  le  cas  de missions  dont  le  coût est estimé  à un  montant  inférieur  à la contre-valeur  de 300.000 dollars  des  États-Unis,  quelle  que  soit  la  méthode  de  sélection  utilisée,  des\n1 Les références dans ce DTPM à la « Banque mondiale » ou « Banque » incluent à la fois la BIRD et l'IDA."
+          }
+        ],
+        "first_answer": {
+          "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+          "supported": true,
+          "source_chunks": [
+            "chunk_130"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.4378,
+          "total_duration_seconds": 0.4355,
+          "load_duration_seconds": 0.122,
+          "prompt_tokens": 598,
+          "generated_tokens": 35,
+          "tokens_per_second": 150.203
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+          "supported": true,
+          "source_chunks": [
+            "chunk_130"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.000796,
+        "validation_seconds": 5.7e-05,
+        "key": "selection_method",
+        "question": "Quelle méthode de sélection du Consultant est utilisée ?",
+        "expected": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_126",
+            "text": "Le Consultant pourra élire domicile dans l'une de ces deux communes ou dans la ville d'Abidjan.\nLe délai de réalisation de la mission est de 90 jours calendaire ,  soit 03 mois ,  hors délais de validation des rapports par l'UCP et l'ONAD.\nLe consultant devra se coller strictement au timing du projet, le démarrage de la mission devra se concevoir comme une action rapide qui devra se conformer aux délais  contractuels  fixés  pour  le déploiement après notification du marché."
+          },
+          {
+            "chunk_id": "chunk_127",
+            "text": "Le support numérique inclura en plus du rapport, un dossier de plans PDF au format A0.\nLes rapports provisoires feront l'objet de séances de validation devant un comité technique dont les  commentaires et recommandations devront être pris en compte dans l'établissement des rapports  définitifs  qui  seront  remis  dans  un  délai  de  sept  (07)  jours  après  réception  des commentaires écrits du Maître d'Ouvrage.\nLes  versions  définitives  des  rapports  seront  transmises  en  six  (06)  exemplaires  sur  support physique et cinq (05) exemplaires au format PDF sur support numérique."
+          }
+        ],
+        "first_answer": {
+          "value": "90 jours calendaire ,  soit 03 mois",
+          "supported": true,
+          "source_chunks": [
+            "chunk_126"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.43,
+          "total_duration_seconds": 0.4279,
+          "load_duration_seconds": 0.1206,
+          "prompt_tokens": 534,
+          "generated_tokens": 33,
+          "tokens_per_second": 146.449
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "90 jours calendaire ,  soit 03 mois",
+          "supported": true,
+          "source_chunks": [
+            "chunk_126"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.001094,
+        "validation_seconds": 9.7e-05,
+        "key": "mission_duration",
+        "question": "Quel est le délai de réalisation de la mission ?",
+        "expected": "90 jours calendaires, soit 03 mois",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      },
+      {
+        "selected_evidence": [
+          {
+            "chunk_id": "chunk_7",
+            "text": "1.\nLe  Gouvernement  de  la  République  de  Côte  d'Ivoire (ci-après  dénommé  l' « Emprunteur ») a reçu un financement de l'Association Internationale de Développement (IDA)] (la « Banque ») sous la forme d'un « crédit » (ci-après dénommé « fonds » ] en  vue  de  financer  le  coût  du Projet  d'Assainissement  et  de  Résilience Urbaine  (PARU).\nL'Unité  de  Coordination  du  PARU  (UC-PARU) ,  l'agence d'exécution  du  Client,  se  propose  d'utiliser  une  partie  des  fonds  pour  effectuer  des paiements autorisés au titre du contrat pour lequel cette Demande de Propositions est émise."
+          },
+          {
+            "chunk_id": "chunk_151",
+            "text": "- (b) le Consultant, ayant démontré au Client qu'il a la capacité professionnelle, l'expertise et les ressources techniques requises, a convenu d'exécuter les Services conformément aux termes et conditions arrêtés au Contrat;\n- (c) le Client a reçu [ ou a sollicité] un [prêt/crédit/don] de la Banque internationale pour la Reconstruction et le Développement [ ou un crédit/don de l'Association internationale de Développement (appelée ci-après 'l'Association')] (appelée ci-après la 'Banque') en vue de contribuer au financement du coût du Projet et des Prestations et se propose d'utiliser une partie de ce [prêt/crédit/don] pour régler les paiements autorisés dans le cadre du présent Contrat, étant entendu (i) que les paiements effectués par la Banque ne seront effectués qu'à la demande du Client et sur approbation de la Banque, (ii) que ces paiements seront soumis à tous égards aux termes et conditions de l'Accord de [prêt/crédit/don] ; ledit accord de financement interdit tout retrait du compte de prêt destiné au paiement de toute personne physique ou morale, ou de toute importation de fournitures lorsque, ledit paiement, ou ladite importation, tombe sous le coup d'une interdiction prononcée par le Conseil de Sécurité de l'Organisation des Nations Unies, au titre du Chapitre VII de la Charte des Nations Unies. et (iii) qu'aucune Partie autre que le Client ne peut se prévaloir des dispositions de l'Accord de [prêt/crédit/don], ni prétend détenir une créance sur les fonds provenant du [prêt/crédit/don].\n## EN CONSÉQUENCE, les Parties ont convenu ce qui suit:"
+          }
+        ],
+        "first_answer": {
+          "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+          "supported": true,
+          "source_chunks": [
+            "chunk_7"
+          ]
+        },
+        "first_generation": {
+          "wall_seconds": 0.4757,
+          "total_duration_seconds": 0.4732,
+          "load_duration_seconds": 0.1196,
+          "prompt_tokens": 890,
+          "generated_tokens": 36,
+          "tokens_per_second": 146.202
+        },
+        "correction_required": false,
+        "validation_failure": null,
+        "corrected_answer": null,
+        "correction_generation": null,
+        "final_answer": {
+          "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+          "supported": true,
+          "source_chunks": [
+            "chunk_7"
+          ]
+        },
+        "validation_passed": true,
+        "final_validation_reason": "valid",
+        "selection_seconds": 0.000969,
+        "validation_seconds": 5.5e-05,
+        "key": "financed_project",
+        "question": "Quel projet finance cette mission ?",
+        "expected": "Projet d’Assainissement et de Résilience Urbaine (PARU)",
+        "answer_correct": true,
+        "citation_correct": true,
+        "classification": "SUCCESS"
+      }
+    ],
+    "answer_correct": 8,
+    "citation_correct": 8
+  },
+  "structured": {
+    "json_valid": true,
+    "correction_required": false,
+    "invalid_fields_first_pass": [],
+    "first_answer": {
+      "official_reference": {
+        "value": "CI-PARU-365151-CS-QCBS/003/2024",
+        "source_chunks": [
+          "chunk_6",
+          "chunk_front_matter_0"
+        ]
+      },
+      "client": {
+        "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+        "source_chunks": [
+          "chunk_182",
+          "chunk_52"
+        ]
+      },
+      "country": {
+        "value": "Côte d'Ivoire",
+        "source_chunks": [
+          "chunk_6",
+          "chunk_182"
+        ]
+      },
+      "issue_date": {
+        "value": "06/08/2024",
+        "source_chunks": [
+          "chunk_front_matter_0",
+          "chunk_51"
+        ]
+      },
+      "credit_number": {
+        "value": "Crédit IDA N°66860",
+        "source_chunks": [
+          "chunk_7"
+        ]
+      },
+      "selection_method": {
+        "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+        "source_chunks": [
+          "chunk_130"
+        ]
+      },
+      "mission_duration": {
+        "value": "90 jours calendaire, soit 03 mois",
+        "source_chunks": [
+          "chunk_126"
+        ]
+      },
+      "financed_project": {
+        "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+        "source_chunks": [
+          "chunk_7",
+          "chunk_151"
+        ]
+      }
+    },
+    "first_generation": {
+      "wall_seconds": 2.9117,
+      "total_duration_seconds": 2.9059,
+      "load_duration_seconds": 0.12,
+      "prompt_tokens": 3528,
+      "generated_tokens": 317,
+      "tokens_per_second": 136.422
+    },
+    "corrected_answer": null,
+    "correction_generation": null,
+    "fields": {
+      "official_reference": {
+        "value": "CI-PARU-365151-CS-QCBS/003/2024",
+        "source_chunks": [
+          "chunk_6",
+          "chunk_front_matter_0"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "client": {
+        "value": "Unité de Coordination du Projet d'Assainissement et de Résilience Urbaine (UC-PARU)",
+        "source_chunks": [
+          "chunk_182",
+          "chunk_52"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "country": {
+        "value": "Côte d'Ivoire",
+        "source_chunks": [
+          "chunk_6",
+          "chunk_182"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "issue_date": {
+        "value": "06/08/2024",
+        "source_chunks": [
+          "chunk_front_matter_0",
+          "chunk_51"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "credit_number": {
+        "value": "Crédit IDA N°66860",
+        "source_chunks": [
+          "chunk_7"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "selection_method": {
+        "value": "Sélection Fondée sur la Qualité et le Coût (SFQC)",
+        "source_chunks": [
+          "chunk_130"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "mission_duration": {
+        "value": "90 jours calendaire, soit 03 mois",
+        "source_chunks": [
+          "chunk_126"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      },
+      "financed_project": {
+        "value": "Projet d'Assainissement et de Résilience Urbaine (PARU)",
+        "source_chunks": [
+          "chunk_7",
+          "chunk_151"
+        ],
+        "grounding_valid": true,
+        "validation_reason": "valid",
+        "correct": true
+      }
+    },
+    "correct": 8,
+    "grounding_valid": 8
+  },
+  "anti_hallucination": {
+    "tests": [
+      {
+        "question": "Quel est le budget exact de la mission en FCFA ?",
+        "answer": {
+          "value": null,
+          "supported": false,
+          "source_chunks": []
+        },
+        "passed": true,
+        "generation": {
+          "wall_seconds": 0.4843,
+          "total_duration_seconds": 0.4827,
+          "load_duration_seconds": 0.1243,
+          "prompt_tokens": 288,
+          "generated_tokens": 14,
+          "tokens_per_second": 158.09
+        }
+      },
+      {
+        "question": "Quel est le nom du chef de projet proposé par le consultant ?",
+        "answer": {
+          "value": null,
+          "supported": false,
+          "source_chunks": []
+        },
+        "passed": true,
+        "generation": {
+          "wall_seconds": 0.2556,
+          "total_duration_seconds": 0.2535,
+          "load_duration_seconds": 0.1266,
+          "prompt_tokens": 360,
+          "generated_tokens": 14,
+          "tokens_per_second": 159.812
+        }
+      },
+      {
+        "question": "Quelle est la date exacte de démarrage des travaux ?",
+        "answer": {
+          "value": null,
+          "supported": false,
+          "source_chunks": []
+        },
+        "passed": true,
+        "generation": {
+          "wall_seconds": 0.2646,
+          "total_duration_seconds": 0.2622,
+          "load_duration_seconds": 0.1203,
+          "prompt_tokens": 611,
+          "generated_tokens": 14,
+          "tokens_per_second": 156.509
+        }
+      }
+    ],
+    "passed": 3
+  },
+  "isolation": {
+    "mismatched_code": "AO-20260810-0958-MISMATCH",
+    "dense_count": 0,
+    "lexical_count": 0,
+    "passed": true
+  }
+}
