@@ -112,7 +112,7 @@ $appPort = Get-AppPort
 if (-not (Test-PortOpen -Port $appPort)) {
   Write-Host "Starting app on port $appPort..."
   $env:PORT = "$appPort"
-  Start-Process -FilePath "npm" -ArgumentList "run", "dev" `
+  Start-Process -FilePath "npm.cmd" -ArgumentList "run", "dev" `
     -WorkingDirectory $projectRoot -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $logDir "app.out.log") `
     -RedirectStandardError (Join-Path $logDir "app.err.log")
