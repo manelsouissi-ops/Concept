@@ -34,6 +34,7 @@ import type { FciDetail, FciSetOverallStatus } from "@/lib/appels-offres/fci/typ
 import type { GoNoGoDecisionRecord } from "@/lib/appels-offres/go-no-go/types.ts";
 import type { TenderWorkflowStateView } from "@/lib/appels-offres/workflow/service.ts";
 import { deriveTenderStage } from "@/lib/appels-offres/tender-stage.ts";
+import { getFciModuleForRole } from "@/lib/auth/rbac.ts";
 import type { UserRole } from "@/lib/auth/rbac.ts";
 import type { BadgeTone } from "@/lib/appels-offres/presentation.ts";
 import {
@@ -52,7 +53,7 @@ type WorkspaceFlash = "created-processing" | "launch-failed" | "analysis-started
 type ReviewWorkflowState = "saved" | "validated" | null;
 type ReplacementSubmitState = "idle" | "submitting";
 
-type FciTabModuleCode = "A" | "B" | "C";
+type FciTabModuleCode = "A" | "B" | "C" | "D";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -226,6 +227,49 @@ function getFlashContent(flash: WorkspaceFlash | undefined) {
 
 function toViewParam(tab: WorkspaceTabKey) {
   return tab === "fiche" ? "fiche-cdc" : tab;
+}
+
+// Presentation-only refinement of the FCI_IN_PROGRESS next-action label for
+// the Overview: same canonical stage/href, just a message tailored to what
+// this particular user is waiting on. Not used anywhere else, so it can't
+// create a second notion of "current state" - the stage itself is untouched.
+function getFciInProgressActionLabel(
+  fciDetail: FciDetail | null,
+  role: UserRole | undefined
+): string | undefined {
+  if (!fciDetail) {
+    return undefined;
+  }
+
+  const moduleStatus = (code: "A" | "B" | "C" | "D") =>
+    fciDetail.modules.find((module) => module.moduleCode === code)?.status;
+  const ownModule = role ? getFciModuleForRole(role) : null;
+
+  if (ownModule === "A" || ownModule === "B" || ownModule === "C" || ownModule === "D") {
+    if (moduleStatus(ownModule) !== "validated") {
+      return "Compléter ma FCI";
+    }
+  }
+
+  const pending: string[] = [];
+  if (moduleStatus("B") !== "validated") {
+    pending.push("la Finance");
+  }
+  if (moduleStatus("C") !== "validated") {
+    pending.push("les Opérations");
+  }
+  if (moduleStatus("D") !== "validated") {
+    pending.push("la Direction Générale");
+  }
+
+  if (pending.length === 1) {
+    return `En attente de ${pending[0]}`;
+  }
+  if (pending.length > 1) {
+    return `En attente de ${pending.join(" et de ")}`;
+  }
+
+  return undefined;
 }
 
 export function AppelOffresWorkspace({
@@ -599,6 +643,11 @@ export function AppelOffresWorkspace({
                   <TenderOverviewStatus
                     stage={stage}
                     decision={decision}
+                    nextActionLabelOverride={
+                      stage.stage === "FCI_IN_PROGRESS"
+                        ? getFciInProgressActionLabel(fciDetail, currentUserRole)
+                        : undefined
+                    }
                     onNavigate={(href) => router.push(href)}
                   />
                 ) : null}
@@ -958,6 +1007,8 @@ export function AppelOffresWorkspace({
           {activeTab === "fci" ? (
             <FciWorkspace
               code={appel.code}
+              ficheValidated={appel.ficheStatus?.status === "validated"}
+              currentUserRole={currentUserRole}
               onOpenFiche={() => updateView("fiche")}
             />
           ) : null}

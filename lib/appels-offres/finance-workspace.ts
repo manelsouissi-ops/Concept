@@ -38,6 +38,7 @@ export type FinanceDossierRow = {
   priorityLabel: string;
   priorityTone: BadgeTone;
   deadlineLabel: string;
+  deadlineAt: string | null;
   deadlineMeta: string;
   statusLabel: string;
   statusTone: BadgeTone;
@@ -103,17 +104,6 @@ function formatDateLabel(value: string | null) {
     month: "short",
     year: "numeric"
   });
-}
-
-function isWithinLastDays(value: string | null, nowIso: string, days: number) {
-  if (!value) {
-    return false;
-  }
-
-  const now = new Date(nowIso).getTime();
-  const target = new Date(value).getTime();
-  const threshold = days * 24 * 60 * 60 * 1000;
-  return target <= now && now - target <= threshold;
 }
 
 function getPriorityTone(priority: AppelOffresPriorite): BadgeTone {
@@ -185,14 +175,15 @@ function buildSyntheticRow(
     priorityLabel: summary.priorityLabel,
     priorityTone: getPriorityTone(record.detail.priorite),
     deadlineLabel: formatDateLabel(record.detail.dueDate),
+    deadlineAt: record.detail.dueDate,
     deadlineMeta: isOverdue
       ? "Echeance depassee"
       : record.detail.dueDate
         ? "A surveiller"
         : "Sans deadline",
-    statusLabel: isOverdue ? "En retard" : "En attente",
+    statusLabel: "À compléter",
     statusTone: isOverdue ? "danger" : "ai",
-    actionLabel: "Continuer",
+    actionLabel: "Commencer",
     actionHref: getModuleHref(record.detail.code, moduleCode),
     isOverdue,
     validatedAt: null,
@@ -230,9 +221,9 @@ function buildRowFromModule(
 
   let moduleLabel = "Module a completer";
   let moduleDetail = `Le module ${departmentLabel} attend votre intervention.`;
-  let statusLabel = "A traiter";
+  let statusLabel = "À compléter";
   let statusTone: BadgeTone = "warning";
-  let actionLabel = "Ouvrir";
+  let actionLabel = "Commencer";
   let requiresAttention = true;
 
   if (ownedModule.status === "validated") {
@@ -240,7 +231,7 @@ function buildRowFromModule(
     moduleDetail = ownedModule.validatedAt
       ? `Valide le ${formatDateLabel(ownedModule.validatedAt)}.`
       : `Le module ${departmentLabel} est pret pour export.`;
-    statusLabel = "A jour";
+    statusLabel = "Validée";
     statusTone = "success";
     actionLabel = "Consulter";
     requiresAttention = false;
@@ -249,29 +240,29 @@ function buildRowFromModule(
     moduleDetail = `L'IA prepare le module ${departmentLabel} pour votre relecture.`;
     statusLabel = "En cours";
     statusTone = "ai";
-    actionLabel = "Suivre";
+    actionLabel = "Continuer";
   } else if (ownedModule.status === "failed" || moduleSummary.current_error?.code) {
     moduleLabel = "Module en erreur";
     moduleDetail = moduleSummary.current_error?.message ?? "Une verification est necessaire avant reprise.";
-    statusLabel = "Bloque";
+    statusLabel = "Bloquée";
     statusTone = "danger";
-    actionLabel = "Revoir";
+    actionLabel = "Réviser";
   } else if (staleSource) {
     moduleLabel = "Source a relire";
     moduleDetail = `La Fiche CDC a change depuis la derniere version du module ${departmentLabel}.`;
-    statusLabel = "A regenerer";
+    statusLabel = "À régénérer";
     statusTone = "warning";
     actionLabel = "Mettre a jour";
   } else if (ownedModule.status === "needs_review" || ownedModule.status === "generated") {
     moduleLabel = "Pret pour validation";
     moduleDetail = "Les informations generees doivent etre revisees et validees.";
-    statusLabel = isOverdue ? "En retard" : "Validation requise";
+    statusLabel = "Validation requise";
     statusTone = isOverdue ? "danger" : "warning";
-    actionLabel = "Continuer";
+    actionLabel = "Réviser";
   } else if (latestData) {
     moduleLabel = "Brouillon en cours";
     moduleDetail = `Un brouillon ${departmentLabel} existe deja et peut etre finalise.`;
-    statusLabel = isOverdue ? "En retard" : "En preparation";
+    statusLabel = "En cours";
     statusTone = isOverdue ? "danger" : "info";
     actionLabel = "Continuer";
   } else {
@@ -280,14 +271,9 @@ function buildRowFromModule(
     // is a brief pending state, never a manual "Generer" trigger.
     moduleLabel = "Pre-remplissage en attente";
     moduleDetail = `Le module ${departmentLabel} va etre pre-rempli automatiquement par l'IA.`;
-    statusLabel = isOverdue ? "En retard" : "En attente";
+    statusLabel = "À compléter";
     statusTone = isOverdue ? "danger" : "ai";
-    actionLabel = "Continuer";
-  }
-
-  if (!requiresAttention && isOverdue) {
-    statusLabel = "Echeance depassee";
-    statusTone = "danger";
+    actionLabel = "Commencer";
   }
 
   return {
@@ -299,6 +285,7 @@ function buildRowFromModule(
     priorityLabel: dossierSummary.priorityLabel,
     priorityTone: getPriorityTone(record.detail.priorite),
     deadlineLabel: formatDateLabel(record.detail.dueDate),
+    deadlineAt: record.detail.dueDate,
     deadlineMeta: record.detail.dueDate
       ? isOverdue
         ? "Echeance depassee"
@@ -439,7 +426,7 @@ function dedupeNotifications(items: WorkspaceActivityItem[]) {
 }
 
 function categorizeRow(row: FinanceDossierRow) {
-  if (row.statusTone === "danger" && row.statusLabel === "Bloque") {
+  if (row.statusTone === "danger" && row.statusLabel === "Bloquée") {
     return "blocked" as const;
   }
 
@@ -451,7 +438,7 @@ function categorizeRow(row: FinanceDossierRow) {
     row.moduleLabel === "Generation en cours"
     || row.moduleLabel === "Brouillon en cours"
     || row.statusLabel === "En cours"
-    || row.statusLabel === "En preparation"
+    || row.statusLabel === "En cours"
   ) {
     return "in_progress" as const;
   }
@@ -547,8 +534,24 @@ export function buildFinanceWorkspacePresentation(input: {
         return left.requiresAttention ? -1 : 1;
       }
 
-      if (left.isOverdue !== right.isOverdue) {
-        return left.isOverdue ? -1 : 1;
+      const rank = (row: FinanceDossierRow) => {
+        if (row.statusLabel === "Bloquée") return 0;
+        if (row.statusLabel === "À régénérer") return 1;
+        if (row.statusLabel === "Validation requise") return 2;
+        if (row.statusLabel === "À compléter") return 3;
+        if (row.statusLabel === "En cours") return 4;
+        return 5;
+      };
+      const priorityDifference = rank(left) - rank(right);
+      if (priorityDifference !== 0) {
+        return priorityDifference;
+      }
+
+      if (left.deadlineAt && right.deadlineAt && left.deadlineAt !== right.deadlineAt) {
+        return left.deadlineAt.localeCompare(right.deadlineAt);
+      }
+      if (left.deadlineAt !== right.deadlineAt) {
+        return left.deadlineAt ? -1 : 1;
       }
 
       return right.lastUpdatedAt.localeCompare(left.lastUpdatedAt);
@@ -559,11 +562,11 @@ export function buildFinanceWorkspacePresentation(input: {
   const todo = rows.filter((row) => categorizeRow(row) === "todo");
   const inProgress = rows.filter((row) => categorizeRow(row) === "in_progress");
   const blocked = rows.filter((row) => categorizeRow(row) === "blocked");
-  const validated = rows.filter((row) => categorizeRow(row) === "validated");
+  const validated = rows
+    .filter((row) => categorizeRow(row) === "validated")
+    .sort((left, right) => (right.validatedAt ?? "").localeCompare(left.validatedAt ?? ""));
 
   const attentionCount = tasks.length;
-  const completedThisWeek = rows.filter((row) => isWithinLastDays(row.validatedAt, nowIso, 7)).length;
-  const overdue = rows.filter((row) => row.isOverdue && row.requiresAttention).length;
   const notifications = dedupeNotifications(
     candidateRecords
       .flatMap((record) => {
@@ -581,8 +584,8 @@ export function buildFinanceWorkspacePresentation(input: {
 
   const heroSummary = minimal
     ? attentionCount > 0
-      ? `${attentionCount} module${attentionCount > 1 ? "s" : ""} a completer.`
-      : "Aucun module a completer pour le moment."
+      ? `${attentionCount} FCI nécessite${attentionCount > 1 ? "nt" : ""} votre attention.`
+      : "Aucune FCI ne nécessite votre attention."
     : attentionCount > 0
       ? `${attentionCount} dossier${attentionCount > 1 ? "s necessitent votre intervention." : " necessite votre intervention."}`
       : "Aucun dossier ne necessite votre intervention immediate.";
@@ -599,32 +602,25 @@ export function buildFinanceWorkspacePresentation(input: {
     heroSummary,
     kpis: [
       {
-        key: "mine",
-        label: "Mes dossiers",
-        value: rows.length,
-        description: `Dossiers actuellement suivis par ${departmentLabel}.`,
-        tone: "default"
-      },
-      {
         key: "attention",
-        label: "En attente de moi",
+        label: "À traiter",
         value: attentionCount,
-        description: "Modules a completer, relire ou relancer.",
+        description: "FCI nécessitant votre action",
         tone: attentionCount > 0 ? "warning" : "success"
       },
       {
-        key: "completed",
-        label: "Termines cette semaine",
-        value: completedThisWeek,
-        description: `Modules ${departmentLabel} valides au cours des sept derniers jours.`,
-        tone: "success"
+        key: "in_progress",
+        label: "En cours",
+        value: inProgress.length,
+        description: "Contributions commencées",
+        tone: "default"
       },
       {
-        key: "overdue",
-        label: "En retard",
-        value: overdue,
-        description: `Dossiers avec echeance depassee et action ${departmentLabel} en attente.`,
-        tone: overdue > 0 ? "danger" : "default"
+        key: "completed",
+        label: "Validées",
+        value: validated.length,
+        description: "Contributions terminées",
+        tone: "success"
       }
     ],
     dossiers: rows,

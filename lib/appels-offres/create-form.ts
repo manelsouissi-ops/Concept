@@ -34,6 +34,18 @@ export function normalizeAppelOffresCodeCandidate(value: string) {
   return value.trim().replace(/[^\w-]+/g, "_");
 }
 
+export function formatCreateAppelOffresFileSize(sizeBytes: number) {
+  if (sizeBytes >= 1024 * 1024) {
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} Mo`;
+  }
+
+  if (sizeBytes >= 1024) {
+    return `${Math.round(sizeBytes / 1024)} Ko`;
+  }
+
+  return `${new Intl.NumberFormat("fr-FR").format(sizeBytes)} octets`;
+}
+
 export function getPdfFileSelectionError(file: CreateAppelOffresFileLike | null) {
   if (!file) {
     return null;

@@ -79,6 +79,7 @@ export default async function RootLayout({
           isDevelopmentMode={isDevelopmentMode && devSwitcherEnabled}
           initialNotifications={initialNotifications}
           initialUnreadNotificationCount={initialUnreadNotificationCount}
+          openWebUiUrl={process.env.NEXT_PUBLIC_OPEN_WEBUI_URL ?? null}
         >
           {children}
         </AppShell>

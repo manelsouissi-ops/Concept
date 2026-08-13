@@ -103,7 +103,7 @@ async function loadPersistedActors() {
   DIRECTION_GENERALE_USER = actors.dg;
 }
 
-function getActorByModule(moduleCode: "A" | "B" | "C") {
+function getActorByModule(moduleCode: "A" | "B" | "C" | "D") {
   switch (moduleCode) {
     case "A":
       return COMMERCIAL_USER;
@@ -111,6 +111,8 @@ function getActorByModule(moduleCode: "A" | "B" | "C") {
       return FINANCE_USER;
     case "C":
       return OPERATIONS_USER;
+    case "D":
+      return DIRECTION_GENERALE_USER;
   }
 }
 
@@ -119,7 +121,7 @@ function readJsonFixture(relativePath: string) {
 }
 
 function buildFciModulePayloadFixture(input: {
-  moduleCode: "A" | "B" | "C";
+  moduleCode: "A" | "B" | "C" | "D";
   sourceVersion: string;
   sourceHash: string;
   code: string;
@@ -127,7 +129,8 @@ function buildFciModulePayloadFixture(input: {
   const fixtureByModule = {
     A: "ai/examples/fci-commercial.sample.json",
     B: "ai/examples/fci-finance.sample.json",
-    C: "ai/examples/fci-operations.sample.json"
+    C: "ai/examples/fci-operations.sample.json",
+    D: "ai/examples/fci-strategy.sample.json"
   } as const;
 
   const payload = readJsonFixture(fixtureByModule[input.moduleCode]);
@@ -304,6 +307,12 @@ async function initializeAssignedFciWorkspace(code: string) {
       assignedUserId: Number(OPERATIONS_USER.id),
       currentUser: COMMERCIAL_USER
     });
+    await assignFciModule({
+      code,
+      moduleCode: "D",
+      assignedUserId: Number(DIRECTION_GENERALE_USER.id),
+      currentUser: COMMERCIAL_USER
+    });
     assignedTenderCodes.add(code);
   }
 }
@@ -334,7 +343,7 @@ function setFciFieldValue(data: Record<string, unknown>, fieldPath: string, valu
 // Drives a module through the same path production uses (launch -> n8n
 // success callback -> human validation) using the known-complete AI sample
 // fixtures, so "validated" here means what it means for a real dossier.
-async function completeAndValidateModule(code: string, moduleCode: "A" | "B" | "C") {
+async function completeAndValidateModule(code: string, moduleCode: "A" | "B" | "C" | "D") {
   const actor = getActorByModule(moduleCode);
 
   const launchResult = await withMockFetch(acceptingFetch, () =>
@@ -446,8 +455,8 @@ async function completeAndValidateModule(code: string, moduleCode: "A" | "B" | "
 async function validateAllFciModules(code: string) {
   await withFciEnv(async () => {
     await initializeAssignedFciWorkspace(code);
-    for (const moduleCode of ["A", "B", "C"] as FciModuleCode[]) {
-      await completeAndValidateModule(code, moduleCode as "A" | "B" | "C");
+    for (const moduleCode of ["A", "B", "C", "D"] as FciModuleCode[]) {
+      await completeAndValidateModule(code, moduleCode as "A" | "B" | "C" | "D");
     }
   });
 }
@@ -573,7 +582,7 @@ test("go decision authorizes the tender, is idempotent, and reopen appends a new
   const gatedView = await getGoNoGoView(code, DIRECTION_GENERALE_USER);
   assert.equal(gatedView.fci.overall_status, "validated");
   assert.equal(gatedView.permissions.can_decide, true);
-  assert.equal(gatedView.fci.modules.length, 3);
+  assert.equal(gatedView.fci.modules.length, 4);
 
   const firstDecision = await decideGoNoGo(
     code,

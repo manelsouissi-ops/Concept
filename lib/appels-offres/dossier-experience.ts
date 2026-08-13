@@ -19,7 +19,7 @@ const DEFAULT_WORKSPACE_TABS: WorkspaceTabDefinition[] = [
 const DECISION_CENTER_TABS: WorkspaceTabDefinition[] = [
   { key: "overview", label: "Synthèse" },
   { key: "fiche", label: "Fiche CDC" },
-  { key: "fci", label: "FCI A / B / C" },
+  { key: "fci", label: "Contributions FCI" },
   { key: "go-no-go", label: "Décision" },
   { key: "history", label: "Historique", countKey: "history" }
 ];

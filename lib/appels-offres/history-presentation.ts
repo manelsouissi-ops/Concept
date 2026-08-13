@@ -34,9 +34,16 @@ function moduleCodeOf(payload: Record<string, unknown> | null) {
   return payload && typeof payload.moduleCode === "string" ? payload.moduleCode : null;
 }
 
+const MODULE_DEPARTMENT_LABEL: Record<string, string> = {
+  A: "FCI Commerciale",
+  B: "FCI Financière",
+  C: "FCI Opérationnelle",
+  D: "FCI Direction Générale"
+};
+
 function moduleLabel(payload: Record<string, unknown> | null) {
   const code = moduleCodeOf(payload);
-  return code ? `FCI ${code}` : "FCI";
+  return (code && MODULE_DEPARTMENT_LABEL[code]) || "FCI";
 }
 
 /**
@@ -75,6 +82,14 @@ export function mapTenderAuditEvent(entry: AuditLogRecord): HistoryEventPresenta
       return { category: "gonogo", title: "Soumis à la Direction Générale", description: null, result: null, tone: "info" };
     case "workflow.under_dg_review":
       return { category: "gonogo", title: "Dossier en revue à la Direction Générale", description: null, result: null, tone: "neutral" };
+    case "go_no_go_report.generated":
+      return { category: "gonogo", title: "Rapport Go/No-Go généré", description: null, result: null, tone: "ai" };
+    case "go_no_go_report.edited":
+      return { category: "gonogo", title: "Rapport Go/No-Go modifié", description: null, result: null, tone: "neutral" };
+    case "go_no_go_report.prepared":
+      return { category: "gonogo", title: "Rapport marqué comme prêt", description: null, result: null, tone: "info" };
+    case "go_no_go_report.submitted":
+      return { category: "gonogo", title: "Rapport soumis à la Direction Générale", description: null, result: null, tone: "info" };
     case "commercial_owner.assigned":
     case "commercial_owner.transferred":
       return { category: "general", title: "Responsable commercial modifié", description: null, result: null, tone: "neutral" };
@@ -93,6 +108,14 @@ export function mapFciAuditEvent(entry: FciAuditEventRecord): HistoryEventPresen
   switch (entry.eventType) {
     case "fci.generation.completed":
       return { category: "fci", title: `${moduleLabel(payload)} créée`, description: null, result: null, tone: "ai" };
+    case "fci.module_data.saved":
+      // Only the first save is a meaningful business milestone ("commencée");
+      // every subsequent autosave would otherwise spam the history with one
+      // row per click.
+      if (payload && payload.version === 1) {
+        return { category: "fci", title: `${moduleLabel(payload)} commencée`, description: null, result: null, tone: "neutral" };
+      }
+      return null;
     case "fci.module.validated":
       return { category: "fci", title: `${moduleLabel(payload)} validée`, description: null, result: null, tone: "success" };
     case "fci.assignment.created":

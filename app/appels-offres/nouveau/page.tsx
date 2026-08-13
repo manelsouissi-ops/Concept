@@ -1,16 +1,16 @@
-import { AppelOffresForm } from "@/components/appel-offres-form.tsx";
-import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
+import { AppelOffresCreateWizard } from "@/components/appel-offres-create-wizard.tsx";
+import { requireTenderCreationAccessForPage } from "@/lib/auth/server.ts";
 
 export default async function NouvelAppelOffresPage() {
-  await requireAreaAccessForPage("appels_offres");
+  await requireTenderCreationAccessForPage();
 
   return (
     <div className="page-stack appel-offres-create-page">
       <section className="appel-offres-create-intro">
         <h1>Nouvel appel d'offres</h1>
-        <p>Importez votre CDC PDF pour creer le dossier.</p>
+        <p>Importez le CDC pour créer le dossier : CONCEPT détecte les informations principales.</p>
       </section>
-      <AppelOffresForm mode="create" />
+      <AppelOffresCreateWizard />
     </div>
   );
 }

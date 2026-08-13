@@ -8,11 +8,11 @@ import {
   getFciModuleDefinitions
 } from "./rendering.ts";
 
-test("A-C are human-visible by default; D (DG-only) stays hidden until requested explicitly", () => {
+test("all four departmental contributions are human-visible", () => {
   const definitions = getFciModuleDefinitions();
   assert.deepEqual(
     definitions.map((item) => item.moduleCode),
-    ["A", "B", "C"]
+    ["A", "B", "C", "D"]
   );
 });
 

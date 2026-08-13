@@ -14,6 +14,7 @@ import type { CurrentUser } from "../auth/rbac.ts";
 import type { TenderWorkflowStateView } from "./workflow/service.ts";
 import { deriveTenderWorkflowState } from "./workflow/service.ts";
 import { getSubmittedGoNoGoReportForDecision } from "./go-no-go-report/service.ts";
+import { buildTenderWorkspaceHref } from "./tender-routes.ts";
 
 export type DecisionWorkspaceRow = {
   code: string;
@@ -24,6 +25,7 @@ export type DecisionWorkspaceRow = {
   statusLabel: string;
   statusTone: BadgeTone;
   decisionAtLabel: string;
+  decidedByLabel: string;
   rationale: string | null;
   reserves: string | null;
   actionHref: string;
@@ -100,9 +102,10 @@ function buildQueueRow(record: DecisionWorkspaceRecord): DecisionWorkspaceRow {
     statusLabel: "À décider",
     statusTone: summary.isOverdue ? "danger" : "warning",
     decisionAtLabel: "En attente",
+    decidedByLabel: "En attente",
     rationale: null,
     reserves: null,
-    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}/go-no-go`,
+    actionHref: buildTenderWorkspaceHref(record.detail.code, "go-no-go"),
     actionLabel: "Ouvrir la décision"
   };
 }
@@ -120,9 +123,10 @@ function buildHistoryRow(record: DecisionWorkspaceRecord): DecisionWorkspaceRow 
     statusLabel: decision?.status === "go" ? "Go" : "No-Go",
     statusTone: decision?.status === "go" ? "success" : "neutral",
     decisionAtLabel: formatDateLabel(decision?.decidedAt ?? null),
+    decidedByLabel: decision?.decidedBy ?? "Non renseigné",
     rationale: decision?.rationale ?? null,
     reserves: decision?.reserves ?? null,
-    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}/go-no-go`,
+    actionHref: buildTenderWorkspaceHref(record.detail.code, "go-no-go"),
     actionLabel: "Consulter"
   };
 }

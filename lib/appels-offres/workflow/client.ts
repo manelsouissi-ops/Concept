@@ -76,7 +76,7 @@ export async function getTenderAssignments(code: string) {
   return parseResponse<FciModuleAssignmentDetail[]>(response);
 }
 
-export async function getAssignableUsers(code: string, moduleCode: "B" | "C") {
+export async function getAssignableUsers(code: string, moduleCode: "B" | "C" | "D") {
   const response = await fetch(
     `/api/appels-offres/${encodeURIComponent(code)}/assignments/${encodeURIComponent(moduleCode)}/assignees`,
     {
@@ -89,7 +89,7 @@ export async function getAssignableUsers(code: string, moduleCode: "B" | "C") {
 
 export async function assignTenderModule(
   code: string,
-  moduleCode: "B" | "C",
+  moduleCode: "B" | "C" | "D",
   assignedUserId: number
 ) {
   const response = await fetch(
@@ -106,7 +106,7 @@ export async function assignTenderModule(
 
 export async function reassignTenderModule(
   code: string,
-  moduleCode: "B" | "C",
+  moduleCode: "B" | "C" | "D",
   assignedUserId: number
 ) {
   const response = await fetch(
@@ -121,7 +121,7 @@ export async function reassignTenderModule(
   return parseResponse<FciModuleAssignmentDetail>(response);
 }
 
-export async function remindTenderAssignment(code: string, moduleCode: "B" | "C") {
+export async function remindTenderAssignment(code: string, moduleCode: "B" | "C" | "D") {
   const response = await fetch(
     `/api/appels-offres/${encodeURIComponent(code)}/assignments/${encodeURIComponent(moduleCode)}/remind`,
     {

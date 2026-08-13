@@ -22,7 +22,7 @@ test("technical/infrastructure audit events map to null (hidden)", () => {
     "appel_offres.status_changed",
     "n8n_launch_accepted",
     "workflow.go_decided",
-    "go_no_go_report.prepared",
+    "go_no_go_report.superseded",
     "commercial_owner.recovery_required",
     "software_analysis.requirement_saved"
   ]) {
@@ -51,12 +51,23 @@ test("business audit events map to clear French labels", () => {
   assert.equal(mapFciAuditEvent(fciEvent("fci.reminder.sent", { moduleCode: "B" }))?.title, "Rappel envoyé");
 });
 
-// C. FCI validation/creation labels include the correct module A/B/C
-test("FCI module events include the module code in the label", () => {
-  assert.equal(mapFciAuditEvent(fciEvent("fci.generation.completed", { moduleCode: "A" }))?.title, "FCI A créée");
-  assert.equal(mapFciAuditEvent(fciEvent("fci.module.validated", { moduleCode: "B" }))?.title, "FCI B validée");
-  assert.equal(mapFciAuditEvent(fciEvent("fci.module.validated", { moduleCode: "C" }))?.title, "FCI C validée");
-  assert.equal(mapFciAuditEvent(fciEvent("fci.assignment.changed", { moduleCode: "C" }))?.title, "FCI C réaffectée");
+// C. FCI validation/creation labels include the correct department name
+test("FCI module events include the department name in the label", () => {
+  assert.equal(mapFciAuditEvent(fciEvent("fci.generation.completed", { moduleCode: "A" }))?.title, "FCI Commerciale créée");
+  assert.equal(mapFciAuditEvent(fciEvent("fci.module.validated", { moduleCode: "B" }))?.title, "FCI Financière validée");
+  assert.equal(mapFciAuditEvent(fciEvent("fci.module.validated", { moduleCode: "C" }))?.title, "FCI Opérationnelle validée");
+  assert.equal(mapFciAuditEvent(fciEvent("fci.assignment.changed", { moduleCode: "C" }))?.title, "FCI Opérationnelle réaffectée");
+  assert.equal(mapFciAuditEvent(fciEvent("fci.module_data.saved", { moduleCode: "A", version: 1 }))?.title, "FCI Commerciale commencée");
+  assert.equal(mapFciAuditEvent(fciEvent("fci.module_data.saved", { moduleCode: "A", version: 2 })), null);
+});
+
+// Go/No-Go report lifecycle events (generated/edited/prepared/submitted) are
+// now visible business milestones (Part 13 of the FCI/Go-No-Go workflow spec).
+test("Go/No-Go report lifecycle events map to clear French labels", () => {
+  assert.equal(mapTenderAuditEvent(auditLog("go_no_go_report.generated"))?.title, "Rapport Go/No-Go généré");
+  assert.equal(mapTenderAuditEvent(auditLog("go_no_go_report.edited"))?.title, "Rapport Go/No-Go modifié");
+  assert.equal(mapTenderAuditEvent(auditLog("go_no_go_report.prepared"))?.title, "Rapport marqué comme prêt");
+  assert.equal(mapTenderAuditEvent(auditLog("go_no_go_report.submitted"))?.title, "Rapport soumis à la Direction Générale");
 });
 
 // D. GO and NO-GO decisions map correctly

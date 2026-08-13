@@ -6,6 +6,7 @@ import { listFciOverallStatusesByAppelOffresCodes } from "@/lib/appels-offres/fc
 import { buildAppelOffresSummary } from "@/lib/appels-offres/presentation.ts";
 import { deriveTenderStage } from "@/lib/appels-offres/tender-stage.ts";
 import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
+import { canCreateTender } from "@/lib/auth/rbac.ts";
 import {
   getAppelOffresDetailByCode,
   listAppelsOffres
@@ -16,7 +17,7 @@ export default async function AppelsOffresPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireAreaAccessForPage("appels_offres");
+  const currentUser = await requireAreaAccessForPage("appels_offres");
 
   try {
     const resolvedSearchParams = searchParams ? await searchParams : undefined;
@@ -58,6 +59,7 @@ export default async function AppelsOffresPage({
           items={items}
           initialStatusFilter={initialStatusFilter}
           initialSortBy={initialSortBy}
+          canCreateTender={canCreateTender(currentUser.role)}
         />
       </div>
     );

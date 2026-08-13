@@ -31,7 +31,7 @@ test("direction generale gets the decision workspace and a Go/No-Go nav", () => 
   assert.equal(directionGeneraleExperience.dashboardAction, null);
   assert.deepEqual(
     directionGeneraleExperience.primaryNavigation.map((item) => item.label),
-    ["Accueil", "Décisions Go/No-Go", "Historique", "Profil"]
+    ["Accueil", "Mes FCI", "Appels d'offres", "Décisions Go/No-Go", "Historique", "Profil"]
   );
 });
 

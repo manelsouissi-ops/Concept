@@ -11,6 +11,7 @@ import type { FciModuleAssignmentDetail } from "./workflow/types.ts";
 import type { TenderWorkflowStateView } from "./workflow/service.ts";
 import { deriveTenderWorkflowState } from "./workflow/service.ts";
 import { buildHistoryWorkspace, type HistoryWorkspaceRow } from "./commercial-secondary-workspaces.ts";
+import { buildTenderWorkspaceHref } from "./tender-routes.ts";
 
 export type CommercialWorkspaceKpi = {
   key: string;
@@ -129,13 +130,13 @@ function formatDateLabel(value: string | null) {
   });
 }
 
-function getModule(detail: FciDetail | null, moduleCode: "A" | "B" | "C") {
+function getModule(detail: FciDetail | null, moduleCode: "A" | "B" | "C" | "D") {
   return detail?.modules.find((module) => module.moduleCode === moduleCode) ?? null;
 }
 
 function getAssignment(
   workflow: TenderWorkflowStateView,
-  moduleCode: "B" | "C"
+  moduleCode: "B" | "C" | "D"
 ) {
   return workflow.assignments.find((assignment) => assignment.moduleCode === moduleCode) ?? null;
 }
@@ -183,7 +184,7 @@ function getModuleTone(module: FciModuleRecord | null): BadgeTone {
 function getAssignmentLaneLabel(
   workflow: TenderWorkflowStateView,
   detail: FciDetail | null,
-  moduleCode: "B" | "C"
+  moduleCode: "B" | "C" | "D"
 ) {
   const assignment = getAssignment(workflow, moduleCode);
   const module = getModule(detail, moduleCode);
@@ -209,12 +210,12 @@ function hasLegacyAssignmentGap(record: CommercialWorkspaceRecord) {
     return false;
   }
 
-  return !getAssignment(record.workflow, "B") || !getAssignment(record.workflow, "C");
+  return !getAssignment(record.workflow, "B") || !getAssignment(record.workflow, "C") || !getAssignment(record.workflow, "D");
 }
 
 function isBlocked(record: CommercialWorkspaceRecord) {
-  return ["A", "B", "C"].some((moduleCode) => {
-    const module = getModule(record.fciDetail, moduleCode as "A" | "B" | "C");
+  return ["A", "B", "C", "D"].some((moduleCode) => {
+    const module = getModule(record.fciDetail, moduleCode as "A" | "B" | "C" | "D");
     return module?.status === "failed";
   });
 }
@@ -332,7 +333,7 @@ function buildActionItem(record: CommercialWorkspaceRecord): CommercialActionIte
       key: `${record.detail.code}-ready`,
       ...common,
       taskType: "GO/NO-GO",
-      summary: "Les FCI A, B et C sont validées. Le dossier peut être préparé.",
+      summary: "Les quatre contributions départementales sont validées. Le dossier peut être préparé.",
       statusLabel: "Prêt à préparer",
       statusTone: "success",
       actionLabel: "Préparer le dossier",
@@ -347,7 +348,7 @@ function buildTrackingRow(record: CommercialWorkspaceRecord): CommercialTracking
   const identity = buildWorkspaceIdentity(record.detail);
   const overallState = getOverallState(record);
   const moduleA = getModule(record.fciDetail, "A");
-  const validatedCount = (["A", "B", "C"] as const).filter(
+  const validatedCount = (["A", "B", "C", "D"] as const).filter(
     (moduleCode) => getModule(record.fciDetail, moduleCode)?.status === "validated"
   ).length;
   const goNoGoComplete = ["GONOGO_PREPARED", "SUBMITTED_TO_DG", "UNDER_DG_REVIEW", "GO_DECIDED", "NO_GO_DECIDED"].includes(record.workflow.explicit_state ?? "");
@@ -401,7 +402,7 @@ function buildRecentDecisionRow(record: CommercialWorkspaceRecord): CommercialDe
     detailLabel: record.latestDecision?.decidedAt
       ? `Decision du ${formatDateLabel(record.latestDecision.decidedAt)}`
       : "Decision enregistree",
-    actionHref: `/appels-offres/${encodeURIComponent(record.detail.code)}?view=go-no-go`,
+    actionHref: buildTenderWorkspaceHref(record.detail.code, "go-no-go"),
     actionLabel: "Consulter"
   };
 }
@@ -410,9 +411,11 @@ export function buildCommercialWorkspacePresentation(input: {
   currentUser: CurrentUser;
   records: CommercialWorkspaceRecord[];
 }): CommercialWorkspacePresentation {
-  const activeRecords = input.records.filter((record) =>
-    !record.detail.archivedAt && !isTestTenderCode(record.detail.code)
+  const visibleRecords = input.records.filter((record) => !isTestTenderCode(record.detail.code));
+  const ownedVisibleRecords = visibleRecords.filter((record) =>
+    isOwnedByCurrentUser(record, input.currentUser)
   );
+  const activeRecords = visibleRecords.filter((record) => !record.detail.archivedAt);
   const ownedRecords = activeRecords.filter((record) => isOwnedByCurrentUser(record, input.currentUser));
   const unownedQueue = activeRecords
     .filter(isUnownedOrRecoveryRequired)
@@ -458,7 +461,10 @@ export function buildCommercialWorkspacePresentation(input: {
     .sort((left, right) => right.detail.updatedAt.localeCompare(left.detail.updatedAt))
     .map(buildAwaitingDgRow);
 
-  const recentDecisions = ownedRecords
+  // Final outcomes are historical records, not active-work items. A NO-GO
+  // archives its tender immediately, so restricting this list to active
+  // dossiers would erase precisely the decision Commercial needs to follow.
+  const recentDecisions = ownedVisibleRecords
     .filter(isRecentDecision)
     .sort((left, right) =>
       (right.latestDecision?.decidedAt ?? "").localeCompare(left.latestDecision?.decidedAt ?? "")
@@ -553,7 +559,7 @@ export function buildCommercialWorkspacePresentation(input: {
         key: "ready",
         label: "Prêts pour Go/No-Go",
         value: dossiersReady,
-        description: "Dossiers dont A, B et C sont valides et attendent la preparation.",
+        description: "Dossiers dont les quatre contributions sont validées et attendent la préparation.",
         tone: dossiersReady > 0 ? "success" : "default"
       },
       {

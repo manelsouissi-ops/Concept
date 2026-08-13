@@ -1,5 +1,6 @@
 import type { AppelOffresSummaryView } from "./presentation.ts";
 import type { FciSetOverallStatus } from "./fci/types.ts";
+import { buildTenderWorkspaceHref } from "./tender-routes.ts";
 
 export type DashboardRowActionKind = "validate" | "processing" | "generate" | "consult" | "retry" | "open";
 
@@ -70,7 +71,7 @@ export function buildDashboardRowAction(
     return {
       kind: "consult",
       label: "Consulter la decision",
-      href: `/appels-offres/${code}?view=go-no-go`,
+      href: buildTenderWorkspaceHref(code, "go-no-go"),
       tone: "ghost"
     };
   }

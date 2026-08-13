@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   appendAuditLog,
   applyValidatedExtractionIdentity,
+  pickIdentityFieldsFromExtraction,
   setAppelOffresBusinessStatus
 } from "@/lib/appels-offres/repository.ts";
 import { syncFicheIndexSafely } from "@/lib/db";
@@ -85,23 +86,10 @@ export async function POST(
     await setAppelOffresBusinessStatus(code, "fiche_validee", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);
-    const extractedTitle =
-      indexed.fiche.extraction.find((field) => field.key === "intitule_mission")?.value ?? null;
-    const extractedBuyer =
-      indexed.fiche.extraction.find((field) => field.key === "client_maitre_ouvrage")?.value ?? null;
-    const extractedCountry =
-      indexed.fiche.extraction.find((field) => field.key === "pays")?.value ?? null;
-    const extractedDeadline =
-      indexed.fiche.extraction.find((field) => field.key === "date_limite_depot")?.value ?? null;
-    const extractedReference =
-      indexed.fiche.extraction.find((field) => field.key === "reference_officielle")?.value ?? null;
-    await applyValidatedExtractionIdentity(code, {
-      title: extractedTitle,
-      buyer: extractedBuyer,
-      country: extractedCountry,
-      deadline: extractedDeadline,
-      reference: extractedReference
-    }).catch(() => undefined);
+    await applyValidatedExtractionIdentity(
+      code,
+      pickIdentityFieldsFromExtraction(indexed.fiche.extraction)
+    ).catch(() => undefined);
     await appendAuditLog(code, "fiche_cdc.validated", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);

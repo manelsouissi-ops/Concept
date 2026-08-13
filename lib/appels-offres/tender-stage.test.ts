@@ -214,6 +214,25 @@ test("NO-GO decision reads as NO_GO with a neutral tone", () => {
   assert.equal(stage.label, "NO-GO");
 });
 
+test("a persisted historical decision dominates an archived workflow and old readiness", () => {
+  const stage = deriveTenderStage({
+    detail: buildDetail({
+      status: "archived",
+      businessStatus: "fiche_validee",
+      archivedAt: "2026-08-12T12:26:18.271Z"
+    }),
+    workflow: buildWorkflow({
+      explicit_state: "ARCHIVED",
+      ready_for_gonogo: false
+    }),
+    decision: buildDecision({ status: "no_go", decision: "no_go" })
+  });
+
+  assert.equal(stage.stage, "DECIDED");
+  assert.equal(stage.decision, "no_go");
+  assert.equal(stage.label, "NO-GO");
+});
+
 test("progress steps always contain exactly the five canonical steps in order", () => {
   const stage = deriveTenderStage({ detail: buildDetail({}) });
   assert.deepEqual(

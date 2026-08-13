@@ -82,7 +82,7 @@ function buildDetail(overrides: Partial<AppelOffresDetail>): AppelOffresDetail {
   };
 }
 
-function buildFciDetail(statusByModule: Record<"A" | "B" | "C", FciDetail["modules"][number]["status"]>): FciDetail {
+function buildFciDetail(statusByModule: Partial<Record<"A" | "B" | "C" | "D", FciDetail["modules"][number]["status"]>>): FciDetail {
   return {
     set: {
       id: 100,
@@ -94,12 +94,12 @@ function buildFciDetail(statusByModule: Record<"A" | "B" | "C", FciDetail["modul
       createdAt: "2026-08-01T09:00:00.000Z",
       updatedAt: "2026-08-02T09:00:00.000Z"
     },
-    modules: (["A", "B", "C"] as const).map((moduleCode, index) => ({
+    modules: (Object.keys(statusByModule) as Array<"A" | "B" | "C" | "D">).map((moduleCode, index) => ({
       id: 200 + index,
       fciSetId: 100,
       moduleCode,
-      moduleType: moduleCode === "A" ? "commercial" : moduleCode === "B" ? "finance" : "operations",
-      status: statusByModule[moduleCode],
+      moduleType: moduleCode === "A" ? "commercial" : moduleCode === "B" ? "finance" : moduleCode === "C" ? "operations" : "strategy",
+      status: statusByModule[moduleCode]!,
       aiGeneratedAt: null,
       validatedAt: statusByModule[moduleCode] === "validated" ? "2026-08-02T14:00:00.000Z" : null,
       validatedBy: statusByModule[moduleCode] === "validated" ? "Equipe" : null,
@@ -266,6 +266,42 @@ test("commercial workspace categorizes legacy, ready, awaiting-DG and decided do
   assert.equal(workspace.awaitingDg[0]?.code, "AO-DG");
   assert.equal(workspace.recentDecisions[0]?.code, "AO-HISTORY");
   assert.equal(workspace.tracking.some((row) => row.code === "AO-LEGACY"), false);
+});
+
+test("commercial recent decisions retain an owned NO-GO after automatic archival", () => {
+  const workspace = buildCommercialWorkspacePresentation({
+    currentUser: buildUser(),
+    records: [{
+      detail: buildDetail({
+        id: 90,
+        code: "AO-HISTORICAL-NOGO",
+        status: "archived",
+        businessStatus: "offre_rejetee",
+        archivedAt: "2026-08-12T12:26:18.271Z"
+      }),
+      fciDetail: buildFciDetail({
+        A: "validated",
+        B: "validated",
+        C: "validated",
+        D: "not_started"
+      }),
+      workflow: buildWorkflow({
+        appel_offres_id: 90,
+        code: "AO-HISTORICAL-NOGO",
+        explicit_state: "ARCHIVED",
+        ready_for_gonogo: false
+      }),
+      latestDecision: buildDecision({
+        appelOffresId: 90,
+        status: "no_go",
+        decision: "no_go"
+      })
+    }]
+  });
+
+  assert.equal(workspace.kpis.find((kpi) => kpi.key === "active")?.value, 0);
+  assert.equal(workspace.recentDecisions.length, 1);
+  assert.equal(workspace.recentDecisions[0]?.statusLabel, "No-Go");
 });
 
 test("commercial attention queue exposes focused CDC, FCI A and Go/No-Go routes", () => {

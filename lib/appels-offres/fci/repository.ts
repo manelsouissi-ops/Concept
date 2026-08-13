@@ -405,6 +405,18 @@ async function ensureSchemaInternal(pool: Pool) {
       on ${FCI_GENERATION_JOBS_TABLE} (correlation_id)
       where correlation_id is not null
     `);
+    // At most one active (non-terminal) generation job per module. The
+    // application already checks this before creating a job, but that
+    // check-then-insert isn't atomic - a rapid double-click on "Réessayer la
+    // génération" could otherwise race two concurrent launches through. This
+    // index turns the second insert into a clean unique-violation instead,
+    // which createFciGenerationJob translates into the existing
+    // FCI_ALREADY_GENERATING error.
+    await client.query(`
+      create unique index if not exists fci_generation_jobs_module_active_uidx
+      on ${FCI_GENERATION_JOBS_TABLE} (fci_module_id)
+      where status in ('created', 'queued', 'running')
+    `);
     await client.query(`
       create index if not exists fci_audit_events_appel_offres_created_at_idx
       on ${FCI_AUDIT_EVENTS_TABLE} (appel_offres_id, created_at desc)
@@ -530,7 +542,7 @@ export async function listFciOverallStatusesByAppelOffresCodes(
 }
 
 // Per-module counterpart of listFciOverallStatusesByAppelOffresCodes: used to build
-// each department's own FCI queue (for the active human workflow, modules A/B/C)
+// each department's own FCI queue (for the active human workflow, modules A/B/C/D)
 // instead of the tender's overall FCI status across all modules.
 export async function listFciModuleStatusesByAppelOffresCodes(
   codes: string[],
@@ -921,13 +933,36 @@ export async function getLatestFciModuleData(fciModuleId: number) {
   return versions[0] ?? null;
 }
 
+// Thrown when the fci_generation_jobs_module_active_uidx partial unique
+// index rejects a concurrent insert - i.e. two launch requests for the same
+// module raced past the application-level hasBlockingGenerationJob check at
+// (almost) the same time. The caller (service.ts) translates this into the
+// same FCI_ALREADY_GENERATING error the non-racing check-then-insert path
+// already returns, so callers see one consistent error regardless of timing.
+export class FciConcurrentGenerationError extends Error {
+  constructor() {
+    super("Une demande de generation FCI est deja en attente pour ce module.");
+    this.name = "FciConcurrentGenerationError";
+  }
+}
+
+function isActiveJobUniqueViolation(error: unknown) {
+  const pgError = error as { code?: string; constraint?: string } | null;
+  return (
+    pgError?.code === "23505"
+    && pgError?.constraint === "fci_generation_jobs_module_active_uidx"
+  );
+}
+
 export async function createFciGenerationJob(
   fciModuleId: number,
   input: CreateFciGenerationJobInput
 ) {
   const pool = await requirePool();
-  const result = await pool.query<FciGenerationJobRow>(
-    `
+  let result;
+  try {
+    result = await pool.query<FciGenerationJobRow>(
+      `
       insert into ${FCI_GENERATION_JOBS_TABLE} (
         fci_module_id,
         trigger_type,
@@ -991,9 +1026,9 @@ export async function createFciGenerationJob(
         error_code,
         error_message,
         created_at
-    `,
-    [
-      fciModuleId,
+      `,
+      [
+        fciModuleId,
       input.triggerType,
       input.provider,
       input.model,
@@ -1014,7 +1049,14 @@ export async function createFciGenerationJob(
       input.errorCode ?? null,
       input.errorMessage ?? null
     ]
-  );
+    );
+  } catch (error) {
+    if (isActiveJobUniqueViolation(error)) {
+      throw new FciConcurrentGenerationError();
+    }
+
+    throw error;
+  }
 
   return mapFciGenerationJobRow(result.rows[0]);
 }

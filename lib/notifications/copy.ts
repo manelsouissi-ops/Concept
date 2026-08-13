@@ -10,7 +10,7 @@ function getModuleLabel(moduleCode: FciModuleCode | null | undefined) {
     case "C":
       return "Operations";
     case "D":
-      return "Direction generale";
+      return "Direction Générale";
     default:
       return "FCI";
   }
@@ -82,7 +82,7 @@ export function buildNotificationCopy(input: {
     case "READY_FOR_GONOGO":
       return {
         title: "Dossier pret pour Go/No-Go",
-        message: `Les contributions A, B et C du dossier ${input.appelOffreCode} sont validees.`
+        message: `Les quatre contributions departementales du dossier ${input.appelOffreCode} sont validees.`
       };
     case "GONOGO_REPORT_GENERATED":
       return {

@@ -104,7 +104,7 @@ export type GoNoGoReportWorkspaceView = {
     source_snapshot_at: string | null;
     fiche_cdc_version: string | null;
     modules: Array<{
-      module_code: "A" | "B" | "C";
+      module_code: "A" | "B" | "C" | "D";
       status: string;
       version: number | null;
       validated_at: string | null;
@@ -151,7 +151,7 @@ type SourceSnapshot = FciJsonObject & {
 };
 
 type SourceSnapshotModuleState = {
-  module_code: "A" | "B" | "C";
+  module_code: "A" | "B" | "C" | "D";
   version: number;
   validated_at: string | null;
   generated_from_fiche_version: string | null;
@@ -358,7 +358,7 @@ function joinLines(lines: string[], fallback = "Information non disponible") {
   return lines.length > 0 ? lines.join("\n") : fallback;
 }
 
-function summarizeFacts(moduleCode: "A" | "B" | "C", facts: ExtractedFact[]) {
+function summarizeFacts(moduleCode: "A" | "B" | "C" | "D", facts: ExtractedFact[]) {
   const availableFacts = facts.filter((fact) => fact.value);
   const missingFacts = facts.filter(
     (fact) =>
@@ -419,7 +419,9 @@ function summarizeFacts(moduleCode: "A" | "B" | "C", facts: ExtractedFact[]) {
       ? "A confirmer par le Commercial."
       : moduleCode === "B"
         ? "A confirmer par la Finance."
-        : "A confirmer par les Operations.";
+        : moduleCode === "C"
+          ? "A confirmer par les Operations."
+          : "A confirmer par la Direction Generale.";
 
   return {
     summary: joinLines(summaryLines),
@@ -486,7 +488,7 @@ async function requireValidatedContributingSources(code: string) {
   if (!fciDetail) {
     throw new GoNoGoReportServiceError(
       "FCI_NOT_VALIDATED",
-      "Les FCI A, B et C doivent exister et etre valides avant generation du rapport.",
+      "Les quatre contributions departementales doivent exister et etre validees avant generation du rapport.",
       409,
       { code }
     );
@@ -494,7 +496,7 @@ async function requireValidatedContributingSources(code: string) {
 
   const latestDataByModuleId = indexLatestModuleData(fciDetail.moduleData);
   const contributingModules: ContributingModuleContext[] = [];
-  for (const moduleCode of ["A", "B", "C"] as const) {
+  for (const moduleCode of ["A", "B", "C", "D"] as const) {
     const module = fciDetail.modules.find((entry) => entry.moduleCode === moduleCode);
     if (!module || module.status !== "validated") {
       throw new GoNoGoReportServiceError(
@@ -521,12 +523,13 @@ async function requireValidatedContributingSources(code: string) {
   const assignments = await listFciAssignmentsByAppelOffresId(appelOffres.id);
   const hasB = assignments.some((assignment) => assignment.moduleCode === "B");
   const hasC = assignments.some((assignment) => assignment.moduleCode === "C");
-  if (!hasB || !hasC) {
+  const hasD = assignments.some((assignment) => assignment.moduleCode === "D");
+  if (!hasB || !hasC || !hasD) {
     throw new GoNoGoReportServiceError(
       "FCI_NOT_VALIDATED",
-      "Les modules B et C doivent rester affectes avant generation du rapport.",
+      "Les contributions Financiere, Operationnelle et Direction Generale doivent rester affectees avant generation du rapport.",
       409,
-      { has_b: hasB, has_c: hasC }
+      { has_b: hasB, has_c: hasC, has_d: hasD }
     );
   }
 
@@ -625,7 +628,7 @@ function getSubmittedReport(reports: GoNoGoReportRecord[]) {
 
 function getSnapshotModuleState(
   report: GoNoGoReportRecord | null,
-  moduleCode: "A" | "B" | "C"
+  moduleCode: "A" | "B" | "C" | "D"
 ): SourceSnapshotModuleState | null {
   const modules = report?.sourceSnapshotJson?.modules;
   if (!isPlainObject(modules)) {
@@ -666,7 +669,17 @@ export async function isGoNoGoReportStale(
     return false;
   }
 
-  const current = await requireValidatedContributingSources(code);
+  let current;
+  try {
+    current = await requireValidatedContributingSources(code);
+  } catch (error) {
+    if (error instanceof GoNoGoReportServiceError && error.code === "FCI_NOT_VALIDATED") {
+      // Active legacy dossiers with an A/B/C report but no validated D must
+      // be treated as stale, not crash workspace loading or be decision-ready.
+      return true;
+    }
+    throw error;
+  }
   const snapshotSource = report.sourceSnapshotJson.source_fiche;
   if (
     !isPlainObject(snapshotSource)
@@ -676,7 +689,7 @@ export async function isGoNoGoReportStale(
     return true;
   }
 
-  for (const moduleCode of ["A", "B", "C"] as const) {
+  for (const moduleCode of ["A", "B", "C", "D"] as const) {
     const snapshotModule = getSnapshotModuleState(report, moduleCode);
     const currentModule = current.contributingModules.find(
       (entry) => entry.module.moduleCode === moduleCode
@@ -755,7 +768,7 @@ async function buildGeneratedDraft(
 }> {
   const context = await requireValidatedContributingSources(code);
   const generatedAt = new Date().toISOString();
-  const summaryByModule = new Map<"A" | "B" | "C", ReturnType<typeof summarizeFacts>>();
+  const summaryByModule = new Map<"A" | "B" | "C" | "D", ReturnType<typeof summarizeFacts>>();
   const moduleSnapshots: Record<string, unknown> = {};
   const allStrengths: string[] = [];
   const allRisks: string[] = [];
@@ -765,8 +778,8 @@ async function buildGeneratedDraft(
 
   for (const entry of context.contributingModules) {
     const facts = extractFactsFromPayload(entry.latestData.dataJson);
-    const summary = summarizeFacts(entry.module.moduleCode as "A" | "B" | "C", facts);
-    summaryByModule.set(entry.module.moduleCode as "A" | "B" | "C", summary);
+    const summary = summarizeFacts(entry.module.moduleCode as "A" | "B" | "C" | "D", facts);
+    summaryByModule.set(entry.module.moduleCode as "A" | "B" | "C" | "D", summary);
     allStrengths.push(...summary.strengths.split("\n"));
     allRisks.push(...summary.risks.split("\n"));
     allReservations.push(...summary.reservations.split("\n"));
@@ -801,7 +814,7 @@ async function buildGeneratedDraft(
   });
   const executiveSummary = joinLines(
     [
-      `Rapport consolide genere le ${generatedAt} a partir des contributions validees A, B et C.`,
+      `Rapport consolide genere le ${generatedAt} a partir des quatre contributions departementales validees.`,
       `Projet: ${context.appelOffres.title}`,
       `Client: ${context.appelOffres.buyer || "Information non disponible"}`,
       `Points forts: ${uniqueLines(allStrengths).slice(0, 3).join(" ; ") || "Information non disponible"}`,
@@ -1447,7 +1460,7 @@ export async function getGoNoGoReportWorkspace(
 
   const modules = fciDetail
     ? await Promise.all(
-        (["A", "B", "C"] as const).map(async (moduleCode) => {
+        (["A", "B", "C", "D"] as const).map(async (moduleCode) => {
           const module = fciDetail.modules.find((entry) => entry.moduleCode === moduleCode) ?? null;
           if (!module) {
             return {

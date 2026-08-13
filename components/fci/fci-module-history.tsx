@@ -3,26 +3,39 @@
 import type { FciModuleHistoryPresentation } from "@/lib/appels-offres/fci/client.ts";
 import {
   formatFciDateTime,
+  formatFciSourceLabel,
+  getFciGenerationFailurePresentation,
   getFciGenerationJobStatusPresentation,
   mapFciHistoryEventLabel
 } from "@/lib/appels-offres/fci/ui.ts";
 import { StatusBadge } from "@/components/status-badge.tsx";
 
+// Business-facing timeline only: technical identifiers (correlationId,
+// executionId, callbackUrl, hashes, raw provider/error JSON) are persisted on
+// fci_generation_jobs/fci_audit_events for audit/debug, but never rendered
+// here - every item below is a fixed French label or a value already passed
+// through a ui.ts formatter.
 function buildTimelineItems(history: FciModuleHistoryPresentation) {
   const versionItems = history.versions.map((version) => ({
     id: `version-${version.id}`,
     created_at: version.created_at,
     title: `Version ${version.version}`,
     meta: "Données du module",
-    detail:
-      version.generated_from_fiche_version != null
-        ? `Source Fiche CDC : ${version.generated_from_fiche_version}`
-        : "Source Fiche CDC non rattachée",
+    detail: formatFciSourceLabel(version.generated_from_fiche_version),
     badge: null
   }));
 
   const jobItems = history.generation_jobs.map((job) => {
     const status = getFciGenerationJobStatusPresentation(job.status);
+    const failureDetail =
+      job.status === "failed"
+        ? getFciGenerationFailurePresentation({
+            errorCode: job.error_code,
+            errorMessage: job.error_message,
+            lastAttemptAt: null
+          })
+        : null;
+
     return {
       id: `job-${job.id}`,
       created_at: job.created_at,
@@ -30,17 +43,19 @@ function buildTimelineItems(history: FciModuleHistoryPresentation) {
         job.trigger_type === "regeneration"
           ? "Régénération IA"
           : "Génération IA",
-      meta: `${job.provider} · ${job.model}`,
+      meta: null,
       detail:
-        job.error_message
+        failureDetail?.message
         ?? (
           job.status === "completed"
             ? "Résultat IA reçu et persisté."
             : job.status === "running"
-              ? "Génération en cours dans n8n."
+              ? "Génération en cours."
               : job.status === "queued" || job.status === "created"
                 ? "Génération acceptée et en attente de traitement."
-                : "Génération enregistrée."
+                : job.status === "cancelled"
+                  ? "Génération annulée."
+                  : "Génération enregistrée."
         ),
       badge: status
     };
@@ -51,7 +66,7 @@ function buildTimelineItems(history: FciModuleHistoryPresentation) {
     created_at: event.created_at,
     title: mapFciHistoryEventLabel(event.event_type),
     meta: event.actor ? `Par ${event.actor}` : "Événement système",
-    detail: event.payload ? JSON.stringify(event.payload) : null,
+    detail: null,
     badge: null
   }));
 
@@ -101,7 +116,7 @@ export function FciModuleHistory({
                     <StatusBadge label={item.badge.label} tone={item.badge.tone} />
                   ) : null}
                 </div>
-                <span className="meta">{item.meta}</span>
+                {item.meta ? <span className="meta">{item.meta}</span> : null}
                 <small>{formatFciDateTime(item.created_at)}</small>
                 {item.detail ? <p>{item.detail}</p> : null}
               </article>

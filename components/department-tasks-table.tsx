@@ -8,11 +8,9 @@ import type { FinanceDossierRow } from "@/lib/appels-offres/finance-workspace.ts
 // modifier class. Kept as a separate component so Direction Generale's fuller
 // table (finance-dossiers-table.tsx) stays untouched.
 export function DepartmentTasksTable({
-  rows,
-  departmentLabel
+  rows
 }: {
   rows: FinanceDossierRow[];
-  departmentLabel: string;
 }) {
   return (
     <div className="finance-dossiers-table-shell">
@@ -20,9 +18,10 @@ export function DepartmentTasksTable({
         className="finance-dossiers-table department-tasks-table finance-dossiers-table-header"
         aria-hidden="true"
       >
-        <span>AO</span>
+        <span>Appel d'offres</span>
         <span>Client</span>
-        <span>Module {departmentLabel}</span>
+        <span>Échéance</span>
+        <span>Statut</span>
         <span>Action</span>
       </div>
 
@@ -39,9 +38,12 @@ export function DepartmentTasksTable({
             <span className="finance-dossiers-cell finance-dossiers-client" title={row.client}>
               {row.client}
             </span>
+            <div className="finance-dossiers-cell finance-dossiers-deadline">
+              <span>{row.deadlineLabel}</span>
+              {row.isOverdue ? <small>Échéance dépassée</small> : null}
+            </div>
             <div className="finance-dossiers-cell finance-dossiers-module">
               <StatusBadge label={row.statusLabel} tone={row.statusTone} />
-              <small title={row.moduleDetail}>{row.moduleDetail}</small>
             </div>
             <div className="finance-dossiers-cell finance-dossiers-action">
               <Link href={row.actionHref} className="button button-secondary button-small">

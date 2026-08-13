@@ -1,5 +1,6 @@
 import { FciOverallStatusBadge } from "./fci-status-badge.tsx";
 import type { FciWorkspacePresentation } from "@/lib/appels-offres/fci/presentation.ts";
+import { formatFciSourceLabel } from "@/lib/appels-offres/fci/ui.ts";
 
 export function FciHeader({
   workspace,
@@ -30,7 +31,7 @@ export function FciHeader({
         <div className="workspace-identity-meta compact">
           <span>Progression : {workspace.progress.percentage}%</span>
           <span>Modules valides : {workspace.progress.validated_modules}</span>
-          <span>Source Fiche : {workspace.source_fiche.version ?? "Indisponible"}</span>
+          <span>{formatFciSourceLabel(workspace.source_fiche.version)}</span>
           <span>
             Utilisateur : {workspace.current_user.name} ({workspace.current_user.role_label})
           </span>

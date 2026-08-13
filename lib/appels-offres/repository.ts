@@ -20,6 +20,7 @@ import type {
 } from "./types.ts";
 import { isAppelOffresStatus } from "./status.ts";
 import type { UserStatus } from "../users/types.ts";
+import type { ExtractionField } from "../types.ts";
 import {
   getArtifactPresence,
   getAttachedFicheStatus,
@@ -1252,7 +1253,7 @@ export function parseExtractedDeadline(raw: string | null | undefined) {
   return null;
 }
 
-function normalizeExtractedOptionalText(raw: string | null | undefined) {
+export function normalizeExtractedOptionalText(raw: string | null | undefined) {
   const value = raw?.trim();
   if (!value) {
     return null;
@@ -1332,6 +1333,65 @@ export async function applyValidatedExtractionIdentity(
   );
 
   return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
+}
+
+// Single source of truth for "which extraction field feeds which tender
+// identity field" - used both when a validated Fiche CDC is applied
+// (applyValidatedExtractionIdentity's caller) and when previewing a draft
+// extraction for the tender creation wizard, so the two never disagree.
+export function pickIdentityFieldsFromExtraction(extraction: ExtractionField[]) {
+  const find = (key: string) => extraction.find((field) => field.key === key)?.value ?? null;
+
+  return {
+    title: find("intitule_mission"),
+    buyer: find("client_maitre_ouvrage"),
+    country: find("pays"),
+    deadline: find("date_limite_depot"),
+    reference: find("reference_officielle")
+  };
+}
+
+export type ExtractionIdentityPreviewField = {
+  value: string;
+  detected: boolean;
+};
+
+export type ExtractionIdentityPreview = {
+  title: ExtractionIdentityPreviewField;
+  buyer: ExtractionIdentityPreviewField;
+  country: ExtractionIdentityPreviewField;
+  reference: ExtractionIdentityPreviewField;
+  dueDate: ExtractionIdentityPreviewField & { parsedDate: string | null };
+};
+
+// Read-only counterpart to applyValidatedExtractionIdentity: never writes
+// anything, just tells the tender creation wizard what a draft (not yet
+// validated) Fiche CDC extraction detected, using the exact same
+// normalization rules that will later apply at validation time. A field
+// that couldn't be parsed/confidently detected is reported as
+// `detected: false` rather than guessed.
+export function buildExtractionIdentityPreview(
+  extraction: ExtractionField[]
+): ExtractionIdentityPreview {
+  const raw = pickIdentityFieldsFromExtraction(extraction);
+  const parsedDate = parseExtractedDeadline(raw.deadline);
+
+  const asField = (value: string | null): ExtractionIdentityPreviewField => {
+    const normalized = normalizeExtractedOptionalText(value);
+    return { value: normalized ?? "", detected: normalized != null };
+  };
+
+  return {
+    title: asField(raw.title),
+    buyer: asField(raw.buyer),
+    country: asField(raw.country),
+    reference: asField(raw.reference),
+    dueDate: {
+      value: raw.deadline?.trim() ?? "",
+      detected: parsedDate != null,
+      parsedDate
+    }
+  };
 }
 
 export async function setAppelOffresStatus(

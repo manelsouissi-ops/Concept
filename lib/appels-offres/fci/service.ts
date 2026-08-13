@@ -4,6 +4,7 @@ import type { AppelOffresRecord } from "../types.ts";
 import {
   appendFciAuditEvent,
   createFciGenerationJob,
+  FciConcurrentGenerationError,
   getFciDetailByAppelOffresCode,
   getFciGenerationJobContextById,
   getFciSetByAppelOffresCode,
@@ -805,7 +806,16 @@ export async function initializeFciWorkspace(code: string, currentUser?: Current
   const actor = normalizeCurrentUser(currentUser);
   assertCanViewBusinessWorkspace(actor);
   await assertTenderWorkflowAccess(code, actor);
-  const sourceFiche = await readCurrentSourceForWorkspace(code);
+
+  // FCI must not become creatable before the Fiche CDC is validated - this
+  // is the single creation entry point (auto-init after validation already
+  // requires it via requireValidatedSourceFiche). Tenders that already have
+  // an FCI set (historical data, possibly created before this rule existed)
+  // keep working exactly as before; only *new* initialization is gated.
+  const existingSet = await getFciSetByAppelOffresCode(code);
+  const sourceFiche = existingSet
+    ? await readCurrentSourceForWorkspace(code)
+    : await requireValidatedSourceFiche(code);
   const {
     appelOffres,
     detail,
@@ -902,7 +912,7 @@ export async function saveFciModuleEdits(
   }
 
   assertCanEditModule(actor, moduleCode);
-  if (moduleCode === "B" || moduleCode === "C") {
+  if (moduleCode === "B" || moduleCode === "C" || moduleCode === "D") {
     await markAssignmentStarted({
       code,
       moduleCode,
@@ -968,7 +978,7 @@ export async function saveFciModuleEdits(
   await recalculateAndPersistOverallStatus(code);
   if (
     assignmentReadyForCompletion
-    && (moduleCode === "B" || moduleCode === "C")
+    && (moduleCode === "B" || moduleCode === "C" || moduleCode === "D")
   ) {
     await markAssignmentCompleted({
       code,
@@ -1281,19 +1291,33 @@ async function launchFciGenerationJob(input: {
     regeneration: input.triggerType === "regeneration"
   } satisfies FciJsonObject;
 
-  const job = await createFciGenerationJob(input.module.id, {
-    triggerType: input.triggerType,
-    provider: config.provider,
-    model: config.model,
-    status: "created",
-    contractVersion: config.contractVersion,
-    schemaVersion: runtimeContract.schemaVersion,
-    promptVersion: runtimeContract.promptVersion,
-    generationParameters: baseGenerationParameters,
-    sourceFicheVersion: input.sourceFiche.version,
-    sourceFicheHash: input.sourceFiche.hash,
-    correlationId
-  });
+  let job: FciGenerationJobRecord;
+  try {
+    job = await createFciGenerationJob(input.module.id, {
+      triggerType: input.triggerType,
+      provider: config.provider,
+      model: config.model,
+      status: "created",
+      contractVersion: config.contractVersion,
+      schemaVersion: runtimeContract.schemaVersion,
+      promptVersion: runtimeContract.promptVersion,
+      generationParameters: baseGenerationParameters,
+      sourceFicheVersion: input.sourceFiche.version,
+      sourceFicheHash: input.sourceFiche.hash,
+      correlationId
+    });
+  } catch (error) {
+    if (error instanceof FciConcurrentGenerationError) {
+      throw new FciServiceError(
+        "FCI_ALREADY_GENERATING",
+        "Une demande de generation FCI est deja en attente pour ce module.",
+        409,
+        { module_code: input.moduleCode }
+      );
+    }
+
+    throw error;
+  }
 
   await appendFciAuditEvent({
     appelOffresId: input.appelOffresId,
@@ -1627,6 +1651,51 @@ export async function prepareFciRegeneration(
     sourceFiche,
     requireExistingData: true
   });
+}
+
+// Business fallback when AI generation is unavailable: the owning department
+// acknowledges the failure and switches to filling the FCI form by hand. This
+// does not touch fci_generation_jobs (the failed attempt stays in history
+// exactly as it happened) and does not invent a new module status - clearing
+// error_code/error_message is enough for the module to fall back to the
+// existing "not_started"/editable presentation, the same one already used
+// for a module that was never AI-generated in the first place.
+export async function prepareFciManualCompletion(
+  code: string,
+  moduleCode: FciModuleCode,
+  currentUser?: CurrentUser | null
+) {
+  const actor = normalizeCurrentUser(currentUser);
+  await assertAssignmentAccess({
+    code,
+    moduleCode,
+    currentUser: actor,
+    requireAssignedUser: true
+  });
+  const knowledgeBaseEnabled = isKnowledgeBaseEnabled();
+  const { appelOffres, detail } = await requireInitializedDetail(code);
+  const module = ensureModuleAccessible(detail, moduleCode, knowledgeBaseEnabled);
+
+  assertCanEditModule(actor, moduleCode);
+
+  if (module.errorCode != null || module.errorMessage != null) {
+    await updateFciModule(module.id, {
+      errorCode: null,
+      errorMessage: null
+    });
+    await appendFciAuditEvent({
+      appelOffresId: appelOffres.id,
+      fciModuleId: module.id,
+      eventType: "fci.manual_completion_started",
+      payloadJson: {
+        moduleCode
+      }
+    });
+    await recalculateAndPersistOverallStatus(code);
+  }
+
+  const presentation = await buildModulePresentationOrThrow(code, moduleCode, actor);
+  return applyCommercialOwnershipReadOnlyToModulePresentation(actor, appelOffres, presentation);
 }
 
 type FciCallbackResult = {
@@ -2261,7 +2330,7 @@ export async function validateFciModule(
     });
 
   await recalculateAndPersistOverallStatus(code);
-  if (moduleCode === "B" || moduleCode === "C") {
+  if (moduleCode === "B" || moduleCode === "C" || moduleCode === "D") {
     await markAssignmentValidated({
       code,
       moduleCode,

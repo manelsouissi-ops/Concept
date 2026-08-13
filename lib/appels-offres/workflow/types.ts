@@ -23,7 +23,7 @@ export const TENDER_WORKFLOW_DERIVED_STATES = [
 export type TenderWorkflowDerivedState =
   (typeof TENDER_WORKFLOW_DERIVED_STATES)[number];
 
-export const FCI_ASSIGNABLE_MODULE_CODES = ["B", "C"] as const;
+export const FCI_ASSIGNABLE_MODULE_CODES = ["B", "C", "D"] as const;
 
 export type FciAssignableModuleCode =
   (typeof FCI_ASSIGNABLE_MODULE_CODES)[number];

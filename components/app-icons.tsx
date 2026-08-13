@@ -191,3 +191,33 @@ export function MoreHorizontalIcon({ className }: IconProps) {
     </IconFrame>
   );
 }
+
+export function MessageCircleIcon({ className }: IconProps) {
+  return (
+    <IconFrame className={className}>
+      <path d="M4 12a8 8 0 1 1 3.4 6.5L4 19.5l1.1-3.2A7.9 7.9 0 0 1 4 12z" />
+      <path d="M8.5 12h.01" />
+      <path d="M12 12h.01" />
+      <path d="M15.5 12h.01" />
+    </IconFrame>
+  );
+}
+
+export function ShieldIcon({ className }: IconProps) {
+  return (
+    <IconFrame className={className}>
+      <path d="M12 3.5l7 2.6v5.4c0 4.4-3 7.9-7 9-4-1.1-7-4.6-7-9V6.1z" />
+      <path d="M9.2 12l1.9 1.9L15 10" />
+    </IconFrame>
+  );
+}
+
+export function ExternalLinkIcon({ className }: IconProps) {
+  return (
+    <IconFrame className={className}>
+      <path d="M9 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" />
+      <path d="M14 4h6v6" />
+      <path d="M10 14l10-10" />
+    </IconFrame>
+  );
+}

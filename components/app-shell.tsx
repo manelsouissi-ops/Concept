@@ -7,18 +7,22 @@ import type { ReactNode } from "react";
 import {
   DashboardIcon,
   DatabaseIcon,
+  ExternalLinkIcon,
   FolderIcon,
   LibraryIcon,
+  MessageCircleIcon,
   SettingsIcon,
+  ShieldIcon,
   UserCircleIcon
 } from "./app-icons.tsx";
 import { BrandLogo } from "./brand-logo.tsx";
 import { NotificationBell } from "./notification-bell.tsx";
 import { UserAvatar } from "./user-avatar.tsx";
-import { canAccess, type UserPresentation, type UserRole } from "@/lib/auth/rbac.ts";
+import { canAccess, canCreateTender, type UserPresentation, type UserRole } from "@/lib/auth/rbac.ts";
 import {
   filterNavigationByRole,
   getAdminNavigationSections,
+  getAiToolsNavigation,
   isActiveNavigationPath,
   type NavigationIconKey
 } from "@/lib/administration/navigation.ts";
@@ -64,6 +68,10 @@ function renderNavigationIcon(iconKey: NavigationIconKey) {
       return <SettingsIcon className="nav-icon" />;
     case "user":
       return <UserCircleIcon className="nav-icon" />;
+    case "message":
+      return <MessageCircleIcon className="nav-icon" />;
+    case "shield":
+      return <ShieldIcon className="nav-icon" />;
     default:
       return <DashboardIcon className="nav-icon" />;
   }
@@ -96,7 +104,8 @@ function getRouteMeta(pathname: string) {
   }
 
   if (pathname === "/fiches-cdc") return { title: "Mes Fiches CDC", breadcrumbs: ["Commercial", "Mes Fiches CDC"] };
-  if (pathname === "/mes-fci") return { title: "Mes FCI", breadcrumbs: ["Commercial", "Mes FCI"] };
+  if (pathname === "/mes-fci") return { title: "Mes FCI", breadcrumbs: ["Mes FCI"] };
+  if (pathname === "/decisions") return { title: "Décisions Go/No-Go", breadcrumbs: ["Décisions Go/No-Go"] };
   if (pathname === "/go-no-go") return { title: "Go/No-Go", breadcrumbs: ["Commercial", "Go/No-Go"] };
   if (pathname === "/history") return { title: "Historique", breadcrumbs: ["Commercial", "Historique"] };
 
@@ -118,6 +127,13 @@ function getRouteMeta(pathname: string) {
     return {
       title: "Parametres",
       breadcrumbs: ["Parametres"]
+    };
+  }
+
+  if (pathname === "/outils/pseudonymisation") {
+    return {
+      title: "Pseudonymisation",
+      breadcrumbs: ["Outils IA", "Pseudonymisation"]
     };
   }
 
@@ -241,17 +257,36 @@ function SidebarItem({
   currentSearch: string;
   onNavigate?: () => void;
 }) {
-  const isActive = isActiveNavigationPath(currentPath, item.href, currentSearch);
+  const isActive =
+    !item.external && isActiveNavigationPath(currentPath, item.href, currentSearch);
 
   if (!item.href || item.disabled) {
     return (
-      <span className="sidebar-link disabled" aria-disabled="true">
+      <span className="sidebar-link disabled" aria-disabled="true" title={item.description}>
         {renderNavigationIcon(item.iconKey)}
         <span className="sidebar-link-text">
           {item.label}
-          <small>Bientot</small>
+          <small>{item.external ? "Indisponible" : "Bientot"}</small>
         </span>
       </span>
+    );
+  }
+
+  if (item.external) {
+    return (
+      <a
+        href={item.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="sidebar-link"
+        title={item.description}
+      >
+        {renderNavigationIcon(item.iconKey)}
+        <span className="sidebar-link-text">
+          {item.label}
+          <ExternalLinkIcon className="sidebar-link-external-icon" />
+        </span>
+      </a>
     );
   }
 
@@ -260,6 +295,7 @@ function SidebarItem({
       href={item.href}
       className={isActive ? "sidebar-link active" : "sidebar-link"}
       onClick={onNavigate}
+      title={item.description}
     >
       {renderNavigationIcon(item.iconKey)}
       <span className="sidebar-link-text">{item.label}</span>
@@ -318,7 +354,8 @@ export function AppShell({
   developmentUserState,
   isDevelopmentMode,
   initialNotifications = [],
-  initialUnreadNotificationCount = 0
+  initialUnreadNotificationCount = 0,
+  openWebUiUrl = null
 }: {
   children: ReactNode;
   currentUser: UserPresentation | null;
@@ -326,6 +363,7 @@ export function AppShell({
   isDevelopmentMode?: boolean;
   initialNotifications?: AppNotificationRecord[];
   initialUnreadNotificationCount?: number;
+  openWebUiUrl?: string | null;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -341,7 +379,7 @@ export function AppShell({
   const canAccessAdministration = currentUser
     ? canAccess(currentUser.role, "administration")
     : false;
-  const adminSections = getAdminNavigationSections();
+  const adminSections = getAdminNavigationSections(openWebUiUrl);
   const currentSearch = searchParams.toString();
   const workspaceExperience = currentUser
     ? getRoleWorkspaceExperience(currentUser.role as UserRole)
@@ -352,7 +390,12 @@ export function AppShell({
         currentUser.role as UserRole
       )
     : [];
-  const topbarAction =
+  const mainNavigationItems = primaryNavigation.filter((item) => item.area !== "profile");
+  const profileNavigationItem = primaryNavigation.find((item) => item.area === "profile");
+  const aiToolsNavigation: NavigationItem[] = currentUser
+    ? filterNavigationByRole(getAiToolsNavigation(openWebUiUrl), currentUser.role as UserRole)
+    : [];
+  const routeAction =
     pathname === "/dashboard"
       ? workspaceExperience?.dashboardAction ?? null
       : routeMeta.actionHref && routeMeta.actionLabel
@@ -361,6 +404,10 @@ export function AppShell({
             label: routeMeta.actionLabel
           }
         : null;
+  const topbarAction = routeAction?.href === "/appels-offres/nouveau"
+    && (!currentUser || !canCreateTender(currentUser.role as UserRole))
+      ? null
+      : routeAction;
 
   function handleLogout() {
     if (isLogoutPending) {
@@ -442,17 +489,36 @@ export function AppShell({
             ))}
           </div>
         ) : (
-          <nav className="sidebar-group" aria-label="Navigation principale">
-            {primaryNavigation.map((item) => (
-              <SidebarItem
-                key={item.label}
-                item={item}
-                currentPath={pathname}
-                currentSearch={currentSearch}
-                onNavigate={() => setSidebarOpen(false)}
-              />
-            ))}
-          </nav>
+          <>
+            <nav className="sidebar-group" aria-label="Navigation principale">
+              {mainNavigationItems.map((item) => (
+                <SidebarItem
+                  key={item.label}
+                  item={item}
+                  currentPath={pathname}
+                  currentSearch={currentSearch}
+                  onNavigate={() => setSidebarOpen(false)}
+                />
+              ))}
+            </nav>
+
+            {aiToolsNavigation.length > 0 ? (
+              <div className="sidebar-upcoming-group">
+                <span className="sidebar-upcoming-heading">Outils IA</span>
+                <nav className="sidebar-group" aria-label="Outils IA">
+                  {aiToolsNavigation.map((item) => (
+                    <SidebarItem
+                      key={item.label}
+                      item={item}
+                      currentPath={pathname}
+                      currentSearch={currentSearch}
+                      onNavigate={() => setSidebarOpen(false)}
+                    />
+                  ))}
+                </nav>
+              </div>
+            ) : null}
+          </>
         )}
 
         {!isAdminExperience && canAccessAdministration ? (
@@ -464,6 +530,19 @@ export function AppShell({
             currentSearch={currentSearch}
             onNavigate={() => setSidebarOpen(false)}
           />
+        ) : null}
+
+        {!isAdminExperience && profileNavigationItem ? (
+          <div className="sidebar-upcoming-group">
+            <nav className="sidebar-group" aria-label="Compte">
+              <SidebarItem
+                item={profileNavigationItem}
+                currentPath={pathname}
+                currentSearch={currentSearch}
+                onNavigate={() => setSidebarOpen(false)}
+              />
+            </nav>
+          </div>
         ) : null}
 
         <div className="sidebar-spacer" />

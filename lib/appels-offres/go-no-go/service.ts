@@ -417,7 +417,7 @@ export async function decideGoNoGo(
   if (fciContext.overallStatus !== "validated") {
     throw new GoNoGoServiceError(
       "FCI_NOT_VALIDATED",
-      "La decision Go/No-Go n'est possible qu'apres validation des FCI contributives (A, B, C).",
+      "La decision Go/No-Go n'est possible qu'apres validation des quatre contributions departementales.",
       409,
       { overall_status: fciContext.overallStatus }
     );

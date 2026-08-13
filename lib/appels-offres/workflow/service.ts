@@ -202,21 +202,29 @@ async function requireInitializedFci(code: string) {
 }
 
 function getAllowedAssignedRole(moduleCode: FciAssignableModuleCode) {
-  return moduleCode === "B" ? "FINANCE" : "OPERATIONS";
+  return moduleCode === "B"
+    ? "FINANCE"
+    : moduleCode === "C"
+      ? "OPERATIONS"
+      : "DIRECTION_GENERALE";
 }
 
 function getAllowedDepartmentCode(moduleCode: FciAssignableModuleCode) {
-  return moduleCode === "B" ? "FINANCE" : "OPERATIONS";
+  return moduleCode === "B"
+    ? "FINANCE"
+    : moduleCode === "C"
+      ? "OPERATIONS"
+      : "DIRECTION_GENERALE";
 }
 
 function ensureAssignableModule(moduleCode: string): asserts moduleCode is FciAssignableModuleCode {
-  if (moduleCode === "B" || moduleCode === "C") {
+  if (moduleCode === "B" || moduleCode === "C" || moduleCode === "D") {
     return;
   }
 
   throw new WorkflowServiceError(
     "FCI_MODULE_NOT_ASSIGNABLE",
-    "Seuls les modules FCI B et C peuvent etre affectes dans cette phase.",
+    "Seuls les modules FCI B, C et D peuvent etre affectes.",
     422,
     { module_code: moduleCode }
   );
@@ -409,8 +417,9 @@ async function bumpWorkflowToAssignedIfReady(
   const assignments = await listFciAssignmentsByAppelOffresId(appelOffresId);
   const hasB = assignments.some((assignment) => assignment.moduleCode === "B");
   const hasC = assignments.some((assignment) => assignment.moduleCode === "C");
+  const hasD = assignments.some((assignment) => assignment.moduleCode === "D");
 
-  if (!hasB || !hasC) {
+  if (!hasB || !hasC || !hasD) {
     return getWorkflowStateByAppelOffresId(appelOffresId);
   }
 
@@ -514,7 +523,7 @@ export async function assignFciModule(input: {
   return assignment;
 }
 
-/** Assigns the single active Finance and Operations contributors when FCI opens. */
+/** Assigns the single active Finance, Operations and DG contributors when FCI opens. */
 export async function autoAssignFciContributors(input: {
   code: string;
   currentUser: CurrentUser;
@@ -522,7 +531,8 @@ export async function autoAssignFciContributors(input: {
   const results: FciModuleAssignmentDetail[] = [];
   for (const target of [
     { moduleCode: "B" as const, role: "FINANCE" as const },
-    { moduleCode: "C" as const, role: "OPERATIONS" as const }
+    { moduleCode: "C" as const, role: "OPERATIONS" as const },
+    { moduleCode: "D" as const, role: "DIRECTION_GENERALE" as const }
   ]) {
     const activeUsers = await listUsers({ role: target.role, status: "ACTIVE" });
     if (activeUsers.length !== 1) {
@@ -829,9 +839,10 @@ export async function deriveTenderWorkflowState(code: string): Promise<TenderWor
 
   const hasB = assignments.some((assignment) => assignment.moduleCode === "B");
   const hasC = assignments.some((assignment) => assignment.moduleCode === "C");
-  const assignmentsComplete = hasB && hasC;
+  const hasD = assignments.some((assignment) => assignment.moduleCode === "D");
+  const assignmentsComplete = hasB && hasC && hasD;
   const modules = fciDetail?.modules.filter((module) =>
-    module.moduleCode === "A" || module.moduleCode === "B" || module.moduleCode === "C"
+    module.moduleCode === "A" || module.moduleCode === "B" || module.moduleCode === "C" || module.moduleCode === "D"
   ) ?? [];
   const latestDataByModuleId = indexLatestModuleData(fciDetail?.moduleData ?? []);
   const anyActivity = modules.some((module) =>
@@ -876,7 +887,7 @@ export async function prepareGoNoGo(
   if (!workflow.ready_for_gonogo) {
     throw new WorkflowServiceError(
       "READY_FOR_GONOGO_REQUIRED",
-      "Le Go/No-Go ne peut etre prepare qu'une fois les contributions A, B et C validees.",
+      "Le Go/No-Go ne peut etre prepare qu'une fois les quatre contributions departementales validees.",
       409,
       {
         explicit_state: workflow.explicit_state,
@@ -1196,20 +1207,18 @@ export async function assertAssignmentAccess(input: {
   }
 
   if (actor.role === "DIRECTION_GENERALE") {
-    const workflow = await deriveTenderWorkflowState(input.code);
-    if (!isSubmittedState(workflow.explicit_state)) {
-      throw new WorkflowServiceError(
-        "RBAC_FORBIDDEN",
-        "La Direction generale ne peut acceder aux FCI qu'apres soumission par le Commercial.",
-        403,
-        {
-          role: actor.role,
-          explicit_state: workflow.explicit_state
-        }
-      );
+    if (input.moduleCode !== "D") {
+      const workflow = await deriveTenderWorkflowState(input.code);
+      if (!isSubmittedState(workflow.explicit_state)) {
+        throw new WorkflowServiceError(
+          "RBAC_FORBIDDEN",
+          "La Direction generale ne peut consulter les autres FCI qu'apres soumission par le Commercial.",
+          403,
+          { role: actor.role, explicit_state: workflow.explicit_state }
+        );
+      }
+      return { actor, assignment: null };
     }
-
-    return { actor, assignment: null };
   }
 
   if (actor.role === "FINANCE" && input.moduleCode !== "B") {
@@ -1233,6 +1242,15 @@ export async function assertAssignmentAccess(input: {
         role: actor.role,
         module_code: input.moduleCode
       }
+    );
+  }
+
+  if (actor.role === "DIRECTION_GENERALE" && input.moduleCode !== "D") {
+    throw new WorkflowServiceError(
+      "ASSIGNMENT_FORBIDDEN",
+      "La Direction generale ne peut agir que sur son module D affecte.",
+      403,
+      { role: actor.role, module_code: input.moduleCode }
     );
   }
 
@@ -1314,7 +1332,7 @@ export async function assertTenderWorkflowAccess(
   if (actor.role === "DIRECTION_GENERALE") {
     await assertAssignmentAccess({
       code,
-      moduleCode: "B",
+      moduleCode: "D",
       currentUser: actor
     });
     return actor;

@@ -4,6 +4,7 @@ import { calculateFciOverallStatus, indexLatestModuleData } from "./fci/presenta
 import type { GoNoGoDecisionRecord } from "./go-no-go/types.ts";
 import type { TenderWorkflowStateView } from "./workflow/service.ts";
 import type { BadgeTone } from "./presentation.ts";
+import { buildTenderWorkspaceHref } from "./tender-routes.ts";
 
 // Centralized, presentation-only read model for "what stage is this tender
 // at, visibly, right now". Every page that shows a tender's status/next
@@ -69,7 +70,7 @@ export type TenderStageInput = {
 
 function hrefFor(code: string, view: "" | "documents" | "fiche-cdc" | "fci" | "go-no-go" | "history") {
   const base = `/appels-offres/${encodeURIComponent(code)}`;
-  return view ? `${base}/${view}` : base;
+  return view ? buildTenderWorkspaceHref(code, view) : base;
 }
 
 function hasFailedAnalysis(detail: AppelOffresDetail) {
@@ -136,9 +137,9 @@ function buildProgressSteps(
   const definitions: Array<{ key: TenderStageStepKey; label: string }> = [
     { key: "cdc", label: "CDC" },
     { key: "fiche", label: "Fiche CDC" },
-    { key: "fci", label: "FCI" },
+    { key: "fci", label: "Contributions FCI" },
     { key: "gonogo", label: "Go/No-Go" },
-    { key: "dg", label: "Direction Générale" }
+    { key: "dg", label: "Décision DG" }
   ];
 
   return definitions.map((definition, index) => {
@@ -165,6 +166,8 @@ export function deriveTenderStage(input: TenderStageInput): TenderStageView {
     || explicitState === "NO_GO_DECIDED"
     || detail.businessStatus === "offre_autorisee"
     || detail.businessStatus === "offre_rejetee"
+    || decision?.status === "go"
+    || decision?.status === "no_go"
   ) {
     const isGo = explicitState === "GO_DECIDED" || detail.businessStatus === "offre_autorisee"
       || decision?.status === "go";

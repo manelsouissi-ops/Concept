@@ -12,7 +12,7 @@ import type {
   GoNoGoModuleSummaryView
 } from "./go-no-go/service.ts";
 
-export type DecisionCenterModuleCode = "A" | "B" | "C";
+export type DecisionCenterModuleCode = "A" | "B" | "C" | "D";
 
 export type DecisionCenterContributionState = {
   moduleCode: DecisionCenterModuleCode;
@@ -69,12 +69,13 @@ type ReadinessInput = {
   loadError?: boolean;
 };
 
-const CONTRIBUTING_MODULES: DecisionCenterModuleCode[] = ["A", "B", "C"];
+const CONTRIBUTING_MODULES: DecisionCenterModuleCode[] = ["A", "B", "C", "D"];
 
 const DEPARTMENT_LABELS: Record<DecisionCenterModuleCode, string> = {
   A: "Commercial",
   B: "Finance",
-  C: "Operations"
+  C: "Operations",
+  D: "Direction Générale"
 };
 
 const SUMMARY_KEYWORDS = [
@@ -405,7 +406,7 @@ export function buildDecisionCenterReadiness(input: {
     statusDescription: ready
       ? "Les contributions Commerciale, Financiere et Operationnelle sont validees."
       : `${validatedCount} contribution${validatedCount > 1 ? "s" : ""} sur ${CONTRIBUTING_MODULES.length} validee${validatedCount > 1 ? "s" : ""}.`,
-    explanation: "La decision sera disponible lorsque les trois contributions auront ete validees.",
+    explanation: "La decision sera disponible apres validation des quatre contributions et soumission du rapport par le Commercial.",
     entries,
     validatedDepartments,
     pendingDepartments,

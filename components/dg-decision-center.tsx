@@ -44,7 +44,7 @@ type ReviewModuleState = {
   safeErrorMessage: string | null;
 };
 
-const CONTRIBUTING_MODULE_CODES: DecisionCenterModuleCode[] = ["A", "B", "C"];
+const CONTRIBUTING_MODULE_CODES: DecisionCenterModuleCode[] = ["A", "B", "C", "D"];
 
 function getRootErrorMessage(error: unknown) {
   if (error instanceof GoNoGoClientError || error instanceof FciClientError) {
@@ -95,7 +95,8 @@ export function DgDecisionCenter({
   const [expandedModules, setExpandedModules] = useState<Record<DecisionCenterModuleCode, boolean>>({
     A: false,
     B: false,
-    C: false
+    C: false,
+    D: false
   });
   const contributionsRef = useRef<HTMLElement | null>(null);
 
@@ -382,7 +383,7 @@ export function DgDecisionCenter({
             ) : null}
             {reportWorkspace.report.is_stale ? (
               <div className="callout warning">
-                Le rapport soumis n'est plus a jour par rapport aux sources A/B/C. Une nouvelle version commerciale est requise.
+                Le rapport soumis n'est plus à jour par rapport aux quatre contributions. Une nouvelle version commerciale est requise.
               </div>
             ) : null}
             {reportWorkspace.report.editable_payload ? (
@@ -478,7 +479,7 @@ export function DgDecisionCenter({
             </div>
           ) : (
             <div className="callout warning">
-              <strong>La decision sera disponible lorsque les trois contributions auront ete validees.</strong>
+              <strong>La décision sera disponible après validation des quatre contributions et soumission du rapport.</strong>
               <div>
                 {readiness.validatedDepartments.length > 0
                   ? `Contributions validees : ${readiness.validatedDepartments.join(", ")}.`
@@ -716,8 +717,8 @@ export function DgDecisionCenter({
               <h3>Decision finale</h3>
               <p className="meta">
                 {readiness.ready
-                  ? "Les trois contributions sont validees. La decision finale peut etre enregistree."
-                  : "La decision finale sera disponible apres validation des trois contributions."}
+                  ? "Les quatre contributions sont validées et le rapport est soumis. La décision finale peut être enregistrée."
+                  : "La décision finale sera disponible après validation des quatre contributions et soumission du rapport."}
               </p>
             </div>
           </div>

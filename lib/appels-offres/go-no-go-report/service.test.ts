@@ -118,7 +118,7 @@ async function loadPersistedActors() {
   DIRECTION_GENERALE_USER = actors.dg;
 }
 
-function getActorByModule(moduleCode: "A" | "B" | "C") {
+function getActorByModule(moduleCode: "A" | "B" | "C" | "D") {
   switch (moduleCode) {
     case "A":
       return COMMERCIAL_USER;
@@ -126,6 +126,8 @@ function getActorByModule(moduleCode: "A" | "B" | "C") {
       return FINANCE_USER;
     case "C":
       return OPERATIONS_USER;
+    case "D":
+      return DIRECTION_GENERALE_USER;
   }
 }
 
@@ -134,7 +136,7 @@ function readJsonFixture(relativePath: string) {
 }
 
 function buildFciModulePayloadFixture(input: {
-  moduleCode: "A" | "B" | "C";
+  moduleCode: "A" | "B" | "C" | "D";
   sourceVersion: string;
   sourceHash: string;
   code: string;
@@ -142,7 +144,8 @@ function buildFciModulePayloadFixture(input: {
   const fixtureByModule = {
     A: "ai/examples/fci-commercial.sample.json",
     B: "ai/examples/fci-finance.sample.json",
-    C: "ai/examples/fci-operations.sample.json"
+    C: "ai/examples/fci-operations.sample.json",
+    D: "ai/examples/fci-strategy.sample.json"
   } as const;
 
   const payload = readJsonFixture(fixtureByModule[input.moduleCode]);
@@ -322,6 +325,12 @@ async function initializeAssignedFciWorkspace(code: string) {
       assignedUserId: Number(OPERATIONS_USER.id),
       currentUser: COMMERCIAL_USER
     });
+    await assignFciModule({
+      code,
+      moduleCode: "D",
+      assignedUserId: Number(DIRECTION_GENERALE_USER.id),
+      currentUser: COMMERCIAL_USER
+    });
     assignedTenderCodes.add(code);
   }
 }
@@ -346,7 +355,7 @@ function setFciFieldValue(data: Record<string, unknown>, fieldPath: string, valu
   }
 }
 
-async function completeAndValidateModule(code: string, moduleCode: "A" | "B" | "C") {
+async function completeAndValidateModule(code: string, moduleCode: "A" | "B" | "C" | "D") {
   const actor = getActorByModule(moduleCode);
 
   const launchResult = await withMockFetch(acceptingFetch, () =>
@@ -447,7 +456,7 @@ async function completeAndValidateModule(code: string, moduleCode: "A" | "B" | "
 async function validateAllFciModules(code: string) {
   await withFciEnv(async () => {
     await initializeAssignedFciWorkspace(code);
-    for (const moduleCode of ["A", "B", "C"] as const) {
+    for (const moduleCode of ["A", "B", "C", "D"] as const) {
       await completeAndValidateModule(code, moduleCode);
     }
   });
@@ -524,7 +533,7 @@ function inspectDocx(docxPath: string) {
   return result.stdout;
 }
 
-test("report generation requires validated A/B/C", async (t) => {
+test("report generation requires validated A/B/C/D", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;

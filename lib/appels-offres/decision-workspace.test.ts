@@ -114,7 +114,7 @@ function buildDecision(
   };
 }
 
-test("buildDecisionWorkspacePresentation queues dossiers on A/B/C readiness and excludes module D from the gate", () => {
+test("buildDecisionWorkspacePresentation requires A/B/C/D readiness and a submitted report", () => {
   const workspace = buildDecisionWorkspacePresentation({
     currentUser: buildUser(),
     records: [
@@ -124,7 +124,7 @@ test("buildDecisionWorkspacePresentation queues dossiers on A/B/C readiness and 
           A: "validated",
           B: "validated",
           C: "validated",
-          D: "not_started"
+          D: "validated"
         }),
         latestDecision: null,
         workflow: {
@@ -143,7 +143,7 @@ test("buildDecisionWorkspacePresentation queues dossiers on A/B/C readiness and 
           A: "validated",
           B: "validated",
           C: "validated",
-          D: "needs_review"
+          D: "validated"
         }),
         latestDecision: buildDecision({
           appelOffresId: 2,
@@ -188,6 +188,7 @@ test("buildDecisionWorkspacePresentation queues dossiers on A/B/C readiness and 
   assert.equal(workspace.queue[0]?.statusLabel, "À décider");
   assert.equal(workspace.history.length, 1);
   assert.equal(workspace.history[0]?.code, "AO-HISTORY");
+  assert.equal(workspace.history[0]?.decidedByLabel, "Isabelle Moreau");
 });
 
 test("validated dossiers stay out of the DG queue until they are submitted", () => {
@@ -200,7 +201,7 @@ test("validated dossiers stay out of the DG queue until they are submitted", () 
           A: "validated",
           B: "validated",
           C: "validated",
-          D: "not_started"
+          D: "validated"
         }),
         latestDecision: null,
         workflow: {

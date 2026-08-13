@@ -80,14 +80,26 @@ const DECISION_NAVIGATION: NavigationItemDefinition[] = [
     area: "dashboard"
   },
   {
+    label: "Mes FCI",
+    href: "/mes-fci",
+    iconKey: "database",
+    area: "dashboard"
+  },
+  {
+    label: "Appels d'offres",
+    href: "/appels-offres",
+    iconKey: "folder",
+    area: "appels_offres"
+  },
+  {
     label: "Décisions Go/No-Go",
-    href: "/dashboard?section=decisions#decision-queue",
+    href: "/decisions",
     iconKey: "folder",
     area: "dashboard"
   },
   {
     label: "Historique",
-    href: "/dashboard?section=history#decision-history",
+    href: "/history",
     iconKey: "library",
     area: "dashboard"
   },

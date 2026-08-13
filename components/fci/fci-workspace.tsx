@@ -11,11 +11,17 @@ import {
 import type { FciWorkspacePresentation } from "@/lib/appels-offres/fci/presentation.ts";
 import type { FciHumanVisibleModuleCode } from "@/lib/appels-offres/fci/types.ts";
 import { formatFciClientErrorMessage } from "@/lib/appels-offres/fci/ui.ts";
+import { getFciModuleForRole } from "@/lib/auth/rbac.ts";
+import type { UserRole } from "@/lib/auth/rbac.ts";
+import { getTenderAssignments } from "@/lib/appels-offres/workflow/client.ts";
+import type { FciModuleAssignmentDetail } from "@/lib/appels-offres/workflow/types.ts";
 import { FciHeader } from "./fci-header.tsx";
 import { FciOverview } from "./fci-overview.tsx";
+import { FciBlockedState } from "./fci-blocked-state.tsx";
 import { FciEmptyState } from "./fci-empty-state.tsx";
 import { FciErrorState } from "./fci-error-state.tsx";
 import { FciModuleView } from "./fci-module-view.tsx";
+import { FciModuleReadOnlyView } from "./fci-module-readonly-view.tsx";
 
 const FCI_POLL_INTERVAL_MS = 4_000;
 const FCI_MAX_POLL_ATTEMPTS = 30;
@@ -26,15 +32,20 @@ function isHumanVisibleModuleCode(value: string | null): value is FciHumanVisibl
 
 export function FciWorkspace({
   code,
+  ficheValidated,
+  currentUserRole,
   onOpenFiche
 }: {
   code: string;
+  ficheValidated: boolean;
+  currentUserRole?: UserRole;
   onOpenFiche: () => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [workspace, setWorkspace] = useState<FciWorkspacePresentation | null>(null);
+  const [assignments, setAssignments] = useState<FciModuleAssignmentDetail[]>([]);
   const [error, setError] = useState<FciClientError | null>(null);
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
@@ -55,6 +66,9 @@ export function FciWorkspace({
     try {
       const nextWorkspace = await getFciWorkspace(code);
       setWorkspace(nextWorkspace);
+      // Best-effort: assignee names are a display nicety for the tracking
+      // rows, not required for the workspace itself to render correctly.
+      getTenderAssignments(code).then(setAssignments).catch(() => setAssignments([]));
     } catch (nextError) {
       if (nextError instanceof FciClientError) {
         setError(nextError);
@@ -72,8 +86,11 @@ export function FciWorkspace({
   }
 
   useEffect(() => {
+    if (!ficheValidated) {
+      return;
+    }
     void loadWorkspace();
-  }, [code]);
+  }, [code, ficheValidated]);
 
   const isPollingGeneration = useMemo(
     () => workspace?.module_summaries.some((summary) => summary.status === "generating") ?? false,
@@ -174,13 +191,25 @@ export function FciWorkspace({
     });
   }
 
+  if (!ficheValidated) {
+    return <FciBlockedState onOpenFiche={onOpenFiche} />;
+  }
+
   if (selectedModule) {
-    return (
+    const isOwnModule = currentUserRole != null && getFciModuleForRole(currentUserRole) === selectedModule;
+
+    return isOwnModule ? (
       <FciModuleView
         code={code}
         moduleCode={selectedModule}
         onBack={() => updateModuleParam(null)}
         onWorkspaceRefresh={loadWorkspace}
+      />
+    ) : (
+      <FciModuleReadOnlyView
+        code={code}
+        moduleCode={selectedModule}
+        onBack={() => updateModuleParam(null)}
       />
     );
   }
@@ -237,6 +266,7 @@ export function FciWorkspace({
       {workspace ? (
         <FciOverview
           workspace={workspace}
+          assignments={assignments}
           isBusy={pendingAction != null}
           busyMessage={
             pendingAction

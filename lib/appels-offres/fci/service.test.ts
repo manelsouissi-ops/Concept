@@ -474,6 +474,12 @@ async function ensureAssignedDepartmentModules(code: string) {
     assignedUserId: Number(OPERATIONS_USER.id),
     currentUser: COMMERCIAL_USER
   });
+  await assignFciModule({
+    code,
+    moduleCode: "D",
+    assignedUserId: Number(DIRECTION_GENERALE_USER.id),
+    currentUser: COMMERCIAL_USER
+  });
   assignedTenderCodes.add(code);
 }
 
@@ -562,7 +568,7 @@ after(async () => {
   await closeAppelsOffresPool();
 });
 
-test("initialize is idempotent and keeps only A-C in the human FCI workspace when knowledge base is disabled", async (t) => {
+test("initialize is idempotent and exposes all four departmental FCI modules", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -577,9 +583,9 @@ test("initialize is idempotent and keeps only A-C in the human FCI workspace whe
     assert.equal(first.fci_set.id, second.fci_set.id);
     assert.deepEqual(
       first.enabled_modules,
-      ["A", "B", "C"]
+      ["A", "B", "C", "D"]
     );
-    assert.equal(first.module_summaries.length, 3);
+    assert.equal(first.module_summaries.length, 4);
   });
 });
 
@@ -593,9 +599,9 @@ test("initialize creates module E only when knowledge base is enabled", async (t
 
   await withKnowledgeBaseEnabled(true, async () => {
     const workspace = await initializeFciWorkspace(code, COMMERCIAL_USER);
-    assert.deepEqual(workspace.enabled_modules, ["A", "B", "C"]);
+    assert.deepEqual(workspace.enabled_modules, ["A", "B", "C", "D"]);
     assert.equal(
-      workspace.module_summaries.some((module) => module.module_code === "D" || module.module_code === "E"),
+      workspace.module_summaries.some((module) => module.module_code === "E"),
       false
     );
   });
@@ -648,7 +654,7 @@ test("manual edits create versions and enforce optimistic concurrency", async (t
   });
 });
 
-test("generation requires a validated fiche CDC and rejects module E generation", async (t) => {
+test("FCI cannot be initialized before the Fiche CDC is validated, and generation rejects module E", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -658,14 +664,16 @@ test("generation requires a validated fiche CDC and rejects module E generation"
   const validatedCode = await createTestAppelOffres({ validated: true });
 
   await withKnowledgeBaseEnabled(true, async () => {
-    await initializeFciWorkspace(draftCode, COMMERCIAL_USER);
-    await initializeFciWorkspace(validatedCode, COMMERCIAL_USER);
-
+    // FCI must not become actionable before the Fiche CDC is validated - this
+    // is the earliest, root-cause gate (initialization itself), not just a
+    // later check on generation.
     await assert.rejects(
-      () => prepareFciGeneration(draftCode, "A", COMMERCIAL_USER),
+      () => initializeFciWorkspace(draftCode, COMMERCIAL_USER),
       (error: unknown) =>
         error instanceof FciServiceError && error.code === "FICHE_CDC_NOT_VALIDATED"
     );
+
+    await initializeFciWorkspace(validatedCode, COMMERCIAL_USER);
 
     await assert.rejects(
       () => prepareFciGeneration(validatedCode, "E", COMMERCIAL_USER),
@@ -775,9 +783,9 @@ test("workspace progress excludes disabled knowledge-base module", async (t) => 
     }, OPERATIONS_USER);
 
     const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
-    assert.equal(workspace.progress.total_modules, 3);
+    assert.equal(workspace.progress.total_modules, 4);
     assert.equal(workspace.progress.validated_modules, 1);
-    assert.equal(workspace.progress.percentage, 33);
+    assert.equal(workspace.progress.percentage, 25);
   });
 });
 
@@ -853,12 +861,12 @@ test("validated fiche auto-launches only not_started FCI modules and stays idemp
         }) as typeof fetch,
         async () => {
           const first = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
-          assert.deepEqual(first.launchedModules, ["A", "B", "C"]);
+          assert.deepEqual(first.launchedModules, ["A", "B", "C", "D"]);
           assert.equal(first.failedModules.length, 0);
-          assert.equal(launchCount, 3);
+          assert.equal(launchCount, 4);
 
           const workspaceAfterFirstLaunch = await getFciWorkspace(code, COMMERCIAL_USER);
-          assert.deepEqual(workspaceAfterFirstLaunch.enabled_modules, ["A", "B", "C"]);
+          assert.deepEqual(workspaceAfterFirstLaunch.enabled_modules, ["A", "B", "C", "D"]);
           assert.equal(
             workspaceAfterFirstLaunch.module_summaries.every(
               (module) => module.status === "generating"
@@ -869,7 +877,7 @@ test("validated fiche auto-launches only not_started FCI modules and stays idemp
           const second = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
           assert.deepEqual(second.launchedModules, []);
           assert.equal(second.failedModules.length, 0);
-          assert.equal(launchCount, 3);
+          assert.equal(launchCount, 4);
         }
       );
     });
@@ -945,9 +953,9 @@ test("re-validating a Fiche CDC after an edit never disturbs a module already va
 
           const result = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
 
-          assert.deepEqual(result.launchedModules.sort(), ["A", "C"]);
+          assert.deepEqual(result.launchedModules.sort(), ["A", "C", "D"]);
           assert.equal(result.failedModules.length, 0);
-          assert.equal(launchCount, 2, "only the contributing not_started modules should trigger a launch");
+          assert.equal(launchCount, 3, "only the contributing not_started modules should trigger a launch");
           assert.ok(
             result.skippedModules.some((skipped) => skipped.moduleCode === "B"),
             "module B must be reported as skipped, not silently ignored"
@@ -1617,7 +1625,7 @@ test("failure callbacks preserve the previously validated version during regener
   });
 });
 
-test("DG keeps read access and final decision rights but no FCI edit permission", async (t) => {
+test("DG edits FCI D and keeps final decision rights", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -1644,11 +1652,10 @@ test("DG keeps read access and final decision rights but no FCI edit permission"
     assert.match(financeReadonlyModule.permissions.read_only_message ?? "", /Lecture seule/i);
 
     assert.equal(operationsModule.permissions.can_edit, true);
-    assert.equal(dgModule.permissions.can_edit, false);
-    assert.equal(dgModule.permissions.can_generate, false);
-    assert.equal(dgModule.permissions.can_validate, false);
-    assert.equal(dgModule.permissions.read_only, true);
-    assert.deepEqual(dgModule.allowed_actions, ["view_history"]);
+    assert.equal(dgModule.permissions.can_edit, true);
+    assert.equal(dgModule.permissions.can_generate, true);
+    assert.equal(dgModule.permissions.can_validate, true);
+    assert.equal(dgModule.permissions.read_only, false);
     assert.equal(dgModule.permissions.can_make_final_decision, true);
   });
 });
@@ -1705,9 +1712,9 @@ test("unauthorized FCI edits, validations, and reads return RBAC_FORBIDDEN for n
           sourceSummary: null,
           confidence: null,
           aiNotes: null,
-          editor: DIRECTION_GENERALE_USER.name,
+          editor: COMMERCIAL_USER.name,
           expectedVersion: null
-        }, DIRECTION_GENERALE_USER),
+        }, COMMERCIAL_USER),
       isForbiddenWorkflowOrFciError
     );
 
@@ -1796,7 +1803,7 @@ test("unauthorized generation is denied for non-owner business roles and for ADM
   });
 });
 
-test("DG receives 403 for every FCI mutation path and the error maps to the API contract", async (t) => {
+test("DG owns FCI D but remains forbidden from mutating FCI A", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -1806,88 +1813,23 @@ test("DG receives 403 for every FCI mutation path and the error maps to the API 
 
   await withKnowledgeBaseEnabled(false, async () => {
     await initializeAssignedFciWorkspace(code);
-    await markWorkflowSubmittedForDgAccess(code);
-
     const moduleD = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
-    await upsertFciModuleData(moduleD.module.id, {
-      dataJson: { seeded: true },
-      sourceSummaryJson: null,
-      confidenceJson: null,
-      aiNotesJson: null,
-      version: 1,
-      generatedFromFicheVersion: moduleD.source_fiche.version ?? "validated:missing",
-      generatedFromFicheHash: moduleD.source_fiche.hash ?? "missing"
-    });
+    assert.equal(moduleD.permissions.can_edit, true);
+    assert.equal(moduleD.permissions.can_generate, true);
+    assert.equal(moduleD.permissions.can_validate, true);
 
-    const mutations: Array<{
-      label: string;
-      run: () => Promise<unknown>;
-      expectedModule: "A" | "D";
-    }> = [
-      {
-        label: "save draft",
-        expectedModule: "D",
-        run: () =>
-          saveFciModuleEdits(code, "D", {
-            data: { seeded: true },
-            sourceSummary: null,
-            confidence: null,
-            aiNotes: null,
-            editor: DIRECTION_GENERALE_USER.name,
-            expectedVersion: null
-          }, DIRECTION_GENERALE_USER)
-      },
-      {
-        label: "generate",
-        expectedModule: "D",
-        run: () => prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER)
-      },
-      {
-        label: "regenerate",
-        expectedModule: "D",
-        run: () => prepareFciRegeneration(code, "D", DIRECTION_GENERALE_USER)
-      },
-      {
-        label: "complete/validate",
-        expectedModule: "D",
-        run: () =>
-          validateFciModule(code, "D", {
-            validatedBy: DIRECTION_GENERALE_USER.name,
-            comment: "Tentative DG",
-            expectedVersion: 1,
-            acknowledgeStaleSource: false
-          }, DIRECTION_GENERALE_USER)
-      }
-    ];
-
-    for (const mutation of mutations) {
-      let captured: unknown = null;
-
-      await assert.rejects(
-        async () => {
-          try {
-            await mutation.run();
-          } catch (error) {
-            captured = error;
-            throw error;
-          }
-        },
-        (error: unknown) =>
-          error instanceof FciServiceError
-          && error.code === "RBAC_FORBIDDEN"
-          && error.status === 403
-          && error.details?.module_code === mutation.expectedModule
-      );
-
-      const apiResponse = toFciErrorResponse(captured);
-      assert.equal(apiResponse.status, 403, `${mutation.label} should map to API 403`);
-      assert.equal(apiResponse.body.ok, false);
-      assert.equal(apiResponse.body.error.code, "RBAC_FORBIDDEN");
-      assert.equal(
-        (apiResponse.body.error.details as { module_code?: string }).module_code,
-        mutation.expectedModule
-      );
-    }
+    await assert.rejects(
+      () => prepareFciGeneration(code, "A", DIRECTION_GENERALE_USER),
+      isForbiddenWorkflowOrFciError
+    );
+    await assert.rejects(
+      () => prepareFciGeneration(code, "D", COMMERCIAL_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "RBAC_FORBIDDEN"
+        && error.status === 403
+        && error.details?.module_code === "D"
+    );
   });
 });
 

@@ -81,11 +81,13 @@ function buildPaginationItems(currentPage: number, totalPages: number): Paginati
 export function AppelsOffresListView({
   items,
   initialStatusFilter = "all",
-  initialSortBy = "updated"
+  initialSortBy = "updated",
+  canCreateTender = false
 }: {
   items: AppelOffresListItem[];
   initialStatusFilter?: string;
   initialSortBy?: string;
+  canCreateTender?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -265,12 +267,14 @@ export function AppelsOffresListView({
     return (
       <EmptyState
         title="Aucun appel d'offres"
-        description="Creez votre premier appel d'offres pour importer un CDC et demarrer son analyse."
-        action={
+        description={canCreateTender
+          ? "Creez votre premier appel d'offres pour importer un CDC et demarrer son analyse."
+          : "Les appels d'offres auxquels vous avez accès apparaîtront ici."}
+        action={canCreateTender ? (
           <Link href="/appels-offres/nouveau" className="button button-primary">
             Creer un appel d'offres
           </Link>
-        }
+        ) : undefined}
       />
     );
   }

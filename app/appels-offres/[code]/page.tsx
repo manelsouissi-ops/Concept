@@ -53,7 +53,10 @@ export default async function AppelOffresDetailPage({
   });
 
   await syncStoredDocumentsMetadata(code).catch(() => undefined);
-  const appel = await getAppelOffresDetailByCode(code);
+  // Archived tenders remain addressable for their read-only history and
+  // persisted final Go/No-Go outcome. Mutation permissions remain enforced
+  // by the existing API/service RBAC.
+  const appel = await getAppelOffresDetailByCode(code, { includeArchived: true });
 
   if (!appel) {
     notFound();

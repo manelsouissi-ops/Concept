@@ -81,7 +81,7 @@ export function GoNoGoReportBuilder({
   onOpenDocuments
 }: {
   code: string;
-  onOpenFciModule: (moduleCode: "A" | "B" | "C") => void;
+  onOpenFciModule: (moduleCode: "A" | "B" | "C" | "D") => void;
   onOpenDocuments: () => void;
 }) {
   const [workspace, setWorkspace] = useState<GoNoGoReportWorkspaceView | null>(null);
@@ -176,52 +176,116 @@ export function GoNoGoReportBuilder({
   const canRegenerate = workspace.permissions.can_regenerate;
   const canExport = workspace.permissions.can_export && hasReport;
 
-  const moduleReadiness = (["A", "B", "C"] as const).map((moduleCode) => ({
+  const ficheCdcValidated =
+    workspace.appel_offres.business_status === "fiche_validee"
+    || workspace.appel_offres.business_status === "offre_autorisee"
+    || workspace.appel_offres.business_status === "offre_rejetee";
+
+  const DEPARTMENT_LABEL: Record<"A" | "B" | "C" | "D", string> = {
+    A: "FCI Commerciale",
+    B: "FCI Financière",
+    C: "FCI Opérationnelle",
+    D: "FCI Direction Générale"
+  };
+  const moduleReadiness = (["A", "B", "C", "D"] as const).map((moduleCode) => ({
+    key: moduleCode,
     moduleCode,
+    label: DEPARTMENT_LABEL[moduleCode],
     validated:
       workspace.source_readiness.modules.find((module) => module.module_code === moduleCode)
         ?.status === "validated"
   }));
-  const allModulesReady = moduleReadiness.every((module) => module.validated);
+  const readinessItems = [
+    { key: "fiche", label: "Fiche CDC", validated: ficheCdcValidated },
+    ...moduleReadiness
+  ];
+  const allReady = readinessItems.every((item) => item.validated);
+  const missingCount = readinessItems.filter((item) => !item.validated).length;
 
   // Nothing to prepare yet: keep the page to a short readiness checklist
   // instead of a full editable report form with export controls that
-  // cannot do anything useful until A, B and C are validated.
-  if (!hasReport && !allModulesReady) {
+  // cannot do anything useful until the Fiche CDC and all four FCI are
+  // validated.
+  if (!hasReport && !allReady) {
     return (
       <section className="section-card">
         <div className="section-header">
           <div>
-            <h3>Go/No-Go</h3>
-            <p className="meta">En attente des contributions</p>
+            <h3>Préparation du Go/No-Go</h3>
+            <p className="meta">
+              Le rapport sera généré à partir de la Fiche CDC et des contributions validées des
+              quatre directions.
+            </p>
           </div>
         </div>
         <div className="section-body stack">
           <div className="workspace-info-list">
-            {moduleReadiness.map((module) => (
-              <div className="workspace-info-row" key={module.moduleCode}>
-                <span>FCI {module.moduleCode}</span>
+            {readinessItems.map((item) => (
+              <div className="workspace-info-row" key={item.key}>
+                <span>{item.label}</span>
                 <StatusBadge
-                  label={module.validated ? "Validée" : "À valider"}
-                  tone={module.validated ? "success" : "neutral"}
+                  label={item.validated ? "Validée" : "En cours"}
+                  tone={item.validated ? "success" : "neutral"}
                 />
               </div>
             ))}
           </div>
           <div className="callout info">
-            Le rapport Go/No-Go sera disponible lorsque les trois FCI seront validées.
+            {missingCount > 1
+              ? `${missingCount} contributions sont encore attendues.`
+              : "1 contribution est encore attendue."}
           </div>
           <div className="workspace-card-actions">
-            {(["A", "B", "C"] as const).map((moduleCode) => (
+            <button type="button" className="button button-primary" disabled title="Toutes les contributions doivent être validées avant de générer le rapport.">
+              Générer le rapport Go/No-Go
+            </button>
+            {(["A", "B", "C", "D"] as const).map((moduleCode) => (
               <button
                 key={moduleCode}
                 type="button"
                 className="button button-ghost button-small"
                 onClick={() => onOpenFciModule(moduleCode)}
               >
-                Ouvrir FCI {moduleCode}
+                Ouvrir {DEPARTMENT_LABEL[moduleCode]}
               </button>
             ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Everything is validated but the report hasn't been generated yet: one
+  // dedicated "ready" screen with a single primary action, instead of
+  // dropping straight into the full editable report form.
+  if (!hasReport && allReady) {
+    return (
+      <section className="section-card">
+        <div className="section-header">
+          <div>
+            <h3>Prêt pour la génération</h3>
+            <p className="meta">Tous les éléments nécessaires sont disponibles.</p>
+          </div>
+        </div>
+        <div className="section-body stack">
+          <div className="workspace-info-list">
+            {readinessItems.map((item) => (
+              <div className="workspace-info-row" key={item.key}>
+                <span>{item.label}</span>
+                <StatusBadge label="Validée" tone="success" />
+              </div>
+            ))}
+          </div>
+          {error ? <div className="callout warning">{error}</div> : null}
+          <div className="workspace-card-actions">
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => void runAction(() => generateGoNoGoReportDraft(code), "Le rapport a ete genere.")}
+              disabled={!canGenerate || isSubmitting}
+            >
+              Générer le rapport Go/No-Go
+            </button>
           </div>
         </div>
       </section>
@@ -377,7 +441,7 @@ export function GoNoGoReportBuilder({
         <div className="section-header">
           <div>
             <h3>Readiness des sources</h3>
-            <p className="meta">A, B et C doivent rester valides et alignes avec le snapshot source.</p>
+            <p className="meta">Les quatre contributions départementales doivent rester validées et alignées avec le snapshot source.</p>
           </div>
         </div>
         <div className="section-body">
@@ -407,17 +471,17 @@ export function GoNoGoReportBuilder({
         </div>
         <div className="section-body stack">
           {([
-            { fieldKey: "executive_summary", label: "Synthese executive", rows: 5 },
-            { fieldKey: "project_overview", label: "Presentation du projet", rows: 4 },
+            { fieldKey: "executive_summary", label: "Synthèse exécutive", rows: 5 },
+            { fieldKey: "project_overview", label: "Présentation / contexte du projet", rows: 4 },
             { fieldKey: "commercial_summary", label: "Enjeux commerciaux", rows: 4 },
-            { fieldKey: "financial_summary", label: "Analyse financiere", rows: 4 },
-            { fieldKey: "operational_summary", label: "Faisabilite operationnelle", rows: 4 },
-            { fieldKey: "key_strengths", label: "Points forts", rows: 3 },
-            { fieldKey: "key_risks", label: "Risques majeurs", rows: 4 },
-            { fieldKey: "reservations", label: "Reserves et conditions", rows: 3 },
-            { fieldKey: "assumptions", label: "Hypotheses utilisees", rows: 3 },
-            { fieldKey: "unresolved_points", label: "Points non resolus", rows: 3 },
-            { fieldKey: "commercial_recommendation", label: "Recommandation commerciale", rows: 3 },
+            { fieldKey: "financial_summary", label: "Analyse financière", rows: 4 },
+            { fieldKey: "operational_summary", label: "Faisabilité / capacité opérationnelle", rows: 4 },
+            { fieldKey: "key_strengths", label: "Opportunités", rows: 3 },
+            { fieldKey: "key_risks", label: "Principaux risques", rows: 4 },
+            { fieldKey: "reservations", label: "Conditions / réserves", rows: 3 },
+            { fieldKey: "assumptions", label: "Hypothèses utilisées", rows: 3 },
+            { fieldKey: "unresolved_points", label: "Points de vigilance", rows: 3 },
+            { fieldKey: "commercial_recommendation", label: "Recommandation préparatoire", rows: 3 },
             { fieldKey: "ai_recommendation", label: "Recommandation IA", rows: 3 }
           ] as const).map(({ fieldKey, label, rows }) => (
             <div className="field" key={fieldKey}>
@@ -469,17 +533,17 @@ export function GoNoGoReportBuilder({
           </div>
           <div className="section-body stack">
             {[
-              ["Synthese executive", form.executive_summary],
-              ["Presentation du projet", form.project_overview],
+              ["Synthèse exécutive", form.executive_summary],
+              ["Présentation / contexte du projet", form.project_overview],
               ["Enjeux commerciaux", form.commercial_summary],
-              ["Analyse financiere", form.financial_summary],
-              ["Faisabilite operationnelle", form.operational_summary],
-              ["Points forts", form.key_strengths],
-              ["Risques majeurs", form.key_risks],
-              ["Reserves et conditions", form.reservations],
-              ["Hypotheses utilisees", form.assumptions],
-              ["Points non resolus", form.unresolved_points],
-              ["Recommandation commerciale", form.commercial_recommendation],
+              ["Analyse financière", form.financial_summary],
+              ["Faisabilité / capacité opérationnelle", form.operational_summary],
+              ["Opportunités", form.key_strengths],
+              ["Principaux risques", form.key_risks],
+              ["Conditions / réserves", form.reservations],
+              ["Hypothèses utilisées", form.assumptions],
+              ["Points de vigilance", form.unresolved_points],
+              ["Recommandation préparatoire", form.commercial_recommendation],
               ["Recommandation IA", form.ai_recommendation || "Information non disponible"],
               [
                 "Proposition GO / NO-GO",
@@ -511,7 +575,7 @@ export function GoNoGoReportBuilder({
             <button type="button" className="button button-secondary" onClick={onOpenDocuments}>
               Ouvrir les documents
             </button>
-            {(["A", "B", "C"] as const).map((moduleCode) => (
+            {(["A", "B", "C", "D"] as const).map((moduleCode) => (
               <button
                 key={moduleCode}
                 type="button"
@@ -551,7 +615,7 @@ export function GoNoGoReportBuilder({
             <EmptyState
               compact
               title="Aucun rapport genere"
-              description="Generez d'abord un premier rapport consolide a partir des FCI A, B et C validees."
+              description="Générez d'abord un rapport consolidé à partir des quatre contributions départementales validées."
             />
           )}
         </div>

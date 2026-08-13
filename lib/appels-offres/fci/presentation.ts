@@ -77,6 +77,7 @@ export type FciModuleSummaryPresentation = {
   current_error: {
     code: string | null;
     message: string | null;
+    last_attempt_at: string | null;
   } | null;
   stale_source: boolean;
   available_actions: FciModuleAllowedAction[];
@@ -547,7 +548,12 @@ export function buildFciModuleAllowedActions(input: {
   }
 
   if (generatable && !activeJob && sourceValidated) {
-    if (input.latestData && canRegenerate) {
+    // Also expose "regenerate" when there is no data yet but the last
+    // generation attempt failed (module.error_code set): this is the retry
+    // path for a first-time generation failure (e.g. AO-20260812-0840/FCI A,
+    // a Gemini 503 with no prior successful data), not just for re-running
+    // on top of an existing draft.
+    if ((input.latestData || input.module.errorCode != null) && canRegenerate) {
       actions.unshift("regenerate");
     }
   }
@@ -630,7 +636,8 @@ export function buildFciModuleSummary(input: {
       input.module.errorCode || input.module.errorMessage
         ? {
             code: input.module.errorCode,
-            message: input.module.errorMessage
+            message: input.module.errorMessage,
+            last_attempt_at: input.latestJob?.completedAt ?? input.latestJob?.createdAt ?? null
           }
         : null,
     stale_source: staleSource,

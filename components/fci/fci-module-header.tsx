@@ -1,7 +1,7 @@
 import { ArrowRightIcon } from "@/components/app-icons.tsx";
 import type { FciModuleDefinition } from "@/lib/appels-offres/fci/rendering.ts";
 import type { FciModulePresentation } from "@/lib/appels-offres/fci/presentation.ts";
-import { formatFciDateTime } from "@/lib/appels-offres/fci/ui.ts";
+import { formatFciDateTime, formatFciSourceLabel } from "@/lib/appels-offres/fci/ui.ts";
 import { FciFormStatusBadge } from "./fci-status-badge.tsx";
 
 export function FciModuleHeader({
@@ -35,8 +35,10 @@ export function FciModuleHeader({
       </div>
       <div className="workspace-identity-grid compact">
         <div className="workspace-identity-meta compact">
-          <span>Version : {modulePresentation.latest_data?.version ?? "Aucune"}</span>
-          <span>Source Fiche : {modulePresentation.source_fiche.version ?? "Indisponible"}</span>
+          {modulePresentation.latest_data ? (
+            <span>Version : {modulePresentation.latest_data.version}</span>
+          ) : null}
+          <span>{formatFciSourceLabel(modulePresentation.source_fiche.version)}</span>
           <span>
             {contractVersion ? `Formulaire : v${contractVersion}` : "Formulaire : version inconnue"}
           </span>

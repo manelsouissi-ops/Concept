@@ -4,26 +4,26 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 import {
-  suggestNewAppelOffresCode,
-  validateCreateAppelOffresDraft,
+  formatCreateAppelOffresFileSize,
   getPdfFileSelectionError
 } from "@/lib/appels-offres/create-form.ts";
 import type { AppelOffresDetail, AppelOffresInput } from "@/lib/appels-offres/types.ts";
 import { FileTextIcon, UploadIcon } from "./app-icons.tsx";
 
+// Edit-only: tender creation now goes through AppelOffresCreateWizard
+// (upload -> analyse -> review extracted fields -> confirm), which reuses
+// the same PUT endpoint this component uses for edits.
 type Props = {
-  mode: "create" | "edit";
+  mode: "edit";
   initialValue?: AppelOffresInput;
   current?: AppelOffresDetail | null;
 };
 
-type SubmitPhase = "idle" | "creating" | "launching" | "redirecting";
+type SubmitPhase = "idle" | "creating";
 
-function createInitialFormState(mode: Props["mode"], initialValue?: AppelOffresInput) {
+function createInitialFormState(initialValue?: AppelOffresInput) {
   return {
-    code:
-      initialValue?.code ??
-      (mode === "create" ? suggestNewAppelOffresCode() : ""),
+    code: initialValue?.code ?? "",
     title: initialValue?.title ?? "",
     reference: initialValue?.reference ?? "",
     buyer: initialValue?.buyer ?? "",
@@ -35,94 +35,25 @@ function createInitialFormState(mode: Props["mode"], initialValue?: AppelOffresI
   };
 }
 
-function formatFileSize(sizeBytes: number) {
-  if (sizeBytes >= 1024 * 1024) {
-    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} Mo`;
-  }
-
-  if (sizeBytes >= 1024) {
-    return `${Math.round(sizeBytes / 1024)} Ko`;
-  }
-
-  return `${new Intl.NumberFormat("fr-FR").format(sizeBytes)} octets`;
-}
-
-function getSubmitLabel(mode: Props["mode"], submitPhase: SubmitPhase, isWorking: boolean) {
+function getSubmitLabel(submitPhase: SubmitPhase, isWorking: boolean) {
   if (!isWorking) {
-    return mode === "edit"
-      ? "Enregistrer les modifications"
-      : "Creer l'appel d'offres";
+    return "Enregistrer les modifications";
   }
 
-  if (submitPhase === "redirecting") {
-    return "Redirection vers le workspace...";
-  }
-
-  if (submitPhase === "launching") {
-    return "Lancement de l'analyse...";
-  }
-
-  return mode === "edit" ? "Enregistrement..." : "Creation en cours...";
+  return "Enregistrement...";
 }
 
-function getSubmitProgressLabel(mode: Props["mode"], submitPhase: SubmitPhase, isWorking: boolean) {
-  if (!isWorking) {
-    return null;
-  }
-
-  if (mode === "edit") {
-    return "Enregistrement des modifications...";
-  }
-
-  if (submitPhase === "redirecting") {
-    return "Redirection vers le workspace...";
-  }
-
-  if (submitPhase === "launching") {
-    return "Lancement de l'analyse...";
-  }
-
-  return "Creation du dossier et envoi du CDC...";
-}
-
-const CREATE_STEPS = [
-  { key: 1, label: "Informations du dossier" },
-  { key: 2, label: "Ajouter le CDC" },
-  { key: 3, label: "Vérification" }
-] as const;
-
-type CreateStep = (typeof CREATE_STEPS)[number]["key"];
-
-export function AppelOffresForm({ mode, initialValue, current }: Props) {
+export function AppelOffresForm({ initialValue, current }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState(createInitialFormState(mode, initialValue));
+  const [form, setForm] = useState(createInitialFormState(initialValue));
   const [file, setFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [createStep, setCreateStep] = useState<CreateStep>(1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const launchPhaseTimerRef = useRef<number | null>(null);
 
-  const isEdit = mode === "edit";
   const isWorking = submitPhase !== "idle";
-  const createValidation = validateCreateAppelOffresDraft({
-    code: form.code,
-    file: file
-      ? {
-          name: file.name,
-          type: file.type,
-          size: file.size
-        }
-      : null
-  });
-  function clearLaunchPhaseTimer() {
-    if (launchPhaseTimerRef.current != null) {
-      window.clearTimeout(launchPhaseTimerRef.current);
-      launchPhaseTimerRef.current = null;
-    }
-  }
 
   function applyFile(nextFile: File | null) {
     if (!nextFile) {
@@ -162,29 +93,12 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
     setError(null);
     setSuccess(null);
 
-    if (isEdit) {
-      if (!form.title.trim()) {
-        setError("L'intitule de l'appel d'offres est obligatoire.");
-        return;
-      }
-    } else {
-      if (!createValidation.isCodeValid) {
-        setError("Le code interne est obligatoire.");
-        return;
-      }
-
-      if (!file) {
-        setError("Le CDC PDF est obligatoire.");
-        return;
-      }
-
-      if (createValidation.fileError) {
-        setError(createValidation.fileError);
-        return;
-      }
+    if (!form.title.trim()) {
+      setError("L'intitule de l'appel d'offres est obligatoire.");
+      return;
     }
 
-    const targetCode = (isEdit ? current?.code ?? "" : createValidation.normalizedCode).trim();
+    const targetCode = (current?.code ?? "").trim();
     if (!targetCode) {
       setError("Le code interne est obligatoire.");
       return;
@@ -206,37 +120,17 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
     }
 
     setSubmitPhase("creating");
-    launchPhaseTimerRef.current = window.setTimeout(() => {
-      setSubmitPhase((currentPhase) =>
-        currentPhase === "creating" ? "launching" : currentPhase
-      );
-    }, 700);
 
     try {
-      const response = await fetch(
-        isEdit ? `/api/appels-offres/${encodeURIComponent(targetCode)}` : "/api/appels-offres",
-        {
-          method: isEdit ? "PUT" : "POST",
-          body: payload
-        }
-      );
+      const response = await fetch(`/api/appels-offres/${encodeURIComponent(targetCode)}`, {
+        method: "PUT",
+        body: payload
+      });
 
-      const body = (await response.json()) as {
-        error?: string;
-        redirect_url?: string;
-      };
+      const body = (await response.json()) as { error?: string };
 
       if (!response.ok) {
         setError(body.error ?? "Enregistrement impossible.");
-        return;
-      }
-
-      if (!isEdit) {
-        setSubmitPhase("redirecting");
-        router.push(
-          body.redirect_url ??
-            `/appels-offres/${encodeURIComponent(targetCode)}`
-        );
         return;
       }
 
@@ -249,7 +143,6 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
           : "Enregistrement impossible."
       );
     } finally {
-      clearLaunchPhaseTimer();
       setSubmitPhase("idle");
     }
   }
@@ -302,7 +195,7 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
         </span>
         <div>
           <strong>{file.name}</strong>
-          <span>{formatFileSize(file.size)}</span>
+          <span>{formatCreateAppelOffresFileSize(file.size)}</span>
         </div>
       </div>
       <div className="upload-selected-actions">
@@ -325,10 +218,7 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
       </div>
     </div>
   ) : null;
-  const submitProgressLabel = getSubmitProgressLabel(mode, submitPhase, isWorking);
-
-  if (isEdit) {
-    return (
+  return (
       <form className="grid" onSubmit={handleSubmit}>
         <div className="stack">
           <section className="section-card">
@@ -581,7 +471,7 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
 
           <div className="actions">
             <button className="button button-primary" type="submit" disabled={isWorking}>
-              {getSubmitLabel(mode, submitPhase, isWorking)}
+              {getSubmitLabel(submitPhase, isWorking)}
             </button>
             {current ? (
               <>
@@ -605,281 +495,5 @@ export function AppelOffresForm({ mode, initialValue, current }: Props) {
           </div>
         </div>
       </form>
-    );
-  }
-
-  function goToStep(target: CreateStep) {
-    setError(null);
-    setCreateStep(target);
-  }
-
-  function handleNextStep() {
-    if (createStep === 2 && !file) {
-      setError("Ajoutez le CDC PDF avant de poursuivre.");
-      return;
-    }
-    if (createStep === 2 && createValidation.fileError) {
-      setError(createValidation.fileError);
-      return;
-    }
-    goToStep((createStep + 1) as CreateStep);
-  }
-
-  return (
-    <form className="appel-offres-create-form" onSubmit={handleSubmit}>
-      <input type="hidden" name="code" value={form.code} />
-
-      <nav className="appel-offres-create-steps" aria-label="Etapes de creation">
-        {CREATE_STEPS.map((stepDef, index) => (
-          <div
-            key={stepDef.key}
-            className={
-              stepDef.key === createStep
-                ? "appel-offres-create-step is-current"
-                : stepDef.key < createStep
-                  ? "appel-offres-create-step is-done"
-                  : "appel-offres-create-step"
-            }
-          >
-            <span className="appel-offres-create-step-index">
-              {stepDef.key < createStep ? "✓" : stepDef.key}
-            </span>
-            <span>{stepDef.label}</span>
-            {index < CREATE_STEPS.length - 1 ? <i aria-hidden="true">→</i> : null}
-          </div>
-        ))}
-      </nav>
-
-      <section className="section-card appel-offres-create-card">
-        <div className="section-body stack appel-offres-create-body">
-          {createStep === 1 ? (
-            <div className="stack">
-              <p className="meta">
-                Renseignez les informations du dossier. Elles pourront être complétées plus tard.
-              </p>
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="appel-title">Intitulé</label>
-                  <input
-                    id="appel-title"
-                    className="input"
-                    value={form.title}
-                    onChange={(event) =>
-                      setForm((currentForm) => ({ ...currentForm, title: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="appel-buyer">Client</label>
-                  <input
-                    id="appel-buyer"
-                    className="input"
-                    value={form.buyer}
-                    onChange={(event) =>
-                      setForm((currentForm) => ({ ...currentForm, buyer: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="appel-country">Pays</label>
-                  <input
-                    id="appel-country"
-                    className="input"
-                    value={form.country}
-                    onChange={(event) =>
-                      setForm((currentForm) => ({ ...currentForm, country: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="appel-due-date">Date limite</label>
-                  <input
-                    id="appel-due-date"
-                    type="date"
-                    className="input"
-                    value={form.dueDate}
-                    onChange={(event) =>
-                      setForm((currentForm) => ({ ...currentForm, dueDate: event.target.value }))
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="appel-priority">Priorité</label>
-                  <select
-                    id="appel-priority"
-                    className="select"
-                    value={form.priorite}
-                    onChange={(event) =>
-                      setForm((currentForm) => ({
-                        ...currentForm,
-                        priorite: event.target.value as AppelOffresInput["priorite"]
-                      }))
-                    }
-                  >
-                    <option value="basse">Basse</option>
-                    <option value="normale">Normale</option>
-                    <option value="haute">Haute</option>
-                    <option value="critique">Critique</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="appel-reference">Référence / description courte</label>
-                  <input
-                    id="appel-reference"
-                    className="input"
-                    value={form.reference}
-                    onChange={(event) =>
-                      setForm((currentForm) => ({ ...currentForm, reference: event.target.value }))
-                    }
-                  />
-                </div>
-              </div>
-              <div className="sticky-action-bar appel-offres-create-actions">
-                <Link href="/appels-offres" className="button button-ghost">
-                  Annuler
-                </Link>
-                <button type="button" className="button button-primary" onClick={() => goToStep(2)}>
-                  Continuer
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {createStep === 2 ? (
-            <div className="stack">
-              <p className="meta">
-                Ajoutez le cahier des charges reçu.
-                <br />
-                CONCEPT analysera automatiquement le document après création du dossier.
-              </p>
-              <div
-                className={
-                  dragActive
-                    ? "upload-dropzone create-upload-dropzone active"
-                    : "upload-dropzone create-upload-dropzone"
-                }
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={(event) => {
-                  event.preventDefault();
-                  setDragActive(false);
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDragActive(false);
-                  applyFile(event.dataTransfer.files?.[0] ?? null);
-                }}
-              >
-                <input
-                  ref={fileInputRef}
-                  id="appel-file"
-                  type="file"
-                  accept="application/pdf,.pdf"
-                  className="sr-only"
-                  disabled={isWorking}
-                  onChange={(event) => applyFile(event.target.files?.[0] ?? null)}
-                />
-                <div className="upload-dropzone-icon create-upload-dropzone-icon">
-                  <UploadIcon className="upload-icon" />
-                </div>
-                <div className="upload-dropzone-copy create-upload-dropzone-copy">
-                  <strong>Deposez votre CDC PDF ici</strong>
-                  <p>
-                    ou
-                    {" "}
-                    <button
-                      type="button"
-                      className="inline-button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isWorking}
-                    >
-                      cliquez pour selectionner un fichier
-                    </button>
-                  </p>
-                  <span>Format accepté : PDF uniquement.</span>
-                </div>
-              </div>
-
-              {selectedFile}
-
-              {error ? <div className="callout warning">{error}</div> : null}
-
-              <div className="sticky-action-bar appel-offres-create-actions">
-                <button type="button" className="button button-ghost" onClick={() => goToStep(1)}>
-                  Retour
-                </button>
-                <button type="button" className="button button-primary" onClick={handleNextStep}>
-                  Continuer
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {createStep === 3 ? (
-            <div className="stack">
-              <p className="meta">Vérifiez les informations avant de créer le dossier.</p>
-              <div className="workspace-info-list">
-                <div className="workspace-info-row">
-                  <span>Intitulé</span>
-                  <strong>{form.title || "Non renseigné"}</strong>
-                </div>
-                <div className="workspace-info-row">
-                  <span>Client</span>
-                  <strong>{form.buyer || "Non renseigné"}</strong>
-                </div>
-                <div className="workspace-info-row">
-                  <span>Pays</span>
-                  <strong>{form.country || "Non renseigné"}</strong>
-                </div>
-                <div className="workspace-info-row">
-                  <span>Date limite</span>
-                  <strong>{form.dueDate || "Non renseignée"}</strong>
-                </div>
-                <div className="workspace-info-row">
-                  <span>PDF sélectionné</span>
-                  <strong>{file?.name ?? "Aucun"}</strong>
-                </div>
-              </div>
-
-              {error ? <div className="callout warning">{error}</div> : null}
-
-              <div className="appel-offres-create-note">
-                CONCEPT analysera automatiquement le document après création du dossier.
-              </div>
-
-              {submitProgressLabel ? (
-                <div className="appel-offres-create-progress" role="status" aria-live="polite">
-                  {submitProgressLabel}
-                </div>
-              ) : null}
-
-              <div className="sticky-action-bar appel-offres-create-actions">
-                <button
-                  type="button"
-                  className="button button-ghost"
-                  onClick={() => goToStep(2)}
-                  disabled={isWorking}
-                >
-                  Retour
-                </button>
-                <button
-                  className="button button-primary"
-                  type="submit"
-                  disabled={!createValidation.canSubmit || isWorking}
-                >
-                  {isWorking ? getSubmitLabel(mode, submitPhase, isWorking) : "Créer l'appel d'offres et lancer l'analyse"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-    </form>
   );
 }

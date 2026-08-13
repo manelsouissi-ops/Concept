@@ -190,9 +190,9 @@ async function ensureSchemaInternal(pool: Pool) {
       create table if not exists ${FCI_ASSIGNMENTS_TABLE} (
         id bigserial primary key,
         appel_offres_id bigint not null references public.appels_offres(id) on delete cascade,
-        module_code text not null check (module_code in ('B', 'C')),
+        module_code text not null check (module_code in ('B', 'C', 'D')),
         assigned_user_id bigint not null references public.app_users(id) on delete restrict,
-        assigned_role text not null check (assigned_role in ('FINANCE', 'OPERATIONS')),
+        assigned_role text not null check (assigned_role in ('FINANCE', 'OPERATIONS', 'DIRECTION_GENERALE')),
         assigned_department_code text null references public.app_departments(code) on delete set null,
         assigned_by_user_id bigint not null references public.app_users(id) on delete restrict,
         assigned_at timestamptz not null default now(),
@@ -204,6 +204,18 @@ async function ensureSchemaInternal(pool: Pool) {
         updated_at timestamptz not null default now(),
         unique (appel_offres_id, module_code)
       )
+    `);
+    await client.query(`
+      alter table ${FCI_ASSIGNMENTS_TABLE}
+        drop constraint if exists fci_module_assignments_module_code_check,
+        drop constraint if exists fci_module_assignments_assigned_role_check
+    `);
+    await client.query(`
+      alter table ${FCI_ASSIGNMENTS_TABLE}
+        add constraint fci_module_assignments_module_code_check
+          check (module_code in ('B', 'C', 'D')),
+        add constraint fci_module_assignments_assigned_role_check
+          check (assigned_role in ('FINANCE', 'OPERATIONS', 'DIRECTION_GENERALE'))
     `);
     await client.query(`
       create index if not exists appel_offres_workflow_states_appel_idx

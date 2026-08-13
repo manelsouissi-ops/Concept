@@ -6,7 +6,9 @@ export type NavigationIconKey =
   | "database"
   | "library"
   | "settings"
-  | "user";
+  | "user"
+  | "message"
+  | "shield";
 
 export type NavigationItemDefinition = {
   label: string;
@@ -15,6 +17,10 @@ export type NavigationItemDefinition = {
   disabled?: boolean;
   /** When set, the item is hidden entirely for roles that fail canAccess(role, area). */
   area?: AppArea;
+  /** Opens in a new tab via a plain anchor instead of Next.js client-side routing. */
+  external?: boolean;
+  /** Rendered as a native title/tooltip attribute. */
+  description?: string;
 };
 
 export type NavigationSectionDefinition = {
@@ -70,7 +76,33 @@ export function filterNavigationByRole(
   return items.filter((item) => !item.area || canAccess(role, item.area));
 }
 
-export function getAdminNavigationSections(): NavigationSectionDefinition[] {
+// Shared "Outils IA" items, available to every authenticated role regardless
+// of area-based RBAC (no `area` set), so they pass filterNavigationByRole unfiltered.
+// `openWebUiUrl` comes from NEXT_PUBLIC_OPEN_WEBUI_URL, read server-side and
+// threaded down as a prop - never hardcoded here. When unset, the item renders
+// disabled instead of breaking the rest of the sidebar.
+export function getAiToolsNavigation(openWebUiUrl: string | null): NavigationItemDefinition[] {
+  return [
+    {
+      label: "Assistant IA",
+      href: openWebUiUrl || undefined,
+      disabled: !openWebUiUrl,
+      iconKey: "message",
+      external: true,
+      description: "Assistant IA interne"
+    },
+    {
+      label: "Pseudonymisation",
+      href: "/outils/pseudonymisation",
+      iconKey: "shield",
+      description: "Préparer un texte avant de le partager avec un service d'IA externe"
+    }
+  ];
+}
+
+export function getAdminNavigationSections(
+  openWebUiUrl: string | null = null
+): NavigationSectionDefinition[] {
   return [
     {
       label: "Administration",
@@ -106,6 +138,10 @@ export function getAdminNavigationSections(): NavigationSectionDefinition[] {
           iconKey: "settings"
         }
       ]
+    },
+    {
+      label: "Outils IA",
+      items: getAiToolsNavigation(openWebUiUrl)
     },
     {
       label: "Compte",

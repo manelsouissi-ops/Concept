@@ -432,6 +432,13 @@ textarea {
   font-size: 0.74rem;
 }
 
+.sidebar-link-external-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.4);
+}
+
 .sidebar-upcoming-group {
   display: grid;
   gap: 8px;
@@ -1333,6 +1340,49 @@ textarea {
     linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 245, 0.98));
 }
 
+.finance-hero-compact {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.finance-hero-compact .finance-hero-copy { gap: 5px; }
+.finance-hero-compact .finance-hero-copy h1 { font-size: clamp(1.65rem, 2.4vw, 2.05rem); }
+.finance-hero-compact .finance-hero-summary { margin-top: 5px; font-weight: 650; color: var(--accent-strong); }
+
+.finance-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.finance-summary-metric {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 3px 12px;
+  padding: 15px 20px;
+  border-right: 1px solid var(--line);
+}
+
+.finance-summary-metric:last-child { border-right: 0; }
+.dg-summary-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dg-action-table, .dg-history-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.dg-action-table th, .dg-action-table td, .dg-history-table th, .dg-history-table td { padding: 13px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.dg-action-table th, .dg-history-table th { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .04em; }
+.dg-action-table td:first-child, .dg-history-table td:first-child { display: grid; gap: 3px; min-width: 0; }
+.dg-action-table td:first-child strong, .dg-history-table td:first-child strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-action-table th:first-child { width: 25%; } .dg-action-table th:last-child { width: 125px; }
+.dg-history-table th:first-child { width: 32%; } .dg-history-table th:last-child { width: 125px; }
+.finance-summary-metric > span { color: var(--ink-soft); font-size: 0.82rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.035em; }
+.finance-summary-metric > strong { grid-row: 1 / 3; grid-column: 1; color: var(--accent-strong); font-size: 1.9rem; line-height: 1; }
+.finance-summary-metric > span,
+.finance-summary-metric > small { grid-column: 2; }
+.finance-summary-metric > small { color: var(--muted); }
+
 .finance-hero-copy {
   display: grid;
   gap: 10px;
@@ -1440,11 +1490,21 @@ textarea {
    department staff completing a pre-filled module don't triage by tender priority. */
 .finance-dossiers-table.department-tasks-table {
   grid-template-columns:
-    minmax(110px, 1.4fr)
-    minmax(90px, 1fr)
-    minmax(160px, 1.8fr)
+    minmax(180px, 1.8fr)
+    minmax(120px, 1fr)
+    minmax(120px, .8fr)
+    minmax(140px, 1fr)
     132px;
 }
+
+.finance-dossiers-deadline { display: grid; gap: 3px; color: var(--ink-soft); font-size: 0.88rem; }
+.finance-dossiers-deadline small { color: var(--danger); font-size: 0.75rem; font-weight: 700; }
+
+.finance-recent-panel { padding-top: 2px; }
+.finance-recent-panel .section-header { padding-inline: 2px; }
+.finance-recent-panel .section-header h2 { margin: 0; font-size: 1.05rem; }
+.finance-recent-panel .department-history-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.finance-recent-panel .department-history-item { padding: 10px 13px; border-radius: 12px; box-shadow: none; }
 
 .department-history-list {
   display: grid;
@@ -1638,6 +1698,7 @@ textarea {
 }
 
 @media (max-width: 860px) {
+  .dg-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .finance-secondary-grid {
     grid-template-columns: 1fr;
   }
@@ -1672,6 +1733,8 @@ textarea {
     align-items: flex-start;
   }
 
+  .finance-recent-panel .department-history-list { grid-template-columns: 1fr; }
+
   .department-history-copy strong {
     overflow: visible;
     text-overflow: clip;
@@ -1692,6 +1755,10 @@ textarea {
   .department-stat-single {
     grid-template-columns: 1fr;
   }
+
+  .finance-summary-strip { grid-template-columns: 1fr; }
+  .finance-summary-metric { border-right: 0; border-bottom: 1px solid var(--line); }
+  .finance-summary-metric:last-child { border-bottom: 0; }
 }
 
 .stat-card {
@@ -4518,6 +4585,15 @@ textarea {
 .appel-offres-create-step.is-done .appel-offres-create-step-index { border-color: var(--success); color: var(--success); }
 .appel-offres-create-step > i { font-style: normal; color: var(--line-strong); }
 
+.create-wizard-detection {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.create-wizard-detection.is-detected { color: var(--success); }
+
 .minimal-create-layout {
   align-items: stretch;
 }
@@ -5535,6 +5611,29 @@ textarea {
   gap: 20px;
 }
 
+.fci-blocked-state h3 { margin: 0 0 6px; }
+.fci-blocked-message { margin: 0 0 4px; font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+
+.fci-readonly-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.fci-readonly-header-copy { display: grid; gap: 4px; }
+.fci-readonly-header-copy h2 { margin: 0; }
+.fci-readonly-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(24, 36, 47, 0.08);
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .fci-overview-grid,
 .fci-module-summary-grid {
   align-items: stretch;
@@ -5552,10 +5651,36 @@ textarea {
   z-index: 1;
 }
 
+.fci-overview-header { margin-bottom: 2px; }
+.fci-overview-header h2 { margin: 0 0 4px; }
+.fci-overview-header p { margin: 0; }
+
 .fci-module-grid {
   display: grid;
   gap: 18px;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.fci-own-module-grid { grid-template-columns: minmax(0, 480px); }
+
+.fci-contribution-list { display: grid; }
+.fci-contribution-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) 130px 170px max-content;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(24, 36, 47, 0.08);
+}
+.fci-contribution-row:last-child { border-bottom: 0; }
+.fci-contribution-identity { display: grid; gap: 3px; min-width: 0; }
+.fci-contribution-identity strong { color: var(--ink); }
+.fci-contribution-identity span { color: var(--muted); font-size: 0.84rem; }
+.fci-contribution-date { color: var(--muted); font-size: 0.86rem; }
+.fci-contribution-spacer { width: 1px; }
+
+@media (max-width: 760px) {
+  .fci-contribution-row { grid-template-columns: 1fr; align-items: flex-start; gap: 6px; }
 }
 
 .fci-module-card {

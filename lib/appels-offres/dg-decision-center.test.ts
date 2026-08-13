@@ -9,7 +9,7 @@ import type { FciFormPayload } from "./fci/rendering.ts";
 import type { FciModulePresentation } from "./fci/presentation.ts";
 
 function buildModulePresentation(
-  moduleCode: "A" | "B" | "C",
+  moduleCode: "A" | "B" | "C" | "D",
   status: FciModulePresentation["module"]["status"],
   overrides?: Partial<FciModulePresentation["module"]>
 ): FciModulePresentation {
@@ -40,7 +40,7 @@ function buildModulePresentation(
     module: {
       id: 1,
       module_code: moduleCode,
-      module_type: moduleCode === "A" ? "commercial" : moduleCode === "B" ? "finance" : "operations",
+      module_type: moduleCode === "A" ? "commercial" : moduleCode === "B" ? "finance" : moduleCode === "C" ? "operations" : "strategy",
       department_code: moduleCode,
       department_label: moduleCode === "A" ? "Commercial" : moduleCode === "B" ? "Finance" : "Operations",
       title: `Module ${moduleCode}`,
@@ -238,7 +238,7 @@ function buildPayload(moduleCode: "A" | "B" | "C"): FciFormPayload {
   };
 }
 
-test("not-ready state lists the missing A/B/C contributions", () => {
+test("not-ready state lists missing contributions including DG", () => {
   const readiness = buildDecisionCenterReadiness({
     modules: [
       {
@@ -270,12 +270,12 @@ test("not-ready state lists the missing A/B/C contributions", () => {
 
   assert.equal(readiness.ready, false);
   assert.equal(readiness.validatedCount, 1);
-  assert.deepEqual(readiness.pendingDepartments, ["Finance", "Direction Operationnelle"]);
+  assert.deepEqual(readiness.pendingDepartments, ["Finance", "Direction Operationnelle", "Direction Generale"]);
   assert.equal(readiness.entries[1]?.statusLabel, "A completer");
   assert.equal(readiness.entries[2]?.statusLabel, "Non commence");
 });
 
-test("ready state depends only on A/B/C being validated", () => {
+test("ready state requires all four contributions", () => {
   const readiness = buildDecisionCenterReadiness({
     modules: [
       {
@@ -313,12 +313,24 @@ test("ready state depends only on A/B/C being validated", () => {
           validated_by: "Olivia",
           completion_percentage: 100
         }
+      },
+      {
+        moduleCode: "D",
+        summary: {
+          module_code: "D",
+          department_code: "DG",
+          department_label: "Direction Generale",
+          status: "validated",
+          validated_at: "2026-08-04T12:00:00.000Z",
+          validated_by: "Diane",
+          completion_percentage: 100
+        }
       }
     ]
   });
 
   assert.equal(readiness.ready, true);
-  assert.equal(readiness.validatedCount, 3);
+  assert.equal(readiness.validatedCount, 4);
   assert.deepEqual(readiness.pendingDepartments, []);
 });
 

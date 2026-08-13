@@ -98,7 +98,8 @@ const AREA_PERMISSION: Record<AppArea, Permission> = {
 const FCI_EDITOR_ROLE_BY_MODULE: Partial<Record<FciModuleCode, UserRole>> = {
   A: "COMMERCIAL",
   B: "FINANCE",
-  C: "OPERATIONS"
+  C: "OPERATIONS",
+  D: "DIRECTION_GENERALE"
 };
 
 export const rolePermissions: Record<UserRole, readonly Permission[]> = {
@@ -173,6 +174,14 @@ export function hasPermission(role: UserRole, permission: Permission) {
   return rolePermissions[role].includes(permission);
 }
 
+export function canCreateTender(role: UserRole) {
+  return hasPermission(role, "tender.create");
+}
+
+export function getTenderCreateDeniedMessage() {
+  return "Acces refuse : seule la direction commerciale peut creer un appel d'offres.";
+}
+
 export function isUserRole(value: unknown): value is UserRole {
   return typeof value === "string" && (USER_ROLES as readonly string[]).includes(value);
 }
@@ -221,6 +230,10 @@ export function getDefaultAuthenticatedPath(role: UserRole) {
 export function canAccessPath(role: UserRole, pathname: string) {
   const normalized = normalizePathname(pathname);
 
+  if (normalized === "/appels-offres/nouveau") {
+    return canCreateTender(role);
+  }
+
   if (normalized === "/administration" || normalized.startsWith("/administration/")) {
     return canAccess(role, "administration");
   }
@@ -239,7 +252,16 @@ export function canAccessPath(role: UserRole, pathname: string) {
     return canAccess(role, "appels_offres");
   }
 
-  if (["/fiches-cdc", "/mes-fci", "/go-no-go", "/history"].includes(normalized)) {
+  if (normalized === "/mes-fci" || normalized === "/history") {
+    return (role === "COMMERCIAL" || role === "DIRECTION_GENERALE")
+      && canAccess(role, "appels_offres");
+  }
+
+  if (normalized === "/decisions") {
+    return role === "DIRECTION_GENERALE" && canAccess(role, "appels_offres");
+  }
+
+  if (["/fiches-cdc", "/go-no-go"].includes(normalized)) {
     return role === "COMMERCIAL" && canAccess(role, "appels_offres");
   }
 

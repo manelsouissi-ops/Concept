@@ -24,7 +24,7 @@ import {
 import type { GoNoGoView } from "@/lib/appels-offres/go-no-go/service.ts";
 
 type PendingChoice = "go" | "no_go" | null;
-type ContributingModuleCode = "A" | "B" | "C";
+type ContributingModuleCode = "A" | "B" | "C" | "D";
 type ReviewModuleState = {
   moduleCode: ContributingModuleCode;
   modulePresentation: FciModulePresentation | null;
@@ -32,7 +32,7 @@ type ReviewModuleState = {
   error: string | null;
 };
 
-const CONTRIBUTING_MODULE_CODES: ContributingModuleCode[] = ["A", "B", "C"];
+const CONTRIBUTING_MODULE_CODES: ContributingModuleCode[] = ["A", "B", "C", "D"];
 
 function getErrorMessage(error: unknown) {
   if (error instanceof GoNoGoClientError || error instanceof FciClientError) {
@@ -104,7 +104,7 @@ function DecisionReviewModules({
     return (
       <section className="section-card">
         <div className="section-body">
-          <p className="meta">Chargement des contributions A, B et C...</p>
+          <p className="meta">Chargement des quatre contributions départementales...</p>
         </div>
       </section>
     );
@@ -116,7 +116,7 @@ function DecisionReviewModules({
         <div>
           <h3>Contributions a relire</h3>
           <p className="meta">
-            Vue consolidee en lecture seule des FCI Commerciale, Finance et Operations.
+            Vue consolidée en lecture seule des quatre contributions départementales.
           </p>
         </div>
       </div>
@@ -351,14 +351,14 @@ export function GoNoGoPanel({
           <div>
             <h3>Go/No-Go</h3>
             <p className="meta">
-              La decision Go/No-Go n&apos;est disponible qu&apos;une fois les contributions A, B et C validees.
+              La décision Go/No-Go n&apos;est disponible qu&apos;après validation des quatre contributions et soumission du rapport.
             </p>
           </div>
         </div>
         <div className="section-body">
           <EmptyState
             compact
-            title="Disponible une fois les FCI A, B et C validees"
+            title="Disponible après validation des quatre contributions départementales"
             description="Suivez l'avancement des contributions departementales avant l'arbitrage final."
           />
           <div className="workspace-card-actions">
@@ -378,7 +378,7 @@ export function GoNoGoPanel({
           <div>
             <h3>Synthese des contributions</h3>
             <p className="meta">
-              Les FCI contributives A, B et C validees avant la decision finale.
+              Les quatre contributions départementales validées avant la décision finale.
             </p>
           </div>
         </div>
@@ -509,7 +509,7 @@ export function GoNoGoPanel({
               <p className="meta">
                 {decision?.status === "reouvert"
                   ? "Le dossier a ete reouvert et attend une nouvelle decision."
-                  : "Les contributions A, B et C sont validees. La Direction generale peut decider."}
+                  : "Les quatre contributions sont validées. La Direction générale peut décider après soumission du rapport."}
               </p>
             </div>
           </div>

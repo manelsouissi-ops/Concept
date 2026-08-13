@@ -6,6 +6,7 @@ import {
   downloadFciModuleExport,
   getFciModule,
   getFciModuleHistory,
+  prepareFciManualCompletion,
   prepareFciRegeneration,
   saveFciModule,
   validateFciModule,
@@ -25,13 +26,16 @@ import type { FciModulePresentation } from "@/lib/appels-offres/fci/presentation
 import {
   formatFciClientErrorMessage,
   formatFciDateTime,
-  formatFciSafeErrorMessage,
+  formatFciSourceLabel,
+  getFciGenerationFailurePresentation,
+  getFciGenerationJobStatusPresentation,
   getFciSourceFreshnessPresentation
 } from "@/lib/appels-offres/fci/ui.ts";
 import { FciModuleHeader } from "./fci-module-header.tsx";
 import { FciModuleEditor } from "./fci-module-editor.tsx";
 import { FciModuleActions, type FciModuleActionKind } from "./fci-module-actions.tsx";
 import { FciModuleHistory } from "./fci-module-history.tsx";
+import { FciGenerationFailureCard } from "./fci-generation-failure-card.tsx";
 import { FciConfirmDialog } from "./fci-confirm-dialog.tsx";
 import { FciErrorState } from "./fci-error-state.tsx";
 import { FciFormStatusBadge, FciGenerationJobStatusBadge } from "./fci-status-badge.tsx";
@@ -99,6 +103,7 @@ export function FciModuleView({
   const [pollAttempts, setPollAttempts] = useState(0);
   const [isPending, startTransition] = useTransition();
   const [pendingAction, setPendingAction] = useState<FciModuleActionKind | null>(null);
+  const [isFailureActionPending, setIsFailureActionPending] = useState(false);
 
   async function loadModule() {
     setErrorMessage(null);
@@ -252,6 +257,59 @@ export function FciModuleView({
   async function reloadAll() {
     await loadModule();
     await onWorkspaceRefresh();
+  }
+
+  // No existing data is at risk here (regeneration only appends a new
+  // version), so retrying a failed generation fires immediately - unlike
+  // "Régénérer" on a validated draft, it doesn't need a confirmation dialog.
+  function handleRetryGeneration() {
+    if (isFailureActionPending) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsFailureActionPending(true);
+    void (async () => {
+      try {
+        await prepareFciRegeneration(code, moduleCode);
+        setPollAttempts(0);
+        setInfoMessage("Nouvelle tentative de génération lancée.");
+        await reloadAll();
+      } catch (error) {
+        setErrorMessage(
+          error instanceof FciClientError
+            ? formatFciClientErrorMessage(error)
+            : "La nouvelle tentative de génération a échoué. Réessayez."
+        );
+      } finally {
+        setIsFailureActionPending(false);
+      }
+    })();
+  }
+
+  function handleManualComplete() {
+    if (isFailureActionPending) {
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsFailureActionPending(true);
+    void (async () => {
+      try {
+        const updated = await prepareFciManualCompletion(code, moduleCode);
+        setModulePresentation(updated);
+        setInfoMessage("Formulaire ouvert en saisie manuelle.");
+        await onWorkspaceRefresh();
+      } catch (error) {
+        setErrorMessage(
+          error instanceof FciClientError
+            ? formatFciClientErrorMessage(error)
+            : "Le passage en saisie manuelle a échoué. Réessayez."
+        );
+      } finally {
+        setIsFailureActionPending(false);
+      }
+    })();
   }
 
   function handleAction(action: FciModuleActionKind) {
@@ -452,6 +510,14 @@ export function FciModuleView({
         ? "current"
         : "missing"
   );
+  const hasFailedGeneration = modulePresentation.module.error_code != null;
+  const failurePresentation = hasFailedGeneration
+    ? getFciGenerationFailurePresentation({
+        errorCode: modulePresentation.module.error_code,
+        errorMessage: modulePresentation.module.error_message,
+        lastAttemptAt: modulePresentation.generation_job?.completed_at ?? null
+      })
+    : null;
 
   return (
     <div className="workspace-stack">
@@ -558,7 +624,7 @@ export function FciModuleView({
           <div className="workspace-card-topline">
             <div>
               <span className="card-kicker">Source</span>
-              <h3>{modulePresentation.source_fiche.version ?? "Indisponible"}</h3>
+              <h3>{formatFciSourceLabel(modulePresentation.source_fiche.version)}</h3>
             </div>
             <span className={`status-badge status-badge-${sourceFreshness.tone}`}>
               <span className="status-badge-dot" aria-hidden="true" />
@@ -572,96 +638,115 @@ export function FciModuleView({
         <section className="workspace-card compact">
           <div className="workspace-card-topline">
             <div>
-              <span className="card-kicker">Generation IA</span>
-              <h3>{modulePresentation.generation_job ? modulePresentation.generation_job.model : "Aucune"}</h3>
+              <span className="card-kicker">Assistance IA</span>
+              <h3>
+                {modulePresentation.generation_job
+                  ? getFciGenerationJobStatusPresentation(modulePresentation.generation_job.status).label
+                  : "Aucune"}
+              </h3>
             </div>
             {modulePresentation.generation_job ? (
               <FciGenerationJobStatusBadge status={modulePresentation.generation_job.status} />
             ) : null}
           </div>
           <p className="workspace-card-description">
-            {modulePresentation.generation_job
-              ? formatFciSafeErrorMessage(modulePresentation.generation_job.error_message)
-                ?? (
-                  modulePresentation.generation_job.status === "completed"
-                    ? "La derniere generation IA a ete terminee."
-                    : modulePresentation.generation_job.status === "running"
-                      ? "La generation IA est en cours dans n8n."
-                      : modulePresentation.generation_job.status === "queued"
-                        || modulePresentation.generation_job.status === "created"
-                        ? "La generation IA a ete acceptee et sera traitee en arriere-plan."
-                        : "Une execution IA a ete enregistree pour ce module."
-                )
-              : "Aucune demande de generation enregistree."}
+            {hasFailedGeneration
+              ? "La dernière tentative de génération a été interrompue."
+              : modulePresentation.generation_job
+                ? modulePresentation.generation_job.status === "completed"
+                  ? "La derniere generation IA a ete terminee."
+                  : modulePresentation.generation_job.status === "running"
+                    ? "La generation IA est en cours."
+                    : modulePresentation.generation_job.status === "queued"
+                      || modulePresentation.generation_job.status === "created"
+                      ? "La generation IA a ete acceptee et sera traitee en arriere-plan."
+                      : "Une execution IA a ete enregistree pour ce module."
+                : "Aucune demande de generation enregistree."}
           </p>
         </section>
       </div>
 
-      <div className="sticky-action-bar fci-sticky-action-bar">
-        <div className="fci-action-bar-meta" aria-live="polite">
-          <strong>
-            {isDirty
-              ? "Modifications non enregistrees"
-              : `Dernier enregistrement : ${formatFciDateTime(
-                modulePresentation.latest_data?.updated_at ?? modulePresentation.module.updated_at
-              )}`}
-          </strong>
-          <span>
-            {pendingAction === "save"
-              ? "Enregistrement en cours..."
-              : pendingAction === "download-docx"
-                ? "Preparation du document Word..."
-                : pendingAction === "download-pdf"
-                  ? "Preparation du PDF..."
-                  : "Les actions restent visibles pendant la saisie."}
-          </span>
-        </div>
-        <FciModuleActions
-          modulePresentation={modulePresentation}
-          isDirty={isDirty}
-          isBusy={isPending || pendingAction != null}
-          pendingAction={pendingAction}
-          onAction={handleAction}
-        />
-      </div>
-
-      {editablePayload ? (
+      {hasFailedGeneration && failurePresentation ? (
         <div className="workspace-stack fci-module-content">
-          <FciModuleEditor
-            definition={definition}
-            payload={editablePayload}
-            validationErrors={validationErrors}
-            readOnly={modulePresentation.permissions.read_only}
-            onChange={(nextPayload) => {
-              setValidationErrors([]);
-              setEditablePayload({
-                ...nextPayload,
-                summary: {
-                  ...nextPayload.summary,
-                  completion_percentage: calculateFciPayloadCompletion(
-                    nextPayload,
-                    moduleCode
-                  ).percentage
-                }
-              });
-            }}
+          <FciGenerationFailureCard
+            presentation={failurePresentation}
+            onRetry={handleRetryGeneration}
+            onManualComplete={handleManualComplete}
+            canRetry={modulePresentation.permissions.can_regenerate}
+            canEdit={modulePresentation.permissions.can_edit}
+            isBusy={isFailureActionPending}
           />
           <FciModuleHistory history={history} />
         </div>
       ) : (
-        <section className="section-card">
-          <div className="section-header">
-            <div>
-              <h3>Donnees brutes</h3>
-              <p className="meta">
-                Aucun rendu specialise n'est disponible pour cette structure historique.
-              </p>
+        <>
+          <div className="sticky-action-bar fci-sticky-action-bar">
+            <div className="fci-action-bar-meta" aria-live="polite">
+              <strong>
+                {isDirty
+                  ? "Modifications non enregistrees"
+                  : `Dernier enregistrement : ${formatFciDateTime(
+                    modulePresentation.latest_data?.updated_at ?? modulePresentation.module.updated_at
+                  )}`}
+              </strong>
+              <span>
+                {pendingAction === "save"
+                  ? "Enregistrement en cours..."
+                  : pendingAction === "download-docx"
+                    ? "Preparation du document Word..."
+                    : pendingAction === "download-pdf"
+                      ? "Preparation du PDF..."
+                      : "Les actions restent visibles pendant la saisie."}
+              </span>
             </div>
+            <FciModuleActions
+              modulePresentation={modulePresentation}
+              isDirty={isDirty}
+              isBusy={isPending || pendingAction != null}
+              pendingAction={pendingAction}
+              onAction={handleAction}
+            />
           </div>
-          <div className="section-body">
-            <pre className="fci-raw-json">{JSON.stringify(unsupportedPayload, null, 2)}</pre>
-          </div>
-        </section>
+
+          {editablePayload ? (
+            <div className="workspace-stack fci-module-content">
+              <FciModuleEditor
+                definition={definition}
+                payload={editablePayload}
+                validationErrors={validationErrors}
+                readOnly={modulePresentation.permissions.read_only}
+                onChange={(nextPayload) => {
+                  setValidationErrors([]);
+                  setEditablePayload({
+                    ...nextPayload,
+                    summary: {
+                      ...nextPayload.summary,
+                      completion_percentage: calculateFciPayloadCompletion(
+                        nextPayload,
+                        moduleCode
+                      ).percentage
+                    }
+                  });
+                }}
+              />
+              <FciModuleHistory history={history} />
+            </div>
+          ) : (
+            <section className="section-card">
+              <div className="section-header">
+                <div>
+                  <h3>Donnees brutes</h3>
+                  <p className="meta">
+                    Aucun rendu specialise n'est disponible pour cette structure historique.
+                  </p>
+                </div>
+              </div>
+              <div className="section-body">
+                <pre className="fci-raw-json">{JSON.stringify(unsupportedPayload, null, 2)}</pre>
+              </div>
+            </section>
+          )}
+        </>
       )}
 
       <FciConfirmDialog

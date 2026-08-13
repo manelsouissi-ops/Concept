@@ -186,12 +186,11 @@ test("buildFinanceWorkspacePresentation creates a personal department queue and 
   assert.equal(workspace.departmentLabel, "Finance");
   assert.equal(workspace.dossiers.length, 3);
   assert.equal(workspace.attentionCount, 2);
-  assert.equal(workspace.kpis.find((item) => item.key === "mine")?.value, 3);
   assert.equal(workspace.kpis.find((item) => item.key === "attention")?.value, 2);
+  assert.equal(workspace.kpis.find((item) => item.key === "in_progress")?.value, 0);
   assert.equal(workspace.kpis.find((item) => item.key === "completed")?.value, 1);
-  assert.equal(workspace.kpis.find((item) => item.key === "overdue")?.value, 1);
   assert.equal(workspace.dossiers[0]?.code, "AO-REVIEW");
-  assert.equal(workspace.dossiers[0]?.statusLabel, "En retard");
+  assert.equal(workspace.dossiers[0]?.statusLabel, "Validation requise");
   assert.equal(workspace.quickActions.find((item) => item.key === "continue-latest")?.href != null, true);
   assert.equal(workspace.notifications[0]?.label, "Votre module Finance a ete valide.");
 });
@@ -315,7 +314,7 @@ test("test/verification tenders (INT-2026-*) never enter a department workspace 
 
   assert.equal(workspace.dossiers.length, 1);
   assert.equal(workspace.dossiers[0]?.code, "AO-REAL");
-  assert.equal(workspace.kpis.find((item) => item.key === "mine")?.value, 1);
+  assert.equal(workspace.kpis.find((item) => item.key === "attention")?.value, 1);
 });
 
 test("empty client/title fall back to the shared 'en attente d'extraction' wording, not a bespoke phrase", () => {
@@ -434,7 +433,7 @@ test("heroSummary uses module-centric wording for the minimal shell and dossier-
     nowIso: "2026-08-03T10:00:00.000Z",
     records
   });
-  assert.equal(financeWorkspace.heroSummary, "1 module a completer.");
+  assert.equal(financeWorkspace.heroSummary, "1 FCI nécessite votre attention.");
 
   const directionGeneraleWorkspace = buildFinanceWorkspacePresentation({
     currentUser: DIRECTION_GENERALE_USER,

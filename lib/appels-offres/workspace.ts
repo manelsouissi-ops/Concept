@@ -262,7 +262,7 @@ function mapAuditAction(
       return {
         id: `audit-${entry.id}`,
         kind: "fiche_generated",
-        label: "Fiche CDC prete a valider",
+        label: "Fiche CDC generee",
         description: null,
         actor: entry.actor,
         createdAt: entry.createdAt,

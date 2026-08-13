@@ -19,6 +19,48 @@ export function formatFciDateTime(value: string | null | undefined) {
   return new Date(value).toLocaleString("fr-FR");
 }
 
+// "12/08/2026 à 08:47" - used for both the source-fiche label and the
+// "last attempt" line on a failed generation, so both read consistently.
+function formatFciFrenchTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const datePart = date.toLocaleDateString("fr-FR");
+  const timePart = date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return `${datePart} à ${timePart}`;
+}
+
+const FCI_SOURCE_STATUS_LABELS: Record<string, string> = {
+  validated: "Fiche CDC validée",
+  draft: "Fiche CDC (brouillon)",
+  processing: "Fiche CDC en cours de traitement",
+  error: "Fiche CDC en erreur"
+};
+
+// Turns the internal "status:ISO-timestamp" source-fiche version marker
+// (e.g. "validated:2026-08-12T08:47:18.660Z") into a business-facing label.
+// That raw string is a cache-busting/traceability key, not something a
+// normal user should ever read.
+export function formatFciSourceLabel(version: string | null | undefined) {
+  if (!version) {
+    return "Source indisponible";
+  }
+
+  const separatorIndex = version.indexOf(":");
+  if (separatorIndex === -1) {
+    return "Source : Fiche CDC validée";
+  }
+
+  const status = version.slice(0, separatorIndex);
+  const timestamp = version.slice(separatorIndex + 1);
+  const label = FCI_SOURCE_STATUS_LABELS[status] ?? "Fiche CDC";
+  const formattedTimestamp = formatFciFrenchTimestamp(timestamp);
+
+  return formattedTimestamp ? `${label} le ${formattedTimestamp}` : label;
+}
+
 export function formatFciDate(value: string | null | undefined) {
   if (!value) {
     return "Non disponible";
@@ -240,6 +282,81 @@ export function formatFciClientErrorMessage(input: {
   return safeMessage ?? "Une erreur est survenue sur le module FCI.";
 }
 
+// Provider/network failures that are worth an automatic "try again" nudge:
+// rate limiting, server-side unavailability, and timeouts. n8n's generic
+// legacy error code (GEMINI_REQUEST_FAILED, sent for every kind of Gemini
+// failure before the workflow started classifying by HTTP status) is sniffed
+// from the sanitized message text as a best-effort fallback, so historical
+// rows persisted before that classification existed still read correctly.
+const TRANSIENT_PROVIDER_ERROR_CODES = new Set([
+  "GEMINI_TEMPORARILY_UNAVAILABLE",
+  "GEMINI_RATE_LIMITED",
+  "GEMINI_TIMEOUT"
+]);
+
+const TRANSIENT_PROVIDER_MESSAGE_PATTERN =
+  /\b(429|500|502|503|504)\b|unavailable|overloaded|high demand|rate.?limit|quota|time.?out/i;
+
+export function isFciTransientProviderFailure(input: {
+  errorCode: string | null | undefined;
+  errorMessage: string | null | undefined;
+}) {
+  if (!input.errorCode) {
+    return false;
+  }
+
+  if (TRANSIENT_PROVIDER_ERROR_CODES.has(input.errorCode)) {
+    return true;
+  }
+
+  if (input.errorCode === "GEMINI_REQUEST_FAILED" && input.errorMessage) {
+    return TRANSIENT_PROVIDER_MESSAGE_PATTERN.test(input.errorMessage);
+  }
+
+  return false;
+}
+
+export type FciGenerationFailurePresentation = {
+  title: string;
+  message: string;
+  lastAttemptLabel: string | null;
+};
+
+// Single source of truth for the business-facing failed-generation card:
+// never let a raw provider/HTTP error reach this far - every branch returns
+// a fixed, French, non-technical string.
+export function getFciGenerationFailurePresentation(input: {
+  errorCode: string | null | undefined;
+  errorMessage: string | null | undefined;
+  lastAttemptAt: string | null | undefined;
+}): FciGenerationFailurePresentation {
+  const formattedAttempt = input.lastAttemptAt ? formatFciFrenchTimestamp(input.lastAttemptAt) : null;
+  const lastAttemptLabel = formattedAttempt ? `Dernière tentative : ${formattedAttempt}` : null;
+
+  if (isFciTransientProviderFailure(input)) {
+    return {
+      title: "Génération temporairement indisponible",
+      message: "Le service d'IA est momentanément indisponible. Réessayez dans quelques instants.",
+      lastAttemptLabel
+    };
+  }
+
+  if (input.errorCode === "AI_SCHEMA_VALIDATION_FAILED") {
+    return {
+      title: "Génération interrompue",
+      message:
+        "La réponse générée n'a pas pu être validée. Réessayez la génération ou complétez le formulaire manuellement.",
+      lastAttemptLabel
+    };
+  }
+
+  return {
+    title: "Génération interrompue",
+    message: "La génération n'a pas pu être terminée. Réessayez ou complétez le formulaire manuellement.",
+    lastAttemptLabel
+  };
+}
+
 export function shouldDisplayFciConfidenceBadge(input: {
   source: FciFieldSource;
   confidence: FciAiConfidence;
@@ -250,6 +367,104 @@ export function shouldDisplayFciConfidenceBadge(input: {
     || input.originalAiValue != null
     || (input.confidence !== "none" && input.source !== "system")
   );
+}
+
+// Centralized FCI contribution status vocabulary. Every place that shows a
+// module's business status (Commercial's own FCI, the cross-department
+// tracking rows, DG's read-only view) derives from the same key here, so the
+// same persisted module state always reads the same way everywhere - no page
+// invents its own "is this done" logic.
+export type FciContributionStatusKey =
+  | "not_started"
+  | "in_progress"
+  | "generation_failed"
+  | "ready_to_validate"
+  | "validated"
+  | "stale_validated";
+
+export function getFciContributionStatusKey(input: {
+  status: FciModuleStatus;
+  hasData: boolean;
+  readyForCompletion: boolean;
+  staleSource: boolean;
+  // Authoritative "unresolved failure" signal: fci_modules.error_code, set on
+  // every failed generation and cleared on the next successful launch or
+  // completion (see service.ts). Reusing that persisted field here is what
+  // lets a failed generation surface as "Génération interrompue" instead of
+  // silently reading identically to a genuinely empty/not-started module.
+  hasFailedGeneration: boolean;
+}): FciContributionStatusKey {
+  if (input.status === "validated") {
+    return input.staleSource ? "stale_validated" : "validated";
+  }
+
+  if (input.hasFailedGeneration) {
+    return "generation_failed";
+  }
+
+  if (input.readyForCompletion) {
+    return "ready_to_validate";
+  }
+
+  if (input.hasData || input.status !== "not_started") {
+    return "in_progress";
+  }
+
+  return "not_started";
+}
+
+// First-person vocabulary, for the Commercial/Finance/Operations user's own
+// contribution ("Ma FCI").
+export function getOwnContributionStatusPresentation(
+  key: FciContributionStatusKey
+): { label: string; tone: BadgeTone } {
+  switch (key) {
+    case "not_started":
+      return { label: "À compléter", tone: "neutral" };
+    case "in_progress":
+      return { label: "En cours", tone: "info" };
+    case "generation_failed":
+      return { label: "Génération interrompue", tone: "danger" };
+    case "ready_to_validate":
+      return { label: "Prête à valider", tone: "warning" };
+    case "validated":
+      return { label: "Validée", tone: "success" };
+    case "stale_validated":
+      return { label: "À revérifier", tone: "warning" };
+  }
+}
+
+export function getOwnContributionActionLabel(key: FciContributionStatusKey) {
+  switch (key) {
+    case "not_started":
+      return "Commencer ma FCI";
+    case "generation_failed":
+      return "Réessayer la génération";
+    case "validated":
+      return "Revoir ma FCI";
+    default:
+      return "Continuer ma FCI";
+  }
+}
+
+// Third-person vocabulary, for tracking another department's contribution.
+export function getOtherContributionStatusPresentation(
+  key: FciContributionStatusKey
+): { label: string; tone: BadgeTone } {
+  switch (key) {
+    case "not_started":
+      return { label: "Non commencée", tone: "neutral" };
+    case "in_progress":
+      return { label: "En cours", tone: "info" };
+    case "generation_failed":
+      return { label: "Génération interrompue", tone: "danger" };
+    case "ready_to_validate":
+      return { label: "À valider", tone: "warning" };
+    case "validated":
+      return { label: "Validée", tone: "success" };
+    case "stale_validated":
+      return { label: "À revérifier", tone: "warning" };
+  }
 }
 
 export function mapFciHistoryEventLabel(eventType: string) {
@@ -263,19 +478,21 @@ export function mapFciHistoryEventLabel(eventType: string) {
     case "fci.module.validated":
       return "Module validé";
     case "fci.generation.requested":
-      return "Génération demandée";
+      return "Génération de la FCI démarrée";
     case "fci.generation.regeneration_requested":
-      return "Régénération demandée";
+      return "Nouvelle tentative de génération";
     case "fci.generation.launch_accepted":
       return "Génération lancée";
     case "fci.generation.completed":
       return "Génération terminée";
     case "fci.generation.failed":
-      return "Génération en erreur";
+      return "Génération interrompue";
     case "fci.generation.cancelled":
       return "Génération annulée";
     case "fci.generation.launch_failed":
       return "Lancement échoué";
+    case "fci.manual_completion_started":
+      return "Ouverte en saisie manuelle";
     default:
       return eventType.replaceAll("_", " ");
   }

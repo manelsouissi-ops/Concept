@@ -203,6 +203,20 @@ export async function prepareFciRegeneration(
   return parseResponse<Record<string, unknown>>(response);
 }
 
+export async function prepareFciManualCompletion(
+  code: string,
+  moduleCode: FciAiSupportedModuleCode
+) {
+  const response = await fetch(
+    `/api/appels-offres/${encodeURIComponent(code)}/fci/${encodeURIComponent(moduleCode)}/manual`,
+    {
+      method: "POST"
+    }
+  );
+
+  return parseResponse<FciModulePresentation>(response);
+}
+
 export async function validateFciModule(
   code: string,
   moduleCode: FciAiSupportedModuleCode,

@@ -18,7 +18,10 @@ import {
   toErrorMessage
 } from "@/lib/appels-offres/user-errors.ts";
 import { parseAppelOffresFormData } from "@/lib/appels-offres/validation.ts";
-import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
+import {
+  requireAreaAccessForRequest,
+  requireTenderCreationAccessForRequest
+} from "@/lib/auth/server.ts";
 import { getMaxCdcUploadBytes } from "@/lib/integrations/n8n-config.ts";
 
 export const runtime = "nodejs";
@@ -157,7 +160,9 @@ export async function POST(request: Request) {
   let created = false;
 
   try {
-    const { currentUser, deniedResponse } = await requireAreaAccessForRequest(request, "appels_offres");
+    // Authorization must precede form parsing, database access, file storage,
+    // extraction launch, jobs and audit events.
+    const { currentUser, deniedResponse } = await requireTenderCreationAccessForRequest(request);
     if (deniedResponse || !currentUser) {
       return deniedResponse;
     }

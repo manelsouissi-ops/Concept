@@ -1,8 +1,8 @@
 import { StatusBadge } from "@/components/status-badge.tsx";
 import {
   formatFciDateTime,
-  getFciSourceFreshnessPresentation,
-  shortenFciHash
+  formatFciSourceLabel,
+  getFciSourceFreshnessPresentation
 } from "@/lib/appels-offres/fci/ui.ts";
 
 function formatSourceStatus(status: string | null) {
@@ -40,14 +40,13 @@ export function FciSourceStatus({
       <div className="workspace-card-topline">
         <div>
           <span className="card-kicker">Source Fiche CDC</span>
-          <h3>{source.version ?? "Aucune source disponible"}</h3>
+          <h3>{formatFciSourceLabel(source.version)}</h3>
         </div>
         <StatusBadge label={freshness.label} tone={freshness.tone} />
       </div>
       <div className="workspace-card-meta">
         <span>Statut : {formatSourceStatus(source.status)}</span>
         <span>Validée : {source.is_validated ? "Oui" : "Non"}</span>
-        <span>Hash : {shortenFciHash(source.hash)}</span>
       </div>
       <p className="workspace-card-description">
         Dernière mise à jour : {formatFciDateTime(source.updated_at)}

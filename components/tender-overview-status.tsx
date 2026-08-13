@@ -23,12 +23,19 @@ function formatDate(value: string | null) {
 export function TenderOverviewStatus({
   stage,
   decision,
+  nextActionLabelOverride,
   onNavigate
 }: {
   stage: TenderStageView;
   decision: GoNoGoDecisionRecord | null;
+  // Presentation-only refinement (e.g. "Compléter ma FCI" / "En attente de
+  // la Finance") for the Overview specifically - the canonical stage/href
+  // are unchanged, only the displayed label is more specific here.
+  nextActionLabelOverride?: string;
   onNavigate: (href: string) => void;
 }) {
+  const nextActionLabel = nextActionLabelOverride ?? stage.nextAction?.label;
+
   if (stage.stage === "DECIDED") {
     const isGo = stage.decision === "go";
     const decidedDate = formatDate(decision?.decidedAt ?? null);
@@ -84,14 +91,14 @@ export function TenderOverviewStatus({
     return (
       <section className="tender-status-panel is-action">
         <span className="card-kicker">Prochaine action</span>
-        <h3>{stage.nextAction.label}</h3>
+        <h3>{nextActionLabel}</h3>
         <div className="workspace-card-actions">
           <button
             type="button"
             className="button button-primary"
             onClick={() => onNavigate(stage.nextAction!.href)}
           >
-            {stage.nextAction.label}
+            {nextActionLabel}
           </button>
         </div>
       </section>

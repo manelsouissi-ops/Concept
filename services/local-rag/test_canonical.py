@@ -45,6 +45,13 @@ class CanonicalContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             canonical.validate_canonical_xml("<fiche_projet><extraction /></fiche_projet>")
 
+    def test_six_field_semantic_guards(self):
+        self.assertFalse(canonical.validate_field("contraintes_site", {"value": "Abidjan, Cocody", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "Sites situés à Abidjan et Cocody"})[0])
+        self.assertTrue(canonical.validate_field("contraintes_site", {"value": "ravinement et érosion", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "Le site présente un ravinement et une érosion régressive"})[0])
+        self.assertFalse(canonical.validate_field("exigences_es", {"value": "Expert avec huit ans d'expérience", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "L'Expert doit avoir un diplôme et huit ans d'expérience"})[0])
+        self.assertTrue(canonical.validate_field("exigences_es", {"value": "Code de conduite EAS/HS", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "Le Consultant doit soumettre son Code de conduite EAS/HS"})[0])
+        self.assertFalse(canonical.validate_field("disciplines_techniques", {"value": "Expert Hydraulicien", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "Expert Hydraulicien"})[0])
+
 
 if __name__ == "__main__":
     unittest.main()

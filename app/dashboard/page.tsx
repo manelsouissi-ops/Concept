@@ -206,8 +206,11 @@ export default async function DashboardPage() {
 
   if (workspaceExperience.dashboardVariant === "decision") {
     try {
-      const decisionWorkspace = await getDecisionWorkspacePresentation(currentUser);
-      return <DecisionWorkspace workspace={decisionWorkspace} />;
+      const [decisionWorkspace, fciWorkspace] = await Promise.all([
+        getDecisionWorkspacePresentation(currentUser),
+        getFinanceWorkspacePresentation(currentUser, "D")
+      ]);
+      return <DecisionWorkspace workspace={decisionWorkspace} fciWorkspace={fciWorkspace} />;
     } catch (error) {
       return (
         <div className="page-stack">

@@ -4,7 +4,13 @@ import {
   requireAuthenticatedUserForPage
 } from "./current-user.ts";
 import { AuthError } from "./errors.ts";
-import { canAccess, getAreaAccessDeniedMessage, type AppArea } from "./rbac.ts";
+import {
+  canAccess,
+  canCreateTender,
+  getAreaAccessDeniedMessage,
+  getTenderCreateDeniedMessage,
+  type AppArea
+} from "./rbac.ts";
 import { resolveCurrentUserFromRequest } from "./request-user.ts";
 
 export function buildUnauthorizedApiResponse(message: string) {
@@ -91,4 +97,40 @@ export async function requireAreaAccessForPage(area: AppArea) {
   }
 
   return currentUser;
+}
+
+export async function requireTenderCreationAccessForPage() {
+  const currentUser = await requireAuthenticatedUserForPage();
+  if (!canCreateTender(currentUser.role)) {
+    redirect("/forbidden");
+  }
+
+  return currentUser;
+}
+
+export async function requireTenderCreationAccessForRequest(request: Request) {
+  let currentUser;
+  try {
+    currentUser = await requireAuthenticatedUserForRequest(request);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return {
+        currentUser: null,
+        deniedResponse: buildUnauthorizedApiResponse(error.message)
+      };
+    }
+    throw error;
+  }
+
+  if (!canCreateTender(currentUser.role)) {
+    return {
+      currentUser,
+      deniedResponse: buildForbiddenApiResponse(getTenderCreateDeniedMessage(), {
+        permission: "tender.create",
+        role: currentUser.role
+      })
+    };
+  }
+
+  return { currentUser, deniedResponse: null };
 }

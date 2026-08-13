@@ -17,3 +17,9 @@ test("topbar user-menu summary keeps phrasing-only content", () => {
     "topbar user-menu summary must not contain a block <div>"
   );
 });
+
+test("tender creation topbar actions use the canonical creation permission", () => {
+  const source = readFileSync(path.join(process.cwd(), "components/app-shell.tsx"), "utf8");
+  assert.match(source, /canCreateTender\(currentUser\.role/);
+  assert.match(source, /routeAction\?\.href === "\/appels-offres\/nouveau"/);
+});

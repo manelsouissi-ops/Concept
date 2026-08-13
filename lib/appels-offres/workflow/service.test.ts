@@ -153,7 +153,7 @@ async function markContributingModulesValidated(code: string) {
   const now = new Date().toISOString();
 
   for (const module of modules) {
-    if (module.moduleCode === "A" || module.moduleCode === "B" || module.moduleCode === "C") {
+    if (module.moduleCode === "A" || module.moduleCode === "B" || module.moduleCode === "C" || module.moduleCode === "D") {
       await upsertFciModuleData(module.id, {
         dataJson: {
           summary: {
@@ -206,7 +206,7 @@ async function prepareMinimalGoNoGoReport(
   );
 }
 
-test("Commercial can assign B/C, but cannot assign module A", async (t) => {
+test("Commercial can assign B/C/D, but cannot assign module A", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -226,15 +226,22 @@ test("Commercial can assign B/C, but cannot assign module A", async (t) => {
     assignedUserId: Number(actors.operations.id),
     currentUser: actors.commercial
   });
+  const assignmentD = await assignFciModule({
+    code,
+    moduleCode: "D",
+    assignedUserId: Number(actors.dg.id),
+    currentUser: actors.commercial
+  });
 
   assert.equal(assignmentB.moduleCode, "B");
   assert.equal(assignmentC.moduleCode, "C");
+  assert.equal(assignmentD.moduleCode, "D");
 
   const assignments = await getAssignmentsForTender(code);
-  assert.equal(assignments.length, 2);
+  assert.equal(assignments.length, 3);
   assert.deepEqual(
     assignments.map((assignment) => assignment.moduleCode),
-    ["B", "C"]
+    ["B", "C", "D"]
   );
 
   const workflow = await deriveTenderWorkflowState(code);
@@ -430,7 +437,7 @@ test("assignment and reminder create persisted notifications for the assignee", 
   );
 });
 
-test("READY_FOR_GONOGO is derived only when A/B/C are validated, then Commercial can prepare and submit to DG", async (t) => {
+test("READY_FOR_GONOGO requires A/B/C/D, then Commercial prepares and submits to DG", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -447,6 +454,12 @@ test("READY_FOR_GONOGO is derived only when A/B/C are validated, then Commercial
     code,
     moduleCode: "C",
     assignedUserId: Number(actors.operations.id),
+    currentUser: actors.commercial
+  });
+  await assignFciModule({
+    code,
+    moduleCode: "D",
+    assignedUserId: Number(actors.dg.id),
     currentUser: actors.commercial
   });
 
