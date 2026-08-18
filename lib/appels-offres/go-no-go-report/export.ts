@@ -10,9 +10,13 @@ import {
 import { getGoNoGoReportWorkspace } from "./service.ts";
 import { getGoNoGoView } from "../go-no-go/service.ts";
 import type { CurrentUser } from "../../auth/rbac.ts";
-import { appendGoNoGoReportAuditEvent } from "./repository.ts";
+import {
+  appendGoNoGoReportAuditEvent,
+  listGoNoGoReportsByAppelOffresId
+} from "./repository.ts";
 import { appendAuditLog, getAppelOffresRecordByCode } from "../repository.ts";
 import { createNotification } from "../../notifications/service.ts";
+import { buildForCom02Document } from "./for-com-02-mapping.ts";
 
 export type GoNoGoReportExportFormat = "docx" | "pdf";
 
@@ -45,6 +49,17 @@ function getExporterScriptPath() {
     "appels-offres",
     "go-no-go-report",
     "python_docx_report_exporter.py"
+  );
+}
+
+function getForCom02TemplatePath() {
+  return path.join(
+    process.cwd(),
+    "lib",
+    "appels-offres",
+    "go-no-go-report",
+    "templates",
+    "FOR_COM_02_GONOGO_TEMPLATE.docx"
   );
 }
 
@@ -152,70 +167,51 @@ export async function generateGoNoGoReportExportArtifact(
     );
   }
 
-  const sections = [
-    { heading: "Synthese executive", content: payload.executive_summary || "Information non disponible" },
-    { heading: "Presentation du projet", content: payload.project_overview || "Information non disponible" },
-    { heading: "Synthese commerciale", content: payload.commercial_summary || "Information non disponible" },
-    { heading: "Analyse financiere", content: payload.financial_summary || "Information non disponible" },
-    { heading: "Faisabilite operationnelle", content: payload.operational_summary || "Information non disponible" },
-    { heading: "Points forts", content: payload.key_strengths || "Information non disponible" },
-    { heading: "Risques majeurs", content: payload.key_risks || "Information non disponible" },
-    { heading: "Reserves et conditions", content: payload.reservations || "Information non disponible" },
-    { heading: "Hypotheses utilisees", content: payload.assumptions || "Information non disponible" },
-    { heading: "Points non resolus", content: payload.unresolved_points || "Information non disponible" },
-    { heading: "Recommandation commerciale", content: payload.commercial_recommendation || "Information non disponible" },
-    { heading: "Recommandation IA", content: payload.ai_recommendation || "Information non disponible" },
-    {
-      heading: "Proposition GO / NO-GO",
-      content:
-        payload.recommended_decision === "go"
-          ? "Proposition commerciale: GO"
-          : payload.recommended_decision === "no_go"
-            ? "Proposition commerciale: NO-GO"
-            : "A confirmer"
-    },
-    {
-      heading: "Sources et versions utilisees",
-      content: [
-        `Snapshot source: ${workspace.source_readiness.source_snapshot_at ?? "Information non disponible"}`,
-        `Fiche CDC: ${workspace.source_readiness.fiche_cdc_version ?? "Information non disponible"}`,
-        ...workspace.source_readiness.modules.map(
-          (module) =>
-            `Module ${module.module_code}: statut ${module.status}, version ${module.version ?? "?"}, valide par ${module.validated_by ?? "Information non disponible"}`
-        )
-      ].join("\n")
-    }
-  ];
-
-  if (goNoGoView.decision && (goNoGoView.decision.status === "go" || goNoGoView.decision.status === "no_go")) {
-    sections.push({
-      heading: "Decision finale DG",
-      content: [
-        `Decision: ${goNoGoView.decision.status === "go" ? "GO" : "NO-GO"}`,
-        `Decidee par: ${goNoGoView.decision.decided_by ?? "Information non disponible"}`,
-        `Date: ${goNoGoView.decision.decided_at ?? "Information non disponible"}`,
-        `Justification: ${goNoGoView.decision.rationale ?? "Information non disponible"}`,
-        `Reserves: ${goNoGoView.decision.reserves ?? "Information non disponible"}`
-      ].join("\n")
-    });
+  if (workspace.report.is_stale) {
+    throw new GoNoGoReportExportError(
+      "GO_NO_GO_REPORT_EXPORT_NOT_AVAILABLE",
+      "Le rapport Go/No-Go repose sur des sources obsoletes. Regenerez-le avant export.",
+      409
+    );
   }
+
+  const reports = appelOffres
+    ? await listGoNoGoReportsByAppelOffresId(appelOffres.id)
+    : [];
+  const report = reports.find((entry) => entry.id === workspace.report.id) ?? null;
+  const mapping = buildForCom02Document({
+    code: workspace.appel_offres.code,
+    title: workspace.appel_offres.title,
+    sourceSnapshot: report?.sourceSnapshotJson ?? null,
+    reviewed: payload,
+    decision: goNoGoView.decision
+  });
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "concept-gonogo-report-"));
   const docxPath = path.join(tempDir, buildExportFileName(code, workspace.report.version, "docx"));
   const instructionPath = path.join(tempDir, `instruction-${randomUUID()}.json`);
+  const templatePath = getForCom02TemplatePath();
+  const templateAvailable = await fs.access(templatePath).then(() => true, () => false);
   await fs.writeFile(
     instructionPath,
     JSON.stringify(
       {
         outputPath: docxPath,
-        title: "CONCEPT - Rapport Go/No-Go",
-        dossierCode: workspace.appel_offres.code,
-        dossierTitle: workspace.appel_offres.title,
-        reportVersion: workspace.report.version,
-        reportStatus: workspace.report.status,
-        preparedAt: workspace.report.prepared_at,
-        submittedAt: workspace.report.submitted_at,
-        sections
+        ...(templateAvailable
+          ? { templatePath, mapping }
+          : {
+              title: "CONCEPT - Rapport Go/No-Go",
+              lines: [
+                workspace.appel_offres.code,
+                workspace.appel_offres.title,
+                payload.executive_summary,
+                payload.commercial_summary,
+                payload.financial_summary,
+                payload.operational_summary,
+                payload.key_risks,
+                payload.commercial_recommendation
+              ]
+            })
       },
       null,
       2
@@ -227,7 +223,7 @@ export async function generateGoNoGoReportExportArtifact(
   const pdfConverter = options?.pdfConverter ?? convertDocxToPdf;
 
   try {
-    await runProcess("python", [getExporterScriptPath(), instructionPath], {
+    await runProcess("python3", [getExporterScriptPath(), instructionPath], {
       timeoutMs: 30_000,
       cwd: tempDir
     });
@@ -238,7 +234,7 @@ export async function generateGoNoGoReportExportArtifact(
         buffer,
         contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         fileName: buildExportFileName(code, workspace.report.version, "docx"),
-        converter: "custom-docx"
+        converter: templateAvailable ? "for-com-02" : "custom-docx-fallback"
       };
       if (workspace.report.id != null) {
         await appendGoNoGoReportAuditEvent({

@@ -799,6 +799,11 @@ async function buildGeneratedDraft(
       completion_percentage: isPlainObject(entry.latestData.dataJson.summary)
         ? entry.latestData.dataJson.summary.completion_percentage ?? null
         : null,
+      // Keep the exact validated departmental payload in the immutable report
+      // snapshot. FOR-COM-02 exports must never consult a newer draft/version.
+      data: isPlainObject(entry.latestData.dataJson.data)
+        ? entry.latestData.dataJson.data
+        : {},
       facts: summary.facts.slice(0, 20),
       missing_facts: summary.missing_facts.slice(0, 20)
     };

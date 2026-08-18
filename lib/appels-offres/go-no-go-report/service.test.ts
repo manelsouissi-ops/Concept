@@ -524,7 +524,7 @@ function inspectDocx(docxPath: string) {
     "with zipfile.ZipFile(sys.argv[1], 'r') as archive:",
     "    print(archive.read('word/document.xml').decode('utf-8'))"
   ].join("\n");
-  const result = spawnSync("python", ["-c", script, docxPath], {
+  const result = spawnSync("python3", ["-c", script, docxPath], {
     encoding: "utf8"
   });
   if (result.status !== 0) {
@@ -650,6 +650,14 @@ test("stale source snapshot blocks report submission", async (t) => {
       && error.code === "REPORT_SOURCE_STALE"
       && error.status === 409
   );
+
+  await assert.rejects(
+    () => generateGoNoGoReportExportArtifact(code, "docx", COMMERCIAL_USER),
+    (error: unknown) =>
+      error instanceof GoNoGoReportExportError
+      && error.code === "GO_NO_GO_REPORT_EXPORT_NOT_AVAILABLE"
+      && error.status === 409
+  );
 });
 
 test("workflow prepare/submit now require a valid report", async (t) => {
@@ -757,7 +765,7 @@ test("historical final decisions remain readable without a report", async (t) =>
   assert.equal(workspace.report.legacy_notice, "Rapport consolide non disponible pour cette ancienne decision.");
 });
 
-test("DOCX export contains the main report sections", async (t) => {
+test("DOCX export uses the branded FOR-COM-02 template", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -773,9 +781,9 @@ test("DOCX export contains the main report sections", async (t) => {
   try {
     await fs.writeFile(outputPath, artifact.buffer);
     const documentXml = inspectDocx(outputPath);
-    assert.match(documentXml, /CONCEPT - Rapport Go\/No-Go/);
-    assert.match(documentXml, /Synthese executive/);
-    assert.match(documentXml, /Recommandation commerciale/);
+    assert.match(documentXml, new RegExp(code));
+    assert.match(documentXml, /ANALYSE SWOT/);
+    assert.match(documentXml, /DIRECTION GENERALE/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
