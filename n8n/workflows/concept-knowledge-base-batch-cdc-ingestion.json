@@ -1,0 +1,51 @@
+{
+  "id": "conceptKbBatchCdcV1",
+  "name": "CONCEPT - Knowledge Base - Batch CDC Ingestion",
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {"main": [[{"node": "Reset Counters", "type": "main", "index": 0}]]},
+    "Reset Counters": {"main": [[{"node": "Discover PDFs Safely", "type": "main", "index": 0}]]},
+    "Discover PDFs Safely": {"main": [[{"node": "Parse JSONL", "type": "main", "index": 0}]]},
+    "Parse JSONL": {"main": [[{"node": "One At A Time", "type": "main", "index": 0}]]},
+    "One At A Time": {"main": [[{"node": "Final Summary", "type": "main", "index": 0}], [{"node": "Run Single CDC", "type": "main", "index": 0}]]},
+    "Run Single CDC": {"main": [[{"node": "Tally Without Stopping", "type": "main", "index": 0}]]},
+    "Tally Without Stopping": {"main": [[{"node": "One At A Time", "type": "main", "index": 0}]]}
+  },
+  "nodes": [
+    {"parameters": {}, "id": "kb-batch-trigger", "name": "Manual Trigger", "type": "n8n-nodes-base.manualTrigger", "typeVersion": 1, "position": [180, 300]},
+    {
+      "parameters": {"jsCode": "const sd=$getWorkflowStaticData('global'); sd.kb={processed:0,skipped:0,updated:0,failed:0}; return $input.all();"},
+      "id": "kb-batch-reset", "name": "Reset Counters", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [390, 300]
+    },
+    {
+      "parameters": {"command": "python3 /home/concept/Concept/services/knowledge-base/list_pdfs.py"},
+      "id": "kb-batch-discover", "name": "Discover PDFs Safely", "type": "n8n-nodes-base.executeCommand", "typeVersion": 1, "position": [610, 300]
+    },
+    {
+      "parameters": {"jsCode": "const output=String($input.first().json.stdout||'');\nreturn output.split('\\n').filter(Boolean).map(line=>({json:JSON.parse(line)}));"},
+      "id": "kb-batch-parse", "name": "Parse JSONL", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [830, 300]
+    },
+    {
+      "parameters": {"batchSize": 1, "options": {}},
+      "id": "kb-batch-loop", "name": "One At A Time", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 3, "position": [1050, 300]
+    },
+    {
+      "parameters": {"workflowId": "conceptKbSingleCdcV1", "options": {}},
+      "id": "kb-batch-child", "name": "Run Single CDC", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1.1, "position": [1280, 190], "continueOnFail": true
+    },
+    {
+      "parameters": {"jsCode": "const sd=$getWorkflowStaticData('global'); sd.kb=sd.kb||{processed:0,skipped:0,updated:0,failed:0};\nconst j=$input.first().json||{}; const outcome=j.batch_outcome||'FAILED';\nif(outcome==='PROCESSED')sd.kb.processed++; else if(outcome==='SKIPPED')sd.kb.skipped++; else if(outcome==='UPDATED')sd.kb.updated++; else sd.kb.failed++;\nreturn [{json:j}];"},
+      "id": "kb-batch-tally", "name": "Tally Without Stopping", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1510, 190]
+    },
+    {
+      "parameters": {"jsCode": "const k=$getWorkflowStaticData('global').kb||{processed:0,skipped:0,updated:0,failed:0}; return [{json:{TOTAL:k.processed+k.skipped+k.updated+k.failed,PROCESSED:k.processed,SKIPPED:k.skipped,UPDATED:k.updated,FAILED:k.failed}}];"},
+      "id": "kb-batch-summary", "name": "Final Summary", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1280, 430]
+    },
+    {
+      "parameters": {"content": "Inactive pilot workflow. KB_SOURCE_DIR is read by list_pdfs.py. Recursive JSONL discovery handles spaces, apostrophes and Unicode. Concurrency is fixed at 1.", "height": 180, "width": 390},
+      "id": "kb-batch-note", "name": "Pilot Safety", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [150, 40]
+    }
+  ]
+}

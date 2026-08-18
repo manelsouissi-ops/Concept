@@ -18,6 +18,7 @@ marker-v2-test/
 .venv-rag/
 .venv-docling/
 .venv/
+.venv-kb/
 venv/
 env/
 

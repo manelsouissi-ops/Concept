@@ -1,0 +1,13 @@
+Tu extrais les métadonnées d'un CDC historique CONCEPT à partir d'extraits sélectionnés dans toutes les zones pertinentes du document.
+
+Règles impératives :
+- réponds uniquement avec un objet JSON ;
+- n'invente aucune information ; une valeur absente ou incertaine vaut null, une liste absente vaut [] ;
+- utilise uniquement les preuves fournies ;
+- conserve les dates ambiguës sous leur forme textuelle ;
+- couvre les familles identité, client/financement, procédure, périmètre, personnel et financier/contractuel.
+
+Retourne exactement les champs métier du schéma cdc_metadata.schema.json. Les champs document_id, document_version_id, source_filename, source_path et source_hash sont ajoutés par l'orchestrateur et peuvent être omis de ta réponse.
+
+PREUVES SÉLECTIONNÉES PAR FAMILLE :
+{EVIDENCE_JSON}

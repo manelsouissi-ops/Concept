@@ -1,0 +1,66 @@
+{
+  "id": "conceptKbSingleCdcV1",
+  "name": "CONCEPT - Knowledge Base - Single CDC Ingestion",
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "connections": {
+    "When Called by Batch": {"main": [[{"node": "Validate Input", "type": "main", "index": 0}]]},
+    "Validate Input": {"main": [[{"node": "Call KB Service 8092", "type": "main", "index": 0}]]},
+    "Call KB Service 8092": {"main": [[{"node": "Classify Outcome", "type": "main", "index": 0}]]}
+  },
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "kb-single-trigger",
+      "name": "When Called by Batch",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nif (typeof item.source_path !== 'string' || !item.source_path.trim()) throw new Error('source_path is required');\nreturn [{json:{source_path:item.source_path}}];"
+      },
+      "id": "kb-single-validate",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.KB_INGEST_ENDPOINT || 'http://127.0.0.1:8092') + '/ingest' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {"timeout": 1800000}
+      },
+      "id": "kb-single-http",
+      "name": "Call KB Service 8092",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const j=$input.first().json||{};\nlet batch_outcome='FAILED';\nif(j.status==='SKIPPED_DUPLICATE') batch_outcome='SKIPPED';\nelse if(j.status==='SUCCESS' && j.outcome==='UPDATED') batch_outcome='UPDATED';\nelse if(j.status==='SUCCESS') batch_outcome='PROCESSED';\nreturn [{json:{...j,batch_outcome,error_code:j.error_code||(batch_outcome==='FAILED'?'INGEST_FAILED':null)}}];"
+      },
+      "id": "kb-single-classify",
+      "name": "Classify Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {"content": "Inactive preparation workflow. Calls only the isolated historical KB service on 127.0.0.1:8092.", "height": 140, "width": 360},
+      "id": "kb-single-note",
+      "name": "Safety",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [210, 60]
+    }
+  ]
+}
