@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildForCom02Document } from "./for-com-02-mapping.ts";
+import { resolveGoNoGoPythonExecution } from "./python-runtime.ts";
 import type { GoNoGoReportEditablePayload } from "./types.ts";
 
 const templatePath = path.join(process.cwd(), "lib/appels-offres/go-no-go-report/templates/FOR_COM_02_GONOGO_TEMPLATE.docx");
@@ -74,6 +75,35 @@ function hash(file: string) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+function inspectDocxWithPython(
+  python: { command: string; argsPrefix: string[] },
+  docxPath: string
+) {
+  const script = [
+    "import json, sys, zipfile",
+    "with zipfile.ZipFile(sys.argv[1], 'r') as archive:",
+    "    print(json.dumps({",
+    "        'valid': archive.testzip() is None,",
+    "        'document': archive.read('word/document.xml').decode('utf-8'),",
+    "        'header': archive.read('word/header1.xml').decode('utf-8')",
+    "    }))"
+  ].join("\n");
+  const result = spawnSync(
+    python.command,
+    [...python.argsPrefix, "-c", script, docxPath],
+    { encoding: "utf8" }
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || "DOCX inspection failed.");
+  }
+
+  return JSON.parse(result.stdout) as {
+    valid: boolean;
+    document: string;
+    header: string;
+  };
+}
+
 function mapDecision(status: "go" | "no_go" | "a_decider", reserves: string | null = null) {
   return buildForCom02Document({
     code: "AO-UNIQUE-42",
@@ -111,19 +141,23 @@ test("final decision rendering distinguishes pending, GO, GO with reserves and N
   assert.deepEqual(mapDecision("no_go").decision, { go: false, goWithReserves: false, noGo: true });
 });
 
-test("renderer copies the valid master, preserves branding/layout, and never mutates it", () => {
+test("renderer copies the valid master, preserves branding/layout, and never mutates it", async () => {
   const before = hash(templatePath);
   const temp = mkdtempSync(path.join(os.tmpdir(), "for-com-02-test-"));
   const outputPath = path.join(temp, `${randomUUID()}.docx`);
   const instructionPath = path.join(temp, "instruction.json");
   writeFileSync(instructionPath, JSON.stringify({ outputPath, templatePath, mapping: mapDecision("go", "Sous réserve") }));
-  const result = spawnSync("python3", [exporterPath, instructionPath], { encoding: "utf8" });
+  const python = await resolveGoNoGoPythonExecution();
+  const result = spawnSync(
+    python.command,
+    [...python.argsPrefix, exporterPath, instructionPath],
+    { encoding: "utf8" }
+  );
   try {
     assert.equal(result.status, 0, result.stderr);
-    const zipTest = spawnSync("unzip", ["-t", outputPath], { encoding: "utf8" });
-    assert.equal(zipTest.status, 0, zipTest.stderr);
-    const document = spawnSync("unzip", ["-p", outputPath, "word/document.xml"], { encoding: "utf8" }).stdout;
-    const header = spawnSync("unzip", ["-p", outputPath, "word/header1.xml"], { encoding: "utf8" }).stdout;
+    const inspected = inspectDocxWithPython(python, outputPath);
+    assert.equal(inspected.valid, true);
+    const { document, header } = inspected;
     assert.match(document, /AO-UNIQUE-42/);
     assert.match(document, /TITRE DOSSIER UNIQUE/);
     assert.match(document, /CLIENT UNIQUE/);

@@ -17,6 +17,7 @@ import {
 import { appendAuditLog, getAppelOffresRecordByCode } from "../repository.ts";
 import { createNotification } from "../../notifications/service.ts";
 import { buildForCom02Document } from "./for-com-02-mapping.ts";
+import { resolveGoNoGoPythonExecution } from "./python-runtime.ts";
 
 export type GoNoGoReportExportFormat = "docx" | "pdf";
 
@@ -223,10 +224,15 @@ export async function generateGoNoGoReportExportArtifact(
   const pdfConverter = options?.pdfConverter ?? convertDocxToPdf;
 
   try {
-    await runProcess("python3", [getExporterScriptPath(), instructionPath], {
-      timeoutMs: 30_000,
-      cwd: tempDir
-    });
+    const python = await resolveGoNoGoPythonExecution();
+    await runProcess(
+      python.command,
+      [...python.argsPrefix, getExporterScriptPath(), instructionPath],
+      {
+        timeoutMs: 30_000,
+        cwd: tempDir
+      }
+    );
 
     if (format === "docx") {
       const buffer = await fs.readFile(docxPath);

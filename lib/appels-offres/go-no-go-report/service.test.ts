@@ -55,6 +55,7 @@ import {
   generateGoNoGoReportExportArtifact,
   GoNoGoReportExportError
 } from "./export.ts";
+import { resolveGoNoGoPythonExecution } from "./python-runtime.ts";
 import type { CurrentUser } from "../../auth/rbac.ts";
 import { getSeededActors } from "../test-actors.ts";
 import {
@@ -518,13 +519,14 @@ async function revalidateModuleAAfterReportGeneration(code: string) {
   );
 }
 
-function inspectDocx(docxPath: string) {
+async function inspectDocx(docxPath: string) {
   const script = [
     "import sys, zipfile",
     "with zipfile.ZipFile(sys.argv[1], 'r') as archive:",
     "    print(archive.read('word/document.xml').decode('utf-8'))"
   ].join("\n");
-  const result = spawnSync("python3", ["-c", script, docxPath], {
+  const python = await resolveGoNoGoPythonExecution();
+  const result = spawnSync(python.command, [...python.argsPrefix, "-c", script, docxPath], {
     encoding: "utf8"
   });
   if (result.status !== 0) {
@@ -780,7 +782,7 @@ test("DOCX export uses the branded FOR-COM-02 template", async (t) => {
   const outputPath = path.join(tempDir, artifact.fileName);
   try {
     await fs.writeFile(outputPath, artifact.buffer);
-    const documentXml = inspectDocx(outputPath);
+    const documentXml = await inspectDocx(outputPath);
     assert.match(documentXml, new RegExp(code));
     assert.match(documentXml, /ANALYSE SWOT/);
     assert.match(documentXml, /DIRECTION GENERALE/);
