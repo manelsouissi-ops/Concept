@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BellIcon } from "./app-icons.tsx";
 import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  getNotifications,
   NotificationsClientError
 } from "@/lib/notifications/client.ts";
 import type { AppNotificationRecord } from "@/lib/notifications/types.ts";
+import { mergeNotificationRefresh } from "@/lib/notifications/client-state.ts";
 
 type NotificationBellState = {
   items: AppNotificationRecord[];
@@ -57,12 +59,49 @@ export function NotificationBell({
   });
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const locallyReadIds = useRef(new Set<number>());
+  const refreshGeneration = useRef(0);
+
+  const refreshNotifications = useCallback(async () => {
+    const generation = refreshGeneration.current;
+    try {
+      const result = await getNotifications();
+      if (generation !== refreshGeneration.current) return;
+      setState(
+        mergeNotificationRefresh(
+          { items: result.items, unreadCount: result.unread_count },
+          locallyReadIds.current
+        )
+      );
+      setError(null);
+    } catch (nextError) {
+      if (generation === refreshGeneration.current) {
+        setError(getErrorMessage(nextError));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshNotifications();
+    }, 15_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refreshNotifications();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refreshNotifications]);
 
   async function handleMarkRead(notificationId: number) {
     setIsPending(true);
     setError(null);
     try {
       await markNotificationAsRead(notificationId);
+      refreshGeneration.current += 1;
+      locallyReadIds.current.add(notificationId);
       setState((current) => ({
         items: current.items.map((item) =>
           item.id === notificationId ? { ...item, isRead: true } : item
@@ -84,6 +123,8 @@ export function NotificationBell({
     setError(null);
     try {
       await markAllNotificationsAsRead();
+      refreshGeneration.current += 1;
+      state.items.forEach((item) => locallyReadIds.current.add(item.id));
       setState((current) => ({
         items: current.items.map((item) => ({ ...item, isRead: true })),
         unreadCount: 0

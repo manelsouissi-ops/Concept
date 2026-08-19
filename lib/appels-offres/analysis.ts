@@ -42,6 +42,8 @@ import type {
 } from "@/lib/appels-offres/types.ts";
 import { storeSourcePdf } from "@/lib/appels-offres/storage.ts";
 import { launchDocumentProcessing, launchPersistedCdcExtraction } from "@/lib/appels-offres/cdc-split.ts";
+import { notifyFicheCdcReady } from "@/lib/notifications/orchestration.ts";
+import { isFicheCdcReadyNotificationEligible } from "@/lib/notifications/fiche-cdc-ready.ts";
 import {
   DATA_ROOT,
   finalizeProcessingSuccess,
@@ -1033,6 +1035,20 @@ async function applySuccessCallback(
     processingJobId: job.publicId
   }).catch(() => undefined);
 
+  const persistedFicheStatus = await readExistingStatus(code);
+  if (
+    isFicheCdcReadyNotificationEligible({
+      callbackStatus: payload.status,
+      callbackApplied: true,
+      persistedFicheStatus: persistedFicheStatus?.status ?? null
+    })
+  ) {
+    await notifyFicheCdcReady({
+      appelOffreCode: code,
+      processingJobId: job.publicId!
+    });
+  }
+
   return buildAcknowledgement(payload, true);
 }
 
@@ -1136,6 +1152,21 @@ export async function applyCanonicalN8nCallback(
     job.callbackIdempotencyKey === callbackKey &&
     job.callbackStatus === normalizedCallbackStatus
   ) {
+    if (payload.status === "COMPLETED" && job.status === "completed") {
+      const persistedFicheStatus = await readExistingStatus(payload.code_interne);
+      if (
+        isFicheCdcReadyNotificationEligible({
+          callbackStatus: payload.status,
+          callbackApplied: true,
+          persistedFicheStatus: persistedFicheStatus?.status ?? null
+        })
+      ) {
+        await notifyFicheCdcReady({
+          appelOffreCode: payload.code_interne,
+          processingJobId: job.publicId
+        });
+      }
+    }
     await appendAuditLog(payload.code_interne, "duplicate_callback_ignored", {
       processingJobId: job.publicId,
       callbackStatus: payload.status

@@ -187,6 +187,24 @@
         }
       ]
     },
+    "field_nullable_nonnegative_integer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/field_base"
+        },
+        {
+          "properties": {
+            "value": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
     "field_preliminary_review_status": {
       "allOf": [
         {

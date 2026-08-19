@@ -209,7 +209,13 @@ export function FciFieldRenderer({
       <input
         id={inputId}
         className="input"
-        type={fieldDefinition.inputType === "date" ? "date" : "text"}
+        type={
+          fieldDefinition.inputType === "date"
+            ? "date"
+            : fieldDefinition.inputType === "number"
+              ? "number"
+              : "text"
+        }
         inputMode={
           fieldDefinition.inputType === "number"
           || fieldDefinition.inputType === "currency"

@@ -20,7 +20,23 @@ import type {
 } from "./types.ts";
 import { isAppelOffresStatus } from "./status.ts";
 import type { UserStatus } from "../users/types.ts";
-import type { ExtractionField } from "../types.ts";
+import {
+  normalizeExtractedOptionalText,
+  parseExtractedDeadline
+} from "./extraction-identity.ts";
+export {
+  buildExtractionIdentityPreview,
+  deriveDeadlinePresentation,
+  normalizeExtractedOptionalText,
+  parseExtractedDeadline,
+  pickIdentityFieldsFromExtraction
+} from "./extraction-identity.ts";
+export type {
+  ExtractionIdentityPreview,
+  ExtractionIdentityPreviewField,
+  DeadlinePresentation,
+  DeadlineSemanticState
+} from "./extraction-identity.ts";
 import {
   getArtifactPresence,
   getAttachedFicheStatus,
@@ -1196,77 +1212,6 @@ export async function updateAppelOffres(
   return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
 }
 
-const FRENCH_MONTHS: Record<string, string> = {
-  janvier: "01",
-  fevrier: "02",
-  "février": "02",
-  mars: "03",
-  avril: "04",
-  mai: "05",
-  juin: "06",
-  juillet: "07",
-  aout: "08",
-  "août": "08",
-  septembre: "09",
-  octobre: "10",
-  novembre: "11",
-  decembre: "12",
-  "décembre": "12"
-};
-
-function isValidCalendarDate(year: string, month: string, day: string) {
-  const y = Number(year);
-  const m = Number(month);
-  const d = Number(day);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
-}
-
-// Extracts a clean YYYY-MM-DD out of a free-text deadline field
-// (e.g. "Lundi 20 avril 2026 a 12h00 precises, heure de Ouagadougou (GMT)"
-// or "2026-08-01 12:00 GMT"). Returns null on anything that isn't
-// confidently a single calendar date, rather than guessing.
-export function parseExtractedDeadline(raw: string | null | undefined) {
-  const value = raw?.trim();
-  if (!value) {
-    return null;
-  }
-
-  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})\b/);
-  if (isoMatch) {
-    const [, year, month, day] = isoMatch;
-    return isValidCalendarDate(year, month, day) ? `${year}-${month}-${day}` : null;
-  }
-
-  const frenchMatch = value.match(
-    /(\d{1,2})\s+(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\s+(\d{4})/i
-  );
-  if (frenchMatch) {
-    const [, day, monthName, year] = frenchMatch;
-    const month = FRENCH_MONTHS[monthName.toLowerCase()];
-    const paddedDay = day.padStart(2, "0");
-    if (month && isValidCalendarDate(year, month, paddedDay)) {
-      return `${year}-${month}-${paddedDay}`;
-    }
-  }
-
-  return null;
-}
-
-export function normalizeExtractedOptionalText(raw: string | null | undefined) {
-  const value = raw?.trim();
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-  return normalized === "non trouve" ? null : value;
-}
-
 // Fills the dossier's title/buyer/country/due date/reference from the validated Fiche
 // CDC extraction (intitule_mission / client_maitre_ouvrage / pays /
 // date_limite_depot / reference_officielle). Only overwrites when the extracted value is non-empty
@@ -1333,65 +1278,6 @@ export async function applyValidatedExtractionIdentity(
   );
 
   return result.rows[0] ? mapAppelOffresRow(result.rows[0]) : null;
-}
-
-// Single source of truth for "which extraction field feeds which tender
-// identity field" - used both when a validated Fiche CDC is applied
-// (applyValidatedExtractionIdentity's caller) and when previewing a draft
-// extraction for the tender creation wizard, so the two never disagree.
-export function pickIdentityFieldsFromExtraction(extraction: ExtractionField[]) {
-  const find = (key: string) => extraction.find((field) => field.key === key)?.value ?? null;
-
-  return {
-    title: find("intitule_mission"),
-    buyer: find("client_maitre_ouvrage"),
-    country: find("pays"),
-    deadline: find("date_limite_depot"),
-    reference: find("reference_officielle")
-  };
-}
-
-export type ExtractionIdentityPreviewField = {
-  value: string;
-  detected: boolean;
-};
-
-export type ExtractionIdentityPreview = {
-  title: ExtractionIdentityPreviewField;
-  buyer: ExtractionIdentityPreviewField;
-  country: ExtractionIdentityPreviewField;
-  reference: ExtractionIdentityPreviewField;
-  dueDate: ExtractionIdentityPreviewField & { parsedDate: string | null };
-};
-
-// Read-only counterpart to applyValidatedExtractionIdentity: never writes
-// anything, just tells the tender creation wizard what a draft (not yet
-// validated) Fiche CDC extraction detected, using the exact same
-// normalization rules that will later apply at validation time. A field
-// that couldn't be parsed/confidently detected is reported as
-// `detected: false` rather than guessed.
-export function buildExtractionIdentityPreview(
-  extraction: ExtractionField[]
-): ExtractionIdentityPreview {
-  const raw = pickIdentityFieldsFromExtraction(extraction);
-  const parsedDate = parseExtractedDeadline(raw.deadline);
-
-  const asField = (value: string | null): ExtractionIdentityPreviewField => {
-    const normalized = normalizeExtractedOptionalText(value);
-    return { value: normalized ?? "", detected: normalized != null };
-  };
-
-  return {
-    title: asField(raw.title),
-    buyer: asField(raw.buyer),
-    country: asField(raw.country),
-    reference: asField(raw.reference),
-    dueDate: {
-      value: raw.deadline?.trim() ?? "",
-      detected: parsedDate != null,
-      parsedDate
-    }
-  };
 }
 
 export async function setAppelOffresStatus(

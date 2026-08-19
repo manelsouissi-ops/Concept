@@ -1,18 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { EmptyState } from "./empty-state.tsx";
 import { StatusBadge } from "./status-badge.tsx";
 import type { CdcWorkspaceRow, FciWorkspaceRow, GoNoGoWorkspaceRow, HistoryWorkspaceRow, WorkspaceFilter } from "@/lib/appels-offres/commercial-secondary-workspaces.ts";
+import { formatElapsedDuration } from "@/lib/appels-offres/cdc-processing-presentation.ts";
 
 function Header({ title, description }: { title: string; description: string }) { return <header className="commercial-section-header"><h1>{title}</h1><p>{description}</p></header>; }
 function Filters({ items, value, onChange }: { items: Array<[WorkspaceFilter, string, number?]>; value: WorkspaceFilter; onChange: (value: WorkspaceFilter) => void }) { return <div className="commercial-filter-bar" role="tablist">{items.map(([key, label, count]) => <button key={key} type="button" className={value === key ? "active" : ""} onClick={() => onChange(key)}>{label}{typeof count === "number" ? <span>{count}</span> : null}</button>)}</div>; }
 function Summary({ items }: { items: Array<[string, number]> }) { return <section className="commercial-section-summary">{items.map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}</section>; }
 
 export function CommercialCdcWorkspace({ rows, counts }: { rows: CdcWorkspaceRow[]; counts: { review: number; processing: number; validated: number } }) {
-  const [filter, setFilter] = useState<WorkspaceFilter>("all"); const visible = filter === "all" ? rows : rows.filter(row => row.filter === filter);
-  return <div className="page-stack commercial-section-workspace"><Header title="Mes Fiches CDC" description="Suivez les fiches générées, à vérifier ou déjà validées." /><Summary items={[["À vérifier", counts.review], ["En traitement / génération", counts.processing], ["Validées", counts.validated]]} /><section className="data-card"><Filters value={filter} onChange={setFilter} items={[["all", "Tous", rows.length], ["review", "À vérifier", counts.review], ["validated", "Validées", counts.validated], ["processing", "En traitement", counts.processing]]} /><div className="commercial-workspace-list">{visible.length ? visible.map(row => <article key={row.code} className="commercial-workspace-row cdc"><div><span className="mono">{row.code}</span><strong>{row.title}</strong><small>{row.client}</small></div><div><StatusBadge label={row.status} tone={row.tone} /><small>Mis à jour le {row.updatedAt}</small></div>{row.action ? <Link href={row.href} className="button button-secondary button-small">{row.action} →</Link> : <span className="meta">Traitement en cours</span>}</article>) : <EmptyState compact title="Aucune fiche" description="Aucune Fiche CDC ne correspond à ce filtre." />}</div></section></div>;
+  const router = useRouter();
+  const [filter, setFilter] = useState<WorkspaceFilter>("all");
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const hasProcessingRows = rows.some((row) => row.processingStartedAt != null);
+  useEffect(() => {
+    if (!hasProcessingRows) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [hasProcessingRows]);
+  useEffect(() => {
+    if (!hasProcessingRows) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    const timer = window.setInterval(refresh, 15_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [hasProcessingRows, router]);
+  const visible = filter === "all" ? rows : rows.filter(row => row.filter === filter);
+  return <div className="page-stack commercial-section-workspace"><Header title="Mes Fiches CDC" description="Suivez les fiches générées, à vérifier ou déjà validées." /><Summary items={[["À vérifier", counts.review], ["En traitement / génération", counts.processing], ["Validées", counts.validated]]} /><section className="data-card"><Filters value={filter} onChange={setFilter} items={[["all", "Tous", rows.length], ["review", "À vérifier", counts.review], ["validated", "Validées", counts.validated], ["processing", "En traitement", counts.processing]]} /><div className="commercial-workspace-list">{visible.length ? visible.map(row => <article key={row.code} className="commercial-workspace-row cdc"><div><span className="mono">{row.code}</span><strong>{row.title}</strong><small>{row.client}</small></div><div><StatusBadge label={row.status} tone={row.tone} /><small>Mis à jour le {row.updatedAt}</small></div>{row.action ? <Link href={row.href} className="button button-secondary button-small">{row.action} →</Link> : row.processingStartedAt ? <span className="cdc-processing-compact"><i aria-hidden="true" />Analyse en cours · {formatElapsedDuration(row.processingStartedAt, nowMs)}</span> : <span className="meta">Traitement interrompu</span>}</article>) : <EmptyState compact title="Aucune fiche" description="Aucune Fiche CDC ne correspond à ce filtre." />}</div></section></div>;
 }
 
 export function CommercialFciWorkspace({ rows, counts }: { rows: FciWorkspaceRow[]; counts: { todo: number; inProgress: number; validated: number } }) {

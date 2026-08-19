@@ -234,6 +234,9 @@ function buildPayloadDefaults(
     codeInterne: appelOffres.code,
     intituleOffre: appelOffres.title,
     dateDepot: appelOffres.dueDate,
+    sourceDeadline:
+      sourceFiche?.fiche.extraction.find((field) => field.key === "date_limite_depot")?.value
+      ?? null,
     preparedByName: null,
     validatedByName: null,
     sourceFiche: {

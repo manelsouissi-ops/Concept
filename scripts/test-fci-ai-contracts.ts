@@ -129,9 +129,10 @@ function run() {
   expectValid("C", garbagePlatformOwnedFields);
 
   const invalidSourceReference = deepClone(sampleCommercial);
-  (
-    invalidSourceReference.data as Record<string, Record<string, Record<string, unknown>>>
-  ).synthese_commerciale.attractivite_commerciale.source_references = [
+  const competitorRows = (
+    invalidSourceReference.data as Record<string, unknown>
+  ).concurrents_premiere_lecture as Array<Record<string, Record<string, unknown>>>;
+  competitorRows[0].nom_du_concurrent.source_references = [
     {
       section: "Procedure",
       field: "date_limite_depot",
@@ -141,6 +142,34 @@ function run() {
   expectInvalid("A", invalidSourceReference, (messages) =>
     messages.some((message) => message.includes("/excerpt"))
   );
+
+  const invalidTransitProse = deepClone(sampleCommercial);
+  (
+    invalidTransitProse.data as Record<string, Record<string, Record<string, unknown>>>
+  ).points_logistiques_internes.delai_de_transit_necessaire = {
+    value: "Déposer avant le 16/10/2025 à Abidjan",
+    source_type: "ai_inference",
+    confidence: "low",
+    requires_human_input: false,
+    justification: "Instruction de dépôt",
+    source_references: []
+  };
+  expectInvalid("A", invalidTransitProse, (messages) =>
+    messages.some((message) => message.includes("delai_de_transit_necessaire"))
+  );
+
+  const validTransitDays = deepClone(sampleCommercial);
+  (
+    validTransitDays.data as Record<string, Record<string, Record<string, unknown>>>
+  ).points_logistiques_internes.delai_de_transit_necessaire = {
+    value: 3,
+    source_type: "fiche_cdc",
+    confidence: "high",
+    requires_human_input: false,
+    justification: "Durée explicitement indiquée.",
+    source_references: []
+  };
+  expectValid("A", validTransitDays);
 
   const invalidCalculation = deepClone(sampleFinance);
   (

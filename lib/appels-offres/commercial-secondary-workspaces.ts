@@ -10,12 +10,13 @@ import type { GoNoGoDecisionRecord } from "./go-no-go/types.ts";
 import type { CurrentUser } from "../auth/rbac.ts";
 import { mapFciAuditEvent, mapTenderAuditEvent, type HistoryEventCategory } from "./history-presentation.ts";
 import { buildTenderWorkspaceHref } from "./tender-routes.ts";
+import { getPersistedProcessingStartedAt } from "./cdc-processing-presentation.ts";
 
 export type CommercialHistorySource = { detail: AppelOffresDetail; fci: FciDetail | null; workflow: TenderWorkflowStateView; decision: GoNoGoDecisionRecord | null };
 type RecordView = CommercialHistorySource;
 export type WorkspaceFilter = "all" | "review" | "processing" | "validated" | "todo" | "in_progress" | "ready" | "prepared" | "submitted" | "decided" | "fiche" | "fci" | "gonogo" | "decision";
 
-export type CdcWorkspaceRow = { code: string; title: string; client: string; status: string; tone: BadgeTone; updatedAt: string; filter: "review" | "processing" | "validated"; action: string | null; href: string };
+export type CdcWorkspaceRow = { code: string; title: string; client: string; status: string; tone: BadgeTone; updatedAt: string; processingStartedAt: string | null; filter: "review" | "processing" | "validated"; action: string | null; href: string };
 export type FciWorkspaceRow = { code: string; title: string; deadline: string; aStatus: string; aTone: BadgeTone; bStatus: string; cStatus: string; ficheAvailable: boolean; filter: "todo" | "in_progress" | "validated"; action: string; href: string };
 export type GoNoGoWorkspaceRow = { code: string; title: string; client: string; readiness: number; reportStatus: string; submissionStatus: string; decision: string | null; filter: "ready" | "prepared" | "submitted" | "decided"; action: string; href: string };
 export type HistoryWorkspaceRow = { id: string; createdAt: string; category: HistoryEventCategory; eventTitle: string; description: string | null; code: string; title: string; actor: string; result: string | null; tone: BadgeTone; href: string };
@@ -37,7 +38,7 @@ export function buildCdcWorkspace(records: RecordView[]) {
     if (!status && !record.detail.artifacts.hasFicheXml && !record.detail.latestJob) return [];
     const identity = buildWorkspaceIdentity(record.detail);
     const filter = status === "validated" ? "validated" : status === "draft" ? "review" : "processing";
-    return [{ code: record.detail.code, title: identity.displayTitle, client: identity.clientLabel, status: filter === "validated" ? "Validée" : filter === "review" ? "À vérifier" : status === "error" ? "Échec du traitement" : "En traitement", tone: filter === "validated" ? "success" : status === "error" ? "danger" : filter === "review" ? "warning" : "info", updatedAt: date(record.detail.ficheStatus?.modifiedAt ?? record.detail.updatedAt), filter, action: filter === "review" ? "Vérifier la fiche" : filter === "validated" ? "Consulter" : null, href: `/appels-offres/${encodeURIComponent(record.detail.code)}/fiche-cdc` }];
+    return [{ code: record.detail.code, title: identity.displayTitle, client: identity.clientLabel, status: filter === "validated" ? "Validée" : filter === "review" ? "À vérifier" : status === "error" ? "Échec du traitement" : "En traitement", tone: filter === "validated" ? "success" : status === "error" ? "danger" : filter === "review" ? "warning" : "info", updatedAt: date(record.detail.ficheStatus?.modifiedAt ?? record.detail.updatedAt), processingStartedAt: filter === "processing" && status !== "error" ? getPersistedProcessingStartedAt(record.detail) : null, filter, action: filter === "review" ? "Vérifier la fiche" : filter === "validated" ? "Consulter" : null, href: `/appels-offres/${encodeURIComponent(record.detail.code)}/fiche-cdc` }];
   }).sort((a, b) => ({ review: 0, processing: 1, validated: 2 })[a.filter] - ({ review: 0, processing: 1, validated: 2 })[b.filter]);
   return { rows, counts: { review: rows.filter(r => r.filter === "review").length, processing: rows.filter(r => r.filter === "processing").length, validated: rows.filter(r => r.filter === "validated").length } };
 }

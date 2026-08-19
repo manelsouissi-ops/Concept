@@ -10,7 +10,11 @@ import { requireAreaAccessForRequest } from "@/lib/auth/server.ts";
 import { hasPermission } from "@/lib/auth/rbac.ts";
 import { autoAssignFciContributors } from "@/lib/appels-offres/workflow/service.ts";
 import { notifyAssignedUser } from "@/lib/notifications/orchestration.ts";
-import { autoInitializeAndLaunchFciModulesForValidatedFiche } from "@/lib/appels-offres/fci/service.ts";
+import { initializeFciWorkspaceForValidatedFiche } from "@/lib/appels-offres/fci/service.ts";
+import {
+  assertCanCoordinateTender,
+  CommercialOwnershipError
+} from "@/lib/appels-offres/ownership.ts";
 import {
   markFicheValidated,
   readFicheBundle,
@@ -39,6 +43,7 @@ export async function POST(
     }
 
     const { code } = await params;
+    await assertCanCoordinateTender(code, currentUser);
     const current = await readFicheIndexSource(code);
     if (current.status.status !== "draft") {
       return NextResponse.json(
@@ -93,7 +98,7 @@ export async function POST(
     await appendAuditLog(code, "fiche_cdc.validated", {
       validatedAt: indexed.status.validatedAt
     }).catch(() => undefined);
-    await autoInitializeAndLaunchFciModulesForValidatedFiche(code).catch(() => undefined);
+    await initializeFciWorkspaceForValidatedFiche(code);
     const commercialUserId = Number(currentUser.id);
     if (Number.isInteger(commercialUserId) && commercialUserId > 0) {
       await notifyAssignedUser({
@@ -103,13 +108,17 @@ export async function POST(
         recipientUserId: commercialUserId,
         recipientRole: "COMMERCIAL",
         currentUser,
-        metadata: { assignedUserName: currentUser.name, automatic: true }
+        metadata: { assignedUserName: currentUser.name, automatic: true },
+        dedupeKey: `fci-assigned:${code}:A:${commercialUserId}`
       });
     }
     await autoAssignFciContributors({ code, currentUser });
     const fiche = await readFicheBundle(code);
     return NextResponse.json(fiche);
   } catch (error) {
+    if (error instanceof CommercialOwnershipError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message =
       error instanceof Error ? error.message : "Impossible de valider.";
     return NextResponse.json({ error: message }, { status: 400 });

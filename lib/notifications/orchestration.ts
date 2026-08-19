@@ -20,6 +20,14 @@ function parseActorUserId(currentUser?: CurrentUser | null) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+export function isActiveCommercialNotificationOwner(owner: {
+  userId: number | null;
+  status: string | null;
+  role: string | null;
+}) {
+  return owner.userId != null && owner.status === "ACTIVE" && owner.role === "COMMERCIAL";
+}
+
 export async function notifyAssignedUser(input: {
   appelOffreCode: string;
   moduleCode: FciModuleCode;
@@ -28,6 +36,7 @@ export async function notifyAssignedUser(input: {
   recipientRole: UserRole;
   currentUser?: CurrentUser | null;
   metadata?: Record<string, unknown> | null;
+  dedupeKey?: string | null;
 }) {
   return createNotification({
     recipientUserId: input.recipientUserId,
@@ -40,6 +49,7 @@ export async function notifyAssignedUser(input: {
       actorName: input.currentUser?.name ?? null,
       ...(input.metadata ?? {})
     },
+    dedupeKey: input.dedupeKey,
     section: "overview"
   });
 }
@@ -47,6 +57,7 @@ export async function notifyAssignedUser(input: {
 export async function notifyCommercialUsers(input: {
   appelOffreCode: string;
   eventType:
+    | "FICHE_CDC_READY"
     | "FCI_STARTED"
     | "FCI_COMPLETED"
     | "FCI_VALIDATED"
@@ -68,13 +79,11 @@ export async function notifyCommercialUsers(input: {
   metadata?: Record<string, unknown> | null;
   dedupeKey?: string | null;
   section?: string | null;
+  actionUrl?: string;
+  onCreated?: (notification: Awaited<ReturnType<typeof createNotification>>) => Promise<void>;
 }) {
   const ownership = await getCommercialOwnership(input.appelOffreCode);
-  if (
-    ownership.owner.userId == null
-    || ownership.owner.status !== "ACTIVE"
-    || ownership.owner.role !== "COMMERCIAL"
-  ) {
+  if (!isActiveCommercialNotificationOwner(ownership.owner)) {
     await appendAuditLog(
       input.appelOffreCode,
       "notification.commercial_owner_missing",
@@ -88,18 +97,19 @@ export async function notifyCommercialUsers(input: {
     return [];
   }
 
+  const ownerUserId = ownership.owner.userId!;
+
   const dedupeKey = input.dedupeKey
-    ? `${input.dedupeKey}:${ownership.owner.userId}`
-    : `commercial-owner:${input.eventType}:${input.appelOffreCode}:${ownership.owner.userId}`;
+    ? `${input.dedupeKey}:${ownerUserId}`
+    : `commercial-owner:${input.eventType}:${input.appelOffreCode}:${ownerUserId}`;
 
   const existing = await notificationExists(dedupeKey);
   if (existing) {
     return [existing];
   }
 
-  return [
-    await createNotification({
-      recipientUserId: ownership.owner.userId,
+  const notification = await createNotification({
+      recipientUserId: ownerUserId,
       recipientRole: "COMMERCIAL",
       appelOffreCode: input.appelOffreCode,
       moduleCode: input.moduleCode ?? null,
@@ -110,9 +120,53 @@ export async function notifyCommercialUsers(input: {
         ...(input.metadata ?? {})
       },
       section: input.section ?? "overview",
+      actionUrl: input.actionUrl,
       dedupeKey
-    })
-  ];
+    });
+  await input.onCreated?.(notification);
+  return [notification];
+}
+
+export function buildFicheCdcReadyDedupeKey(
+  appelOffreCode: string,
+  processingJobId: string
+) {
+  return `fiche-cdc-ready:${appelOffreCode}:${processingJobId}`;
+}
+
+export function buildFicheCdcReadyActionUrl(appelOffreCode: string) {
+  return `/appels-offres/${encodeURIComponent(appelOffreCode)}/fiche-cdc`;
+}
+
+export async function notifyFicheCdcReady(input: {
+  appelOffreCode: string;
+  processingJobId: string;
+}) {
+  const notifications = await notifyCommercialUsers({
+    appelOffreCode: input.appelOffreCode,
+    eventType: "FICHE_CDC_READY",
+    dedupeKey: buildFicheCdcReadyDedupeKey(
+      input.appelOffreCode,
+      input.processingJobId
+    ),
+    metadata: {
+      appelOffreCode: input.appelOffreCode,
+      processingJobId: input.processingJobId,
+      eventType: "FICHE_CDC_READY"
+    },
+    actionUrl: buildFicheCdcReadyActionUrl(input.appelOffreCode),
+    onCreated: async (notification) => {
+      await appendAuditLog(input.appelOffreCode, "notification.created", {
+        appelOffreCode: input.appelOffreCode,
+        processingJobId: input.processingJobId,
+        eventType: "FICHE_CDC_READY",
+        recipientUserId: notification.recipientUserId,
+        notificationId: notification.id
+      }).catch(() => undefined);
+    }
+  });
+
+  return notifications[0] ?? null;
 }
 
 export async function notifyDirectionGeneraleUsers(input: {

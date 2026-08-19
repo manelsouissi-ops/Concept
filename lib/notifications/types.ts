@@ -2,6 +2,7 @@ import type { UserRole } from "../auth/rbac.ts";
 import type { FciModuleCode } from "../appels-offres/fci/types.ts";
 
 export const BUSINESS_NOTIFICATION_EVENT_TYPES = [
+  "FICHE_CDC_READY",
   "FCI_ASSIGNED",
   "FCI_REASSIGNED",
   "FCI_STARTED",

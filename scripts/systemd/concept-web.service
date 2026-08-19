@@ -1,0 +1,16 @@
+[Unit]
+Description=CONCEPT Next.js development application
+After=network-online.target postgresql.service concept-n8n.service concept-docling.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_ROOT@
+ExecStart=@REPO_ROOT@/scripts/start-concept-web-local.sh
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

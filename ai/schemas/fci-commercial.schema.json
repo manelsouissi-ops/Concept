@@ -121,51 +121,19 @@
           "type": "object",
           "properties": {
             "delai_de_transit_necessaire": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
+              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_nonnegative_integer"
             },
             "responsable_depot": {
               "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
             },
             "representation_locale_existante": {
               "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
-            },
-            "autres_contraintes_internes": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
             }
           },
           "required": [
             "delai_de_transit_necessaire",
             "responsable_depot",
-            "representation_locale_existante",
-            "autres_contraintes_internes"
-          ],
-          "additionalProperties": false
-        },
-        "synthese_commerciale": {
-          "type": "object",
-          "properties": {
-            "attractivite_commerciale": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
-            },
-            "intensite_concurrentielle": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
-            },
-            "besoins_groupement_probables": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
-            },
-            "risques_client": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string_array"
-            },
-            "recommandation_revue_commerciale": {
-              "$ref": "https://concept.local/ai/schemas/fci-common.schema.json#/$defs/field_nullable_string"
-            }
-          },
-          "required": [
-            "attractivite_commerciale",
-            "intensite_concurrentielle",
-            "besoins_groupement_probables",
-            "risques_client",
-            "recommandation_revue_commerciale"
+            "representation_locale_existante"
           ],
           "additionalProperties": false
         }
@@ -174,8 +142,7 @@
         "identification_opportunite",
         "concurrents_premiere_lecture",
         "positionnement_offre",
-        "points_logistiques_internes",
-        "synthese_commerciale"
+        "points_logistiques_internes"
       ],
       "additionalProperties": false
     },

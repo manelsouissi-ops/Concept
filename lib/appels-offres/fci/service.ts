@@ -25,6 +25,7 @@ import type {
   FciModuleDataRecord,
   FciModuleRecord
 } from "./types.ts";
+import type { FciCommercialPayload } from "./ai-contracts.ts";
 import { getFciAiRuntimeContract } from "./ai-runtime.ts";
 import { validateFciAiPayload } from "./ai-validation.ts";
 import { getFciN8nIntegrationConfig, buildFciCallbackUrl, type FciN8nIntegrationConfig } from "./n8n-config.ts";
@@ -88,6 +89,11 @@ import {
   WorkflowServiceError
 } from "../workflow/service.ts";
 import { canCoordinateTender } from "../ownership.ts";
+import { notifyCommercialUsers } from "../../notifications/orchestration.ts";
+import {
+  applyCommercialGenerationGuardrails,
+  readFciCommercialSourceContext
+} from "./commercial-quality.ts";
 
 export type FciServiceErrorCode =
   | "AO_NOT_FOUND"
@@ -306,6 +312,9 @@ function buildFciPayloadDefaults(
     codeInterne: appelOffres.code,
     intituleOffre: appelOffres.title,
     dateDepot: appelOffres.dueDate,
+    sourceDeadline:
+      sourceFiche?.fiche.extraction.find((field) => field.key === "date_limite_depot")?.value
+      ?? null,
     preparedByName: null,
     validatedByName: null,
     sourceFiche: {
@@ -1344,6 +1353,9 @@ async function launchFciGenerationJob(input: {
     });
 
     const callbackUrl = buildFciCallbackUrl(config.platformPublicBaseUrl);
+    const commercialContext = generatableModuleCode === "A"
+      ? await readFciCommercialSourceContext(input.code)
+      : undefined;
     const launchPayload = {
       contract_version: config.contractVersion,
       generation_job_id: job.id,
@@ -1370,7 +1382,8 @@ async function launchFciGenerationJob(input: {
         requested_at: new Date().toISOString(),
         requested_by: requestedBy,
         provider: config.provider,
-        model: config.model
+        model: config.model,
+        ...(commercialContext ? { commercial_context: commercialContext } : {})
       },
       prompt: {
         text: runtimeContract.promptText,
@@ -1422,6 +1435,15 @@ async function launchFciGenerationJob(input: {
     });
 
     await recalculateAndPersistOverallStatus(input.code);
+
+    if (input.moduleCode === "A") {
+      await notifyCommercialUsers({
+        appelOffreCode: input.code,
+        eventType: "FCI_STARTED",
+        moduleCode: "A",
+        dedupeKey: `fci-started:${input.code}:A:${job.id}`
+      }).catch(() => undefined);
+    }
 
     const refreshedJob = (await getLatestJob(
       await listFciGenerationJobsForModule(input.module.id)
@@ -1497,7 +1519,7 @@ async function launchFciGenerationJob(input: {
   }
 }
 
-export async function autoInitializeAndLaunchFciModulesForValidatedFiche(code: string) {
+export async function initializeFciWorkspaceForValidatedFiche(code: string) {
   const appelOffres = await requireAppelOffres(code);
   const sourceFiche = await requireValidatedSourceFiche(code);
   const {
@@ -1507,71 +1529,7 @@ export async function autoInitializeAndLaunchFciModulesForValidatedFiche(code: s
     sourceFiche
   });
   await recordFciGeneratedWorkflowState(code, null);
-
-  const launchedModules: FciModuleCode[] = [];
-  const skippedModules: Array<{ moduleCode: FciModuleCode; reason: string }> = [];
-  const failedModules: Array<{
-    moduleCode: FciModuleCode;
-    code: string;
-    message: string;
-  }> = [];
-
-  for (const module of detail.modules) {
-    if (!isFciContributingModuleCode(module.moduleCode)) {
-      continue;
-    }
-
-    if (module.status !== "not_started") {
-      skippedModules.push({
-        moduleCode: module.moduleCode,
-        reason: `status:${module.status}`
-      });
-      continue;
-    }
-
-    const latestData = (await listFciModuleDataVersions(module.id))[0] ?? null;
-    if (latestData) {
-      skippedModules.push({
-        moduleCode: module.moduleCode,
-        reason: "has_data"
-      });
-      continue;
-    }
-
-    const latestJob = getLatestJob(await listFciGenerationJobsForModule(module.id));
-    if (hasBlockingGenerationJob(latestJob)) {
-      skippedModules.push({
-        moduleCode: module.moduleCode,
-        reason: `job:${latestJob?.status ?? "unknown"}`
-      });
-      continue;
-    }
-
-    try {
-      await launchFciGenerationJob({
-        code,
-        appelOffresId: appelOffres.id,
-        fciSetId: detail.set.id,
-        module,
-        moduleCode: module.moduleCode,
-        triggerType: "automatic",
-        sourceFiche
-      });
-      launchedModules.push(module.moduleCode);
-    } catch (error) {
-      failedModules.push({
-        moduleCode: module.moduleCode,
-        code: error instanceof FciServiceError ? error.code : "FCI_LAUNCH_FAILED",
-        message: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-
-  return {
-    launchedModules,
-    skippedModules,
-    failedModules
-  };
+  return detail;
 }
 
 export async function prepareFciGeneration(
@@ -1963,13 +1921,19 @@ async function applyFciSuccessCallback(
   // asked to produce them (see callback-derivation.ts), so whatever it did
   // or didn't send for those two keys is discarded and replaced here with
   // the authoritative, deterministically-computed values.
+  const guardedPayload = payload.module_code === "A"
+    ? applyCommercialGenerationGuardrails(
+        validatedPayload.data as FciCommercialPayload,
+        await readFciCommercialSourceContext(context.appelOffres.code)
+      )
+    : validatedPayload.data;
   const finalPayload = {
-    ...validatedPayload.data,
+    ...guardedPayload,
     source_fiche: buildAuthoritativeSourceFiche(context.appelOffres.code, {
       sourceFicheVersion: payload.source_fiche.version,
       sourceFicheHash: payload.source_fiche.hash
     }),
-    summary: computeFciModuleSummary(validatedPayload.data.data)
+    summary: computeFciModuleSummary(guardedPayload.data)
   };
 
   const versions = await listFciModuleDataVersions(context.module.id);
@@ -2023,6 +1987,15 @@ async function applyFciSuccessCallback(
     }
   });
   await recalculateAndPersistOverallStatus(context.appelOffres.code);
+
+  if (context.module.moduleCode === "A") {
+    await notifyCommercialUsers({
+      appelOffreCode: context.appelOffres.code,
+      eventType: "FCI_COMPLETED",
+      moduleCode: "A",
+      dedupeKey: `fci-completed:${context.appelOffres.code}:A:${context.job.id}`
+    }).catch(() => undefined);
+  }
 
   return buildFciCallbackAcknowledgement(payload, {
     applied: true,
@@ -2337,6 +2310,13 @@ export async function validateFciModule(
       currentUser: actor
     });
   } else {
+    await notifyCommercialUsers({
+      appelOffreCode: code,
+      eventType: "FCI_VALIDATED",
+      moduleCode: "A",
+      currentUser: actor,
+      dedupeKey: `fci-validated:${code}:A:${nextVersion}`
+    }).catch(() => undefined);
     await emitReadyForGoNoGoNotifications(code, actor);
   }
   return buildModulePresentationOrThrow(code, moduleCode, actor);

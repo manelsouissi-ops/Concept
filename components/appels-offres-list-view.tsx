@@ -34,10 +34,10 @@ function withExtractionFallback(value: string) {
 
 function formatDate(value: string | null) {
   if (!value) {
-    return EXTRACTION_PENDING_LABEL;
+    return "Date à confirmer";
   }
-
-  return new Date(value).toLocaleDateString("fr-FR");
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Date à confirmer" : date.toLocaleDateString("fr-FR");
 }
 
 function buildPaginationItems(currentPage: number, totalPages: number): PaginationItem[] {

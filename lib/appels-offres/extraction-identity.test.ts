@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildExtractionIdentityPreview,
+  deriveDeadlinePresentation,
   pickIdentityFieldsFromExtraction
 } from "./repository.ts";
 import type { ExtractionField } from "../types.ts";
@@ -45,6 +46,7 @@ test("buildExtractionIdentityPreview marks every detected field and parses the d
   assert.equal(preview.dueDate.detected, true);
   assert.equal(preview.dueDate.parsedDate, "2026-03-15");
   assert.equal(preview.dueDate.value, "15 mars 2026");
+  assert.equal(preview.dueDate.state, "CONFIRMED");
 });
 
 // B. Partial extraction: fields the LLM could not find ("Non trouve") must
@@ -72,6 +74,7 @@ test("buildExtractionIdentityPreview reports 'Non trouve' and missing fields as 
 
   assert.equal(preview.dueDate.detected, false);
   assert.equal(preview.dueDate.parsedDate, null);
+  assert.equal(preview.dueDate.state, "NOT_FOUND");
 });
 
 // C/free-text deadline: the LLM is instructed to copy dates verbatim rather
@@ -85,6 +88,39 @@ test("buildExtractionIdentityPreview never guesses a due date from ambiguous fre
   assert.equal(preview.dueDate.detected, false);
   assert.equal(preview.dueDate.parsedDate, null);
   assert.equal(preview.dueDate.value, "Des reception du dossier complet par voie electronique");
+  assert.equal(preview.dueDate.state, "AMBIGUOUS");
+});
+
+test("deadline semantics distinguish pending, ambiguous, unrelated and invalid values", () => {
+  for (const value of ["À confirmer", "sera communiquée ultérieurement", "À définir", "TBD"]) {
+    const result = deriveDeadlinePresentation(value);
+    assert.equal(result.state, "PENDING_CONFIRMATION");
+    assert.equal(result.parsedDate, null);
+  }
+
+  const conflicting = deriveDeadlinePresentation(
+    "Dépôt possible le 15 mars 2026 ou le 22 mars 2026, à confirmer"
+  );
+  assert.equal(conflicting.state, "AMBIGUOUS");
+  assert.equal(conflicting.parsedDate, null);
+
+  assert.equal(deriveDeadlinePresentation("Publié le 15 mars 2026").state, "NOT_FOUND");
+  assert.equal(deriveDeadlinePresentation("31/02/2026").state, "AMBIGUOUS");
+  assert.equal(deriveDeadlinePresentation("31/02/2026").parsedDate, null);
+});
+
+test("deadline semantics safely parse a numeric French submission date", () => {
+  const result = deriveDeadlinePresentation(
+    "Les offres doivent être déposées au plus tard le 16/10/2025 à 10h00 GMT"
+  );
+  assert.equal(result.state, "CONFIRMED");
+  assert.equal(result.parsedDate, "2025-10-16");
+});
+
+test("two distinct candidate dates are ambiguous when the source does not resolve them", () => {
+  const result = deriveDeadlinePresentation("15/03/2026 ou 22/03/2026");
+  assert.equal(result.state, "AMBIGUOUS");
+  assert.equal(result.parsedDate, null);
 });
 
 // An empty extraction (e.g. a stale/failed generation) must produce an

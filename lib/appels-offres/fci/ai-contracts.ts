@@ -111,17 +111,9 @@ export type FciCommercialData = {
     niveau_de_prix_cible_estime: FciAiField<string | null>;
   };
   points_logistiques_internes: {
-    delai_de_transit_necessaire: FciAiField<string | null>;
+    delai_de_transit_necessaire: FciAiField<number | null>;
     responsable_depot: FciAiField<string | null>;
     representation_locale_existante: FciAiField<string | null>;
-    autres_contraintes_internes: FciAiField<string | null>;
-  };
-  synthese_commerciale: {
-    attractivite_commerciale: FciAiField<string | null>;
-    intensite_concurrentielle: FciAiField<string | null>;
-    besoins_groupement_probables: FciAiField<string[] | null>;
-    risques_client: FciAiField<string[] | null>;
-    recommandation_revue_commerciale: FciAiField<string | null>;
   };
 };
 

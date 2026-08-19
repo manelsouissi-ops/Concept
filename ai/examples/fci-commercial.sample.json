@@ -145,23 +145,12 @@
     ],
     "positionnement_offre": {
       "notre_avantage_differentiel_principal": {
-        "value": "La combinaison supervision multi-sites et assistance technique peut valoriser une offre intégrée pluridisciplinaire.",
-        "source_type": "ai_inference",
-        "confidence": "medium",
-        "requires_human_input": false,
-        "justification": "C'est une lecture commerciale prudente fondée sur la complexité et la nature de la mission.",
-        "source_references": [
-          {
-            "section": "Identification",
-            "field": "nature_prestation",
-            "excerpt": "Supervision de travaux et assistance technique"
-          },
-          {
-            "section": "Livrables & profils",
-            "field": "disciplines_techniques",
-            "excerpt": "Hydraulique, génie civil, électromécanique, environnement"
-          }
-        ]
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "À confirmer par l'équipe commerciale à partir des références internes approuvées.",
+        "source_references": []
       },
       "notre_vulnerabilite_principale": {
         "value": "Le délai de préparation et la coordination multisite peuvent peser sur la compétitivité de l'offre.",
@@ -193,18 +182,12 @@
     },
     "points_logistiques_internes": {
       "delai_de_transit_necessaire": {
-        "value": "À anticiper avant démarrage compte tenu des 12 sites et des contraintes d'accès saisonnier.",
-        "source_type": "ai_inference",
-        "confidence": "low",
-        "requires_human_input": false,
-        "justification": "Le CDC signale des contraintes terrain, sans préciser un délai logistique chiffré.",
-        "source_references": [
-          {
-            "section": "Site & contraintes",
-            "field": "contraintes_site",
-            "excerpt": "Accès saison des pluies"
-          }
-        ]
+        "value": null,
+        "source_type": "internal_required",
+        "confidence": "none",
+        "requires_human_input": true,
+        "justification": "La durée de transit en jours doit être renseignée en interne.",
+        "source_references": []
       },
       "responsable_depot": {
         "value": null,
@@ -221,118 +204,6 @@
         "requires_human_input": true,
         "justification": "La présence locale existante doit être confirmée en interne.",
         "source_references": []
-      },
-      "autres_contraintes_internes": {
-        "value": "Coordination logistique entre plusieurs sites et suivi HSE.",
-        "source_type": "ai_inference",
-        "confidence": "medium",
-        "requires_human_input": false,
-        "justification": "Inférence prudente à partir du périmètre d'intervention et des exigences ES.",
-        "source_references": [
-          {
-            "section": "Site & contraintes",
-            "field": "nombre_sites",
-            "excerpt": "12"
-          },
-          {
-            "section": "Site & contraintes",
-            "field": "exigences_es",
-            "excerpt": "Plan ESMP et suivi HSE"
-          }
-        ]
-      }
-    },
-    "synthese_commerciale": {
-      "attractivite_commerciale": {
-        "value": "Attractive sous réserve d'une validation rapide des ressources internes et du montage commercial.",
-        "source_type": "ai_inference",
-        "confidence": "medium",
-        "requires_human_input": false,
-        "justification": "La mission semble structurante mais exigeante en coordination.",
-        "source_references": [
-          {
-            "section": "Duree & volume",
-            "field": "duree_totale",
-            "excerpt": "24 mois"
-          },
-          {
-            "section": "Livrables & profils",
-            "field": "nombre_profils_experts",
-            "excerpt": "8"
-          }
-        ]
-      },
-      "intensite_concurrentielle": {
-        "value": "Probablement élevée",
-        "source_type": "ai_inference",
-        "confidence": "medium",
-        "requires_human_input": false,
-        "justification": "Le financement international et la méthode qualité/coût rendent la consultation compétitive.",
-        "source_references": [
-          {
-            "section": "Identification",
-            "field": "source_financement",
-            "excerpt": "Banque mondiale"
-          },
-          {
-            "section": "Procedure",
-            "field": "methode_selection",
-            "excerpt": "Sélection fondée sur la qualité et le coût"
-          }
-        ]
-      },
-      "besoins_groupement_probables": {
-        "value": [
-          "Partenaire local pour présence terrain ou exigences contextuelles",
-          "Coordination renforcée sur les volets environnement et supervision multisite"
-        ],
-        "source_type": "ai_inference",
-        "confidence": "low",
-        "requires_human_input": false,
-        "justification": "Le CDC suggère un dispositif terrain étendu, sans imposer explicitement un groupement.",
-        "source_references": [
-          {
-            "section": "Site & contraintes",
-            "field": "zone_execution",
-            "excerpt": "Région Centre et Hauts-Bassins"
-          }
-        ]
-      },
-      "risques_client": {
-        "value": [
-          "Délais de remise serrés",
-          "Attente probable de coordination multisite et de reporting strict"
-        ],
-        "source_type": "ai_inference",
-        "confidence": "medium",
-        "requires_human_input": false,
-        "justification": "Ces risques sont inférés à partir du calendrier et des livrables attendus.",
-        "source_references": [
-          {
-            "section": "Procedure",
-            "field": "date_limite_depot",
-            "excerpt": "2026-08-12"
-          },
-          {
-            "section": "Livrables & profils",
-            "field": "livrables_principaux",
-            "excerpt": "Rapports mensuels, rapport de démarrage, rapport final"
-          }
-        ]
-      },
-      "recommandation_revue_commerciale": {
-        "value": "Poursuivre la revue commerciale avec validation rapide du positionnement prix et des responsabilités internes.",
-        "source_type": "ai_inference",
-        "confidence": "medium",
-        "requires_human_input": false,
-        "justification": "La consultation paraît sérieuse mais plusieurs éléments internes restent à confirmer.",
-        "source_references": [
-          {
-            "section": "Controle",
-            "field": "aVerifier",
-            "excerpt": "Existence d'un groupement local imposé"
-          }
-        ]
       }
     }
   },

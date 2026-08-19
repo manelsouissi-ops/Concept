@@ -5,17 +5,21 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileTextIcon, UploadIcon } from "./app-icons.tsx";
 import { ProcessingTimeline } from "./processing-timeline.tsx";
+import { CdcProcessingPanel } from "./cdc-processing-panel.tsx";
 import {
   formatCreateAppelOffresFileSize,
   getPdfFileSelectionError,
   suggestNewAppelOffresCode
 } from "@/lib/appels-offres/create-form.ts";
+import {
+  getCreateWizardPollInterval,
+  MAX_ACTIVE_POLL_ATTEMPTS,
+  resolveCreateWizardDetailState
+} from "@/lib/appels-offres/create-wizard-state.ts";
 import { buildProcessingTimeline, buildWorkspaceFailureSummary } from "@/lib/appels-offres/workspace.ts";
 import type { AppelOffresDetail, AppelOffresInput } from "@/lib/appels-offres/types.ts";
 import type { ExtractionIdentityPreview } from "@/lib/appels-offres/repository.ts";
-
-const POLL_INTERVAL_MS = 3000;
-const MAX_POLL_ATTEMPTS = 60; // ~3 minutes
+import { deriveCdcProcessingPresentation } from "@/lib/appels-offres/cdc-processing-presentation.ts";
 
 type WizardStep = "upload" | "analyzing" | "review" | "creating";
 
@@ -98,7 +102,7 @@ export function AppelOffresCreateWizard() {
 
   // Poll while the CDC analysis is running.
   useEffect(() => {
-    if (step !== "analyzing" || !code || analysisFailed || pollTimedOut) {
+    if (step !== "analyzing" || !code) {
       return;
     }
 
@@ -112,26 +116,33 @@ export function AppelOffresCreateWizard() {
       }
 
       setDetail(nextDetail);
-      const ficheStatus = nextDetail.ficheStatus?.status ?? null;
+      const detailState = resolveCreateWizardDetailState(nextDetail);
 
-      if (ficheStatus === "draft" || ficheStatus === "validated") {
+      if (detailState === "review") {
+        setAnalysisFailed(false);
+        setPollTimedOut(false);
         setStep("review");
         return;
       }
 
-      if (ficheStatus === "error" || buildWorkspaceFailureSummary(nextDetail)) {
+      if (detailState === "failed") {
         setAnalysisFailed(true);
         return;
       }
 
-      attempts += 1;
-      if (attempts >= MAX_POLL_ATTEMPTS) {
-        setPollTimedOut(true);
+      if (!analysisFailed && !pollTimedOut) {
+        attempts += 1;
+        if (attempts >= MAX_ACTIVE_POLL_ATTEMPTS) {
+          setPollTimedOut(true);
+        }
       }
     }
 
     void tick();
-    const intervalId = window.setInterval(() => void tick(), POLL_INTERVAL_MS);
+    const intervalId = window.setInterval(
+      () => void tick(),
+      getCreateWizardPollInterval({ analysisFailed, pollTimedOut })
+    );
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -334,6 +345,14 @@ export function AppelOffresCreateWizard() {
   const currentStepIndex = STEP_ORDER.indexOf(step);
   const timeline = detail ? buildProcessingTimeline(detail) : [];
   const failureSummary = detail ? buildWorkspaceFailureSummary(detail) : null;
+  const processingPresentation = detail
+    ? deriveCdcProcessingPresentation(detail)
+    : {
+        state: "processing" as const,
+        step: "CDC reçu",
+        startedAt: null,
+        isLongRunning: false
+      };
 
   const selectedFile = file ? (
     <div className="upload-selected-file compact">
@@ -473,31 +492,29 @@ export function AppelOffresCreateWizard() {
 
           {step === "analyzing" ? (
             <div className="stack">
-              {!analysisFailed && !pollTimedOut ? (
+              {!analysisFailed ? (
                 <>
-                  <p className="meta">
-                    <strong>Analyse du CDC en cours.</strong>
-                    <br />
-                    Nous détectons les informations principales de l&apos;appel d&apos;offres.
-                  </p>
+                  <CdcProcessingPanel
+                    state={processingPresentation.state}
+                    step={processingPresentation.step}
+                    startedAt={processingPresentation.startedAt}
+                    isLongRunning={processingPresentation.isLongRunning || pollTimedOut}
+                    readyHref={code ? `/appels-offres/${encodeURIComponent(code)}/fiche-cdc` : undefined}
+                  />
                   <ProcessingTimeline steps={timeline} />
                 </>
               ) : (
                 <>
-                  <div className="callout warning">
-                    {pollTimedOut
-                      ? "L'analyse prend plus de temps que prévu."
-                      : failureSummary?.message ?? "L'analyse du CDC a échoué."}
-                  </div>
+                  <CdcProcessingPanel
+                    state="failed"
+                    step="Traitement interrompu"
+                    startedAt={processingPresentation.startedAt}
+                    isLongRunning={false}
+                    onRetry={() => void handleRetryAnalysis()}
+                    retryPending={isRetrying}
+                  />
+                  {failureSummary?.message ? <div className="callout warning">{failureSummary.message}</div> : null}
                   <div className="workspace-card-actions">
-                    <button
-                      type="button"
-                      className="button button-primary"
-                      onClick={() => void handleRetryAnalysis()}
-                      disabled={isRetrying}
-                    >
-                      {isRetrying ? "Relance en cours..." : "Réessayer l'analyse"}
-                    </button>
                     <button type="button" className="button button-secondary" onClick={handleManualEntry}>
                       Saisir les informations manuellement
                     </button>
@@ -564,10 +581,8 @@ export function AppelOffresCreateWizard() {
                   {preview ? (
                     <DetectionHint detected={preview.dueDate.parsedDate != null} />
                   ) : null}
-                  {preview && !preview.dueDate.parsedDate && preview.dueDate.value ? (
-                    <span className="hint">
-                      Détecté dans le CDC : « {preview.dueDate.value} » — vérifiez et sélectionnez la date.
-                    </span>
+                  {preview ? (
+                    <span className="hint">{preview.dueDate.helperText}</span>
                   ) : null}
                 </div>
                 <div className="field">

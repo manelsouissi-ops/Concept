@@ -39,6 +39,11 @@ Vérifie ta propre fiche.
 Liste les champs "Non trouvé" et où chercher.
 Signale les valeurs incohérentes entre elles.
 Signale les dates et chiffres à revérifier.
+Pour date_limite_depot, retiens uniquement la date finale de dépôt des offres/propositions.
+N'utilise jamais une date d'émission, publication, clarification, visite, ouverture ou démarrage.
+Si la date est absente, écris "Non trouvé" sans créer de point à vérifier uniquement pour cette absence.
+Si le CDC dit qu'elle sera définie ou communiquée plus tard, conserve fidèlement cette indication : ce n'est pas un échec d'extraction.
+Si plusieurs dates de dépôt se contredisent ou restent ambiguës, conserve les candidates sans en choisir une et ajoute un point explicite dans <a_verifier>.
 
 SORTIE
 Rends uniquement le document XML ci-dessous, rempli. Aucun texte avant ni après. Laisse reference_interne vide, je la remplis à la main. Garde exactement cette structure et ces noms de balises.
@@ -274,6 +279,19 @@ xml = xml.replace(/^```\\s*/i, '');
 xml = xml.replace(/\\s*```$/i, '');
 xml = xml.trim();
 
+const chargeOpeningPattern = /<charge_estimee(?:\\s|>)/i;
+const chargeClosingPattern = /<\\/charge_estimee>/i;
+const candidateXmlChargeEstimeePresent = chargeOpeningPattern.test(xml);
+let chargeEstimeeNormalizationApplied = false;
+
+if (!candidateXmlChargeEstimeePresent && !chargeClosingPattern.test(xml)) {
+  const riskPattern = /(<risque_sous_dimensionnement\\b[^>]*>)([\\s\\S]*?)(<\\/risque_sous_dimensionnement>)/i;
+  if (riskPattern.test(xml)) {
+    xml = xml.replace(riskPattern, '$1$2\\n<charge_estimee>Non trouvé</charge_estimee>\\n$3');
+    chargeEstimeeNormalizationApplied = true;
+  }
+}
+
 const fusion = $('Code JS (fusion Ollama)').first().json;
 const markdown = fusion.texte_anonymise_final || fusion.texte_anonymise || '';
 
@@ -281,6 +299,8 @@ return [{
   json: {
     xml,
     markdown,
+    candidate_xml_charge_estimee_present: candidateXmlChargeEstimeePresent,
+    charge_estimee_normalization_applied: chargeEstimeeNormalizationApplied,
   },
 }];"""
         },

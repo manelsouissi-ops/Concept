@@ -33,7 +33,7 @@ import {
 } from "./repository.ts";
 import {
   FciServiceError,
-  autoInitializeAndLaunchFciModulesForValidatedFiche,
+  initializeFciWorkspaceForValidatedFiche,
   getFciModule,
   getFciModuleHistory,
   getFciWorkspace,
@@ -826,7 +826,7 @@ test("validating an assigned departmental module notifies Commercial", async (t)
   });
 });
 
-test("validated fiche auto-launches only not_started FCI modules and stays idempotent", async (t) => {
+test("validated fiche initializes FCI modules without launching generation and stays idempotent", async (t) => {
   if (!hasDatabase()) {
     t.skip("DATABASE_URL is not configured.");
     return;
@@ -860,24 +860,20 @@ test("validated fiche auto-launches only not_started FCI modules and stays idemp
           );
         }) as typeof fetch,
         async () => {
-          const first = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
-          assert.deepEqual(first.launchedModules, ["A", "B", "C", "D"]);
-          assert.equal(first.failedModules.length, 0);
-          assert.equal(launchCount, 4);
+          await initializeFciWorkspaceForValidatedFiche(code);
+          assert.equal(launchCount, 0);
 
           const workspaceAfterFirstLaunch = await getFciWorkspace(code, COMMERCIAL_USER);
           assert.deepEqual(workspaceAfterFirstLaunch.enabled_modules, ["A", "B", "C", "D"]);
           assert.equal(
             workspaceAfterFirstLaunch.module_summaries.every(
-              (module) => module.status === "generating"
+              (module) => module.status === "not_started"
             ),
             true
           );
 
-          const second = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
-          assert.deepEqual(second.launchedModules, []);
-          assert.equal(second.failedModules.length, 0);
-          assert.equal(launchCount, 4);
+          await initializeFciWorkspaceForValidatedFiche(code);
+          assert.equal(launchCount, 0);
         }
       );
     });
@@ -951,15 +947,8 @@ test("re-validating a Fiche CDC after an edit never disturbs a module already va
           assert.equal(moduleBBeforeRevalidation.module.status, "validated");
           const validatedAtBeforeRevalidation = moduleBBeforeRevalidation.module.validated_at;
 
-          const result = await autoInitializeAndLaunchFciModulesForValidatedFiche(code);
-
-          assert.deepEqual(result.launchedModules.sort(), ["A", "C", "D"]);
-          assert.equal(result.failedModules.length, 0);
-          assert.equal(launchCount, 3, "only the contributing not_started modules should trigger a launch");
-          assert.ok(
-            result.skippedModules.some((skipped) => skipped.moduleCode === "B"),
-            "module B must be reported as skipped, not silently ignored"
-          );
+          await initializeFciWorkspaceForValidatedFiche(code);
+          assert.equal(launchCount, 0, "re-initialization must never launch generation");
 
           const moduleBAfterRevalidation = await getFciModule(code, "B", FINANCE_USER);
           assert.equal(moduleBAfterRevalidation.module.status, "validated");
@@ -973,8 +962,8 @@ test("re-validating a Fiche CDC after an edit never disturbs a module already va
           const workspace = await getFciWorkspace(code, COMMERCIAL_USER);
           const moduleA = workspace.module_summaries.find((module) => module.module_code === "A");
           const moduleC = workspace.module_summaries.find((module) => module.module_code === "C");
-          assert.equal(moduleA?.status, "generating");
-          assert.equal(moduleC?.status, "generating");
+          assert.equal(moduleA?.status, "not_started");
+          assert.equal(moduleC?.status, "not_started");
         }
       );
     });
@@ -1334,8 +1323,8 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
         status: "completed",
         provider: "gemini",
         model: "gemini-3.6-flash",
-        prompt_version: "1.0",
-        schema_version: "1.0",
+        prompt_version: "1.1",
+        schema_version: "1.1",
         source_fiche: {
           version: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
           hash: moduleBeforeCallback.source_fiche.hash ?? "missing"
@@ -1396,8 +1385,8 @@ test("callback authentication rejects invalid signatures before callback process
         status: "failed",
         provider: "gemini",
         model: "gemini-3.6-flash",
-        prompt_version: "1.0",
-        schema_version: "1.0",
+        prompt_version: "1.1",
+        schema_version: "1.1",
         source_fiche: {
           version: "validated:test",
           hash: "hash"
@@ -1450,8 +1439,8 @@ test("invalid AI payload callbacks are rejected and mark the generation as faile
       model: "gemini-3.6-flash",
       status: "running",
       contractVersion: "1.0",
-      schemaVersion: "1.0",
-      promptVersion: "1.0",
+      schemaVersion: "1.1",
+      promptVersion: "1.1",
       generationParameters: {
         previous_module_status: "not_started"
       },
@@ -1484,8 +1473,8 @@ test("invalid AI payload callbacks are rejected and mark the generation as faile
       status: "completed",
       provider: "gemini",
       model: "gemini-3.6-flash",
-      prompt_version: "1.0",
-      schema_version: "1.0",
+      prompt_version: "1.1",
+      schema_version: "1.1",
       source_fiche: {
         version: module.source_fiche.version ?? "validated:missing",
         hash: module.source_fiche.hash ?? "missing"
@@ -1595,8 +1584,8 @@ test("failure callbacks preserve the previously validated version during regener
         status: "failed",
         provider: "gemini",
         model: "gemini-3.6-flash",
-        prompt_version: "1.0",
-        schema_version: "1.0",
+        prompt_version: "1.1",
+        schema_version: "1.1",
         source_fiche: {
           version: module.source_fiche.version ?? "validated:missing",
           hash: module.source_fiche.hash ?? "missing"

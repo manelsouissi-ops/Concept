@@ -7,6 +7,7 @@ import type {
   FciAiSupportedModuleCode
 } from "./ai-contracts.ts";
 import type { FicheStatus } from "@/lib/types.ts";
+import { deriveDeadlinePresentation } from "../extraction-identity.ts";
 import type { FciHumanVisibleModuleCode, FciModuleType } from "./types.ts";
 import { FCI_HUMAN_VISIBLE_MODULE_CODES } from "./types.ts";
 
@@ -121,6 +122,7 @@ export type FciPayloadDefaults = {
   codeInterne: string;
   intituleOffre: string;
   dateDepot: string | null;
+  sourceDeadline?: string | null;
   preparedByName?: string | null;
   validatedByName?: string | null;
   sourceFiche: {
@@ -1085,6 +1087,38 @@ function buildCommonHeader(
 ) {
   const preparedValue = asFormField(currentSection?.prepared_by_name);
   const validatedValue = asFormField(currentSection?.validated_by_name);
+  const generatedDeadline = asFormField(
+    currentSection?.date_depot ?? currentSection?.dateDepot
+  );
+  const sourceDeadline = defaults.sourceDeadline?.trim() || null;
+  const hasAuthoritativeDeadline = sourceDeadline != null;
+  const sourcePresentation = deriveDeadlinePresentation(sourceDeadline);
+  const authoritativeDeadline = sourcePresentation.state === "CONFIRMED"
+    ? sourcePresentation.parsedDate
+    : sourcePresentation.state === "PENDING_CONFIRMATION"
+      || sourcePresentation.state === "AMBIGUOUS"
+      ? sourceDeadline
+      : null;
+  const dossierDeadline = toIsoDateInput(defaults.dateDepot);
+  const deadlineField = authoritativeDeadline != null
+    ? makeSystemField(
+        authoritativeDeadline,
+        "cdc",
+        "Date limite reprise de l'extraction de la Fiche CDC validée."
+      )
+    : hasAuthoritativeDeadline
+      ? makeSystemField(
+          null,
+          "cdc",
+          "La Fiche CDC validée ne contient pas de date limite confirmée."
+        )
+    : generatedDeadline && generatedDeadline.value != null
+      ? generatedDeadline
+      : makeSystemField(
+          dossierDeadline,
+          "tender",
+          "Date de depot reprise du dossier d'appel d'offres."
+        );
 
   return {
     reference_interne_code_dossier: makeSystemField(
@@ -1097,11 +1131,7 @@ function buildCommonHeader(
       "tender",
       "Intitule repris du dossier d'appel d'offres."
     ),
-    date_depot: makeSystemField(
-      toIsoDateInput(defaults.dateDepot),
-      "tender",
-      "Date de depot reprise du dossier d'appel d'offres."
-    ),
+    date_depot: deadlineField,
     prepared_by_name:
       preparedValue
       ?? makeHumanField("Nom du preparateur pour ce module.", defaults.preparedByName ?? null),
@@ -1241,6 +1271,30 @@ function legacyFieldToFormField(
   }
 }
 
+function normalizeTransitDaysField(field: FciFormField): FciFormField {
+  const raw = field.value;
+  const parsed = typeof raw === "number"
+    ? raw
+    : typeof raw === "string" && /^\d+$/.test(raw.trim())
+      ? Number(raw.trim())
+      : null;
+  const value = parsed != null && Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+
+  if (value == null) {
+    return {
+      value: null,
+      source: "human",
+      review_status: "human_required",
+      confidence: "none",
+      justification: "Durée de transit en jours à renseigner par l'équipe commerciale.",
+      source_references: [],
+      original_ai_value: raw
+    };
+  }
+
+  return { ...field, value };
+}
+
 function getLegacyField(
   legacySection: Record<string, unknown> | null | undefined,
   key: string
@@ -1342,6 +1396,7 @@ function mapLegacyCommercialPayload(
     ? data.identification_opportunite
     : null;
   payload.data.identification_commune = buildCommonHeader(defaults, {
+    date_depot: identification?.date_depot,
     prepared_by_name: identification?.prepare_par,
     validated_by_name: identification?.valide_par
   });
@@ -1419,13 +1474,15 @@ function mapLegacyCommercialPayload(
   const parsedBoolean = parseBooleanLike(legacyRepresentation?.value);
 
   payload.data.a3_logistique_interne = {
-    delai_transit_jours: legacyFieldToFormField(
-      getLegacyField(logistique, "delai_de_transit_necessaire"),
-      {
-        sourceLabel: "human",
-        internalInputExpected: true,
-        defaultJustification: "A definir en interne."
-      }
+    delai_transit_jours: normalizeTransitDaysField(
+      legacyFieldToFormField(
+        getLegacyField(logistique, "delai_de_transit_necessaire"),
+        {
+          sourceLabel: "human",
+          internalInputExpected: true,
+          defaultJustification: "A definir en interne."
+        }
+      )
     ),
     responsable_depot: legacyFieldToFormField(
       getLegacyField(logistique, "responsable_depot"),
@@ -1964,6 +2021,19 @@ function applyDefaultsToPayload(
     } else {
       nextPayload.data[section.key] = ensureObjectSection(section, currentValue);
     }
+  }
+
+  if (moduleCode === "A") {
+    const logistics = isPlainObject(nextPayload.data.a3_logistique_interne)
+      ? nextPayload.data.a3_logistique_interne
+      : {};
+    const transit = asFormField(logistics.delai_transit_jours);
+    nextPayload.data.a3_logistique_interne = {
+      ...logistics,
+      delai_transit_jours: normalizeTransitDaysField(
+        transit ?? makeHumanField("Durée de transit en jours à renseigner.")
+      )
+    };
   }
 
   nextPayload.summary = createSummaryForPayload(nextPayload, moduleCode);

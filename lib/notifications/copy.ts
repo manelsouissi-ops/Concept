@@ -36,6 +36,11 @@ export function buildNotificationCopy(input: {
   const decision = getDecisionLabel(input.metadata?.decision);
 
   switch (input.eventType) {
+    case "FICHE_CDC_READY":
+      return {
+        title: "Fiche CDC prête à vérifier",
+        message: `L'analyse du CDC de ${input.appelOffreCode} est terminée. La Fiche CDC est disponible pour vérification.`
+      };
     case "FCI_ASSIGNED":
       return {
         title: `Nouvelle FCI ${moduleLabel} à compléter`,

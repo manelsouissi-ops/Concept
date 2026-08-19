@@ -18,6 +18,9 @@ Vous recevez :
 
 Considérez uniquement ces données d’entrée.
 N’utilisez aucune recherche web et aucune connaissance marché comme fait confirmé.
+Le contexte commercial peut contenir une liste restreinte extraite textuellement
+du CDC. Reprenez chaque entrée explicite, y compris les groupements et leurs
+membres, sans en inventer ni en omettre.
 
 # Output Contract
 
@@ -124,13 +127,21 @@ N’inventez jamais :
 - volonté d’un partenaire
 - disponibilité commerciale interne
 - faits internes sur le dépôt ou la représentation locale
+- capacité, expérience, maîtrise, rigueur ou avantage propre à CONCEPT à partir
+  des seules exigences imposées au futur consultant
+- décision finale GO, NO-GO ou GO AVEC RÉSERVES
 
 Vous pouvez inférer seulement de façon prudente :
 
 - l’attractivité commerciale apparente
 - l’intensité concurrentielle probable
 - un besoin probable de groupement
-- un risque client ou délai
+- une contrainte commerciale de calendrier
+
+Une exigence du CDC décrit ce que le titulaire devra savoir faire. Elle ne prouve
+jamais que CONCEPT possède cette capacité. Sans source interne approuvée,
+`notre_avantage_differentiel_principal` doit être `internal_required`, avec
+`value = null` et une invitation neutre à la revue commerciale.
 
 # Module-Specific Field Instructions
 
@@ -151,6 +162,11 @@ Remplissez les sections suivantes en respectant la structure du template Word r�
    - `avantage_principal_pour_ce_cdc`
    - `risque_qu_il_represente`
 
+   Quand une liste restreinte explicite est fournie, créez exactement une ligne
+   par consultant ou groupement. Le nom, les membres écrits dans le nom et le
+   pays doivent rester strictement factuels. Les forces, historiques, avantages
+   et risques restent nuls sans source interne approuvée.
+
 3. `positionnement_offre`
    - `notre_avantage_differentiel_principal`
    - `notre_vulnerabilite_principale`
@@ -160,99 +176,15 @@ Remplissez les sections suivantes en respectant la structure du template Word r�
    - `delai_de_transit_necessaire`
    - `responsable_depot`
    - `representation_locale_existante`
-   - `autres_contraintes_internes`
 
-5. `synthese_commerciale`
-   - `attractivite_commerciale`
-   - `intensite_concurrentielle`
-   - `besoins_groupement_probables`
-   - `risques_client`
-   - `recommandation_revue_commerciale`
+   `delai_de_transit_necessaire.value` accepte uniquement un nombre entier de
+   jours ou `null`. Une date limite, une adresse, un lieu ou une instruction de
+   dépôt n'est jamais une durée de transit. Sans durée fiable, utilisez
+   `internal_required` avec `value = null`.
 
-## Special Rule For Array-Valued Field Objects
-
-Les champs suivants ne sont jamais des tableaux bruts :
-
-- `data.synthese_commerciale.besoins_groupement_probables`
-- `data.synthese_commerciale.risques_client`
-
-Ils doivent toujours etre des objets complets avec exactement :
-
-- `value`
-- `source_type`
-- `confidence`
-- `requires_human_input`
-- `justification`
-- `source_references`
-
-Leur `value` peut seulement etre :
-
-- un tableau de chaines
-- `null`
-
-Forme valide pour `besoins_groupement_probables` :
-
-```json
-{
-  "value": [
-    "Partenaire local pour presence terrain",
-    "Coordination renforcee sur le volet environnement"
-  ],
-  "source_type": "ai_inference",
-  "confidence": "low",
-  "requires_human_input": false,
-  "justification": "Le CDC suggere un dispositif terrain etendu sans imposer explicitement un groupement.",
-  "source_references": [
-    {
-      "section": "Site et contraintes",
-      "field": "zone_execution",
-      "excerpt": "Interventions sur plusieurs sites"
-    }
-  ]
-}
-```
-
-Forme valide pour `risques_client` :
-
-```json
-{
-  "value": [
-    "Delais de remise serres",
-    "Attente probable de reporting strict"
-  ],
-  "source_type": "ai_inference",
-  "confidence": "medium",
-  "requires_human_input": false,
-  "justification": "Ces risques sont inferes a partir du calendrier et des livrables attendus.",
-  "source_references": [
-    {
-      "section": "Procedure",
-      "field": "date_limite_depot",
-      "excerpt": "2026-08-12"
-    }
-  ]
-}
-```
-
-Si l'information manque, retournez quand meme l'objet complet, par exemple :
-
-```json
-{
-  "value": null,
-  "source_type": "unavailable",
-  "confidence": "none",
-  "requires_human_input": false,
-  "justification": "La Fiche CDC ne permet pas d'identifier ce point de facon fiable.",
-  "source_references": []
-}
-```
-
-Interdit pour ces deux champs :
-
-- un tableau brut
-- une chaine brute
-- `null` directement
-- un objet incomplet sans `source_references`, `confidence` ou `justification`
+La FCI A ne contient aucune recommandation finale GO/NO-GO. Les analyses
+opérationnelles détaillées, le staffing d'exécution et les risques de production
+appartiennent à la FCI C et ne doivent pas être générés ici.
 
 # Missing Information Behavior
 

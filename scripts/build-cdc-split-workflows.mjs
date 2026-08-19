@@ -81,6 +81,29 @@ w1Connections["Prepare Document Success Callback"] = { main: [[{ node: "Sign Can
 const w1 = { id: "cdcDocumentProcessingV1", name: "CONCEPT - Document Processing", description: "W1 split CDC pipeline: secured PDF processing to signed Markdown callback. Inactive until cutover.", active: false, nodes: w1Nodes, connections: w1Connections, settings: baseline.settings };
 
 const w2Nodes = pick("HTTP Request → Gemini XML", "Clean XML Response", "Validate Success Payload", "Success Payload Valid?", "Prepare Success Callback", "Prepare Gemini Failure Callback", "Prepare Validation Failure Callback", "Sign Canonical Callback", "Unwrap Signed Callback", "Send Canonical Callback");
+const cleanXmlW2 = w2Nodes.find((node) => node.name === "Clean XML Response");
+cleanXmlW2.parameters.jsCode = cleanXmlW2.parameters.jsCode.replace(
+  "xml = xml.trim();\n\nconst fusion",
+  `xml = xml.trim();
+
+const chargeOpeningPattern = /<charge_estimee(?:\\s|>)/i;
+const chargeClosingPattern = /<\\/charge_estimee>/i;
+const candidateXmlChargeEstimeePresent = chargeOpeningPattern.test(xml);
+let chargeEstimeeNormalizationApplied = false;
+
+if (!candidateXmlChargeEstimeePresent && !chargeClosingPattern.test(xml)) {
+  const riskPattern = /(<risque_sous_dimensionnement\\b[^>]*>)([\\s\\S]*?)(<\\/risque_sous_dimensionnement>)/i;
+  if (riskPattern.test(xml)) {
+    xml = xml.replace(riskPattern, '$1$2\\n<charge_estimee>Non trouvé</charge_estimee>\\n$3');
+    chargeEstimeeNormalizationApplied = true;
+  }
+}
+
+const fusion`,
+).replace(
+  "    markdown,\n  },",
+  "    markdown,\n    candidate_xml_charge_estimee_present: candidateXmlChargeEstimeePresent,\n    charge_estimee_normalization_applied: chargeEstimeeNormalizationApplied,\n  },",
+);
 const webhookW2 = structuredClone(byName.get("Webhook CDC Initiation")); webhookW2.id=id(); webhookW2.webhookId=id(); webhookW2.name="Webhook CDC Extraction"; webhookW2.parameters.path="concept-cdc-extraction";
 const validateW2 = codeNode("Validate CDC Extraction Launch", `const item=$input.first(); const body=item.json.body??item.json??{}; const headers=item.json.headers??{}; const env=typeof $env==='object'&&$env?$env:{}; const h=(n)=>String(headers[n]||headers[n.toLowerCase()]||'').trim(); const fail=(m,c,s=400)=>[{json:{launch_valid:false,response_status:s,response_body:JSON.stringify({error:m,code:c})}}];
 if(!env.N8N_WEBHOOK_TOKEN) return fail('N8N_WEBHOOK_TOKEN absent.','WORKFLOW_CONFIGURATION_ERROR',500); if(h('authorization')!=='Bearer '+env.N8N_WEBHOOK_TOKEN) return fail('Jeton invalide.','UNAUTHORIZED',401);

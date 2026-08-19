@@ -3,7 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AlertIcon } from "@/components/app-icons.tsx";
+import { CdcProcessingPanel } from "@/components/cdc-processing-panel.tsx";
 import type { AppelOffresDetail } from "@/lib/appels-offres/types.ts";
+import {
+  deriveDeadlinePresentation,
+  prefillDraftDossierIdentity,
+  type DeadlinePresentation
+} from "@/lib/appels-offres/extraction-identity.ts";
+import { deriveCdcProcessingPresentation } from "@/lib/appels-offres/cdc-processing-presentation.ts";
 import { StatusBadge } from "@/components/status-badge.tsx";
 import {
   EVALUATION_FIELD_DEFINITIONS,
@@ -257,23 +264,6 @@ function getFieldReviewState({
   return { label: "Genere", tone: "ai" as const };
 }
 
-function formatElapsed(processingStartedAt: string | null) {
-  if (!processingStartedAt) {
-    return null;
-  }
-
-  const elapsedMs = Date.now() - new Date(processingStartedAt).getTime();
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
-    return null;
-  }
-
-  const totalSeconds = Math.floor(elapsedMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
-}
-
 function createDossierFormState(appel: AppelOffresDetail): DossierFormState {
   return {
     code: appel.code,
@@ -465,13 +455,13 @@ function FicheUnavailableState({
           <div className="fiche-unavailable-copy">
   <h3>
     {isError
-      ? "La Fiche CDC n'a pas pu être générée"
+      ? "Le traitement du CDC a été interrompu."
       : "La Fiche CDC est en cours de génération"}
   </h3>
 
   <p className="meta">
     {isError
-      ? "L'analyse automatique n'a pas abouti."
+      ? "Le document n'a pas pu être traité correctement."
       : "L'analyse du CDC est en cours. La fiche sera disponible automatiquement à la fin du traitement."}
   </p>
 
@@ -490,7 +480,7 @@ function FicheUnavailableState({
       onClick={onRetry}
       disabled={isPending}
     >
-      {isPending ? "Relance..." : "Relancer l'analyse"}
+      {isPending ? "Relance..." : "Réessayer l'analyse"}
     </button>
   </div>
 ) : null}
@@ -509,11 +499,13 @@ function FicheUnavailableState({
 
 function DossierFieldsSection({
   form,
+  deadlinePresentation,
   isLocked,
   isPending,
   onUpdateField
 }: {
   form: DossierFormState;
+  deadlinePresentation: DeadlinePresentation;
   isLocked: boolean;
   isPending: boolean;
   onUpdateField: <Key extends keyof DossierFormState>(
@@ -616,6 +608,11 @@ function DossierFieldsSection({
                 disabled={isLocked || isPending}
                 onChange={(event) => onUpdateField("dueDate", event.target.value)}
               />
+              {!form.dueDate ? (
+                <span className="hint">{deadlinePresentation.helperText}</span>
+              ) : deadlinePresentation.state === "CONFIRMED" ? (
+                <span className="hint">{deadlinePresentation.helperText}</span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -669,7 +666,6 @@ export function FicheEditor({ code, appel, readOnly = false, onReviewStateChange
   const [sourceFeedbackMessage, setSourceFeedbackMessage] = useState<string | null>(null);
   const [pdfJumpPage, setPdfJumpPage] = useState<number | null>(null);
   const [pdfFlashToken, setPdfFlashToken] = useState(0);
-  const [elapsedLabel, setElapsedLabel] = useState<string | null>(null);
   const markdownLineRefs = useRef<Array<HTMLDivElement | null>>([]);
   const initialExtractionRef = useRef<Map<string, string>>(new Map());
   const initialDossierRef = useRef<DossierFormState>(createDossierFormState(appel));
@@ -754,18 +750,14 @@ export function FicheEditor({ code, appel, readOnly = false, onReviewStateChange
   ]);
 
   useEffect(() => {
-    if (statusData?.status !== "processing") {
+    if (!data || data.status.status !== "draft") {
       return;
     }
 
-    const updateElapsed = () => {
-      setElapsedLabel(formatElapsed(statusData.processingStartedAt));
-    };
-
-    updateElapsed();
-    const timer = window.setInterval(updateElapsed, 1000);
-    return () => window.clearInterval(timer);
-  }, [statusData]);
+    setDossierForm((current) =>
+      prefillDraftDossierIdentity(current, data.extraction, "draft")
+    );
+  }, [data]);
 
   useEffect(() => {
     if (statusData?.status !== "processing") {
@@ -1160,30 +1152,17 @@ export function FicheEditor({ code, appel, readOnly = false, onReviewStateChange
   }
 
   if (statusData?.status === "processing") {
+    const processingPresentation = deriveCdcProcessingPresentation(appel);
     return (
       <section className="panel">
         <div className="panel-inner stack fiche-processing-state">
-          <div className="stack">
-            <h3>Fiche CDC en preparation</h3>
-            <p className="meta">
-              L'analyse du CDC est en cours. La fiche sera generee automatiquement.
-            </p>
-          </div>
-
-          <div className="processing-summary-grid compact">
-            <article className="summary-card processing-summary-card">
-              <span>Statut</span>
-              <strong>{statusLabel(statusData.status)}</strong>
-            </article>
-            <article className="summary-card processing-summary-card">
-              <span>Temps ecoule</span>
-              <strong>{elapsedLabel ?? "En attente"}</strong>
-            </article>
-            <article className="summary-card processing-summary-card">
-              <span>Actualisation</span>
-              <strong>Automatique toutes les 5 secondes</strong>
-            </article>
-          </div>
+          <CdcProcessingPanel
+            state="processing"
+            step={processingPresentation.step}
+            startedAt={statusData.processingStartedAt ?? processingPresentation.startedAt}
+            isLongRunning={processingPresentation.isLongRunning}
+            readyHref={`/appels-offres/${encodeURIComponent(code)}/fiche-cdc`}
+          />
         </div>
       </section>
     );
@@ -1220,6 +1199,9 @@ export function FicheEditor({ code, appel, readOnly = false, onReviewStateChange
   const canValidate = data.status.status === "draft" && !isPending && unresolvedCount === 0;
   const extractionEntries = new Map(
     data.extraction.map((field, index) => [field.key, { field, index }] as const)
+  );
+  const deadlinePresentation = deriveDeadlinePresentation(
+    extractionEntries.get("date_limite_depot")?.field.value
   );
   const groupedExtraction = DOCUMENT_SECTION_ORDER.map((section) => ({
     section,
@@ -1278,6 +1260,7 @@ export function FicheEditor({ code, appel, readOnly = false, onReviewStateChange
           <div className="section-body stack fiche-document-body">
             <DossierFieldsSection
               form={dossierForm}
+              deadlinePresentation={deadlinePresentation}
               isLocked={isLocked}
               isPending={isPending}
               onUpdateField={updateDossierField}

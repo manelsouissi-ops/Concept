@@ -3,6 +3,19 @@ import test from "node:test";
 
 import { buildNotificationCopy } from "./copy.ts";
 
+test("FICHE_CDC_READY uses the business-ready copy", () => {
+  const notification = buildNotificationCopy({
+    eventType: "FICHE_CDC_READY",
+    appelOffreCode: "AO-20260818-1132"
+  });
+
+  assert.equal(notification.title, "Fiche CDC prête à vérifier");
+  assert.equal(
+    notification.message,
+    "L'analyse du CDC de AO-20260818-1132 est terminée. La Fiche CDC est disponible pour vérification."
+  );
+});
+
 test("FCI D assignment and final DG arbitration have distinct notifications", () => {
   const assignment = buildNotificationCopy({
     eventType: "FCI_ASSIGNED",
