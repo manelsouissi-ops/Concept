@@ -533,6 +533,9 @@ export function FciModuleView({
       {modulePresentation.permissions.read_only_message ? (
         <div className="callout info">{modulePresentation.permissions.read_only_message}</div>
       ) : null}
+      {modulePresentation.permissions.generation_blocked_reason ? (
+        <div className="callout info">{modulePresentation.permissions.generation_blocked_reason}</div>
+      ) : null}
       {conflictMessage ? (
         <div className="callout warning">
           <strong>Conflit de version</strong>

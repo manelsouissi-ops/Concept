@@ -1,6 +1,7 @@
 import type { FichePayload, FicheStatus } from "@/lib/types.ts";
 import type { FciAiModulePayload, FciAiSupportedModuleCode } from "./ai-contracts.ts";
 import type { FciCommercialSourceContext } from "./commercial-quality.ts";
+import type { FciStrategicSourceContext } from "./strategy-quality.ts";
 import { getFciModuleTypeFromCode } from "./validation.ts";
 
 export const DEFAULT_FCI_N8N_CONTRACT_VERSION = "1.0";
@@ -62,6 +63,7 @@ export type FciN8nLaunchRequest = {
     provider: string;
     model: string;
     commercial_context?: FciCommercialSourceContext;
+    strategic_context?: FciStrategicSourceContext;
   };
   prompt: {
     text: string;

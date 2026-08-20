@@ -73,6 +73,7 @@ function buildModulePresentation(
       hash: "hash"
     },
     stale_source: false,
+    missing_prerequisite_modules: [],
     allowed_actions: ["view_history"],
     permissions: {
       can_view: true,
@@ -82,7 +83,8 @@ function buildModulePresentation(
       can_validate: false,
       can_make_final_decision: true,
       read_only: true,
-      read_only_message: "Lecture seule"
+      read_only_message: "Lecture seule",
+      generation_blocked_reason: null
     },
     history_summary: {
       versions_count: 1,

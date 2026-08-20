@@ -5,6 +5,7 @@ import {
   getCommercialOwnership
 } from "../appels-offres/ownership.ts";
 import { appendAuditLog } from "../appels-offres/repository.ts";
+import { listFciAssignmentsByAppelOffresCode } from "../appels-offres/workflow/repository.ts";
 import {
   createNotification,
   notificationExists,
@@ -125,6 +126,80 @@ export async function notifyCommercialUsers(input: {
     });
   await input.onCreated?.(notification);
   return [notification];
+}
+
+async function resolveFciModuleRecipient(
+  appelOffreCode: string,
+  moduleCode: FciModuleCode
+): Promise<{ userId: number; role: UserRole } | null> {
+  if (moduleCode === "A") {
+    const ownership = await getCommercialOwnership(appelOffreCode);
+    if (!isActiveCommercialNotificationOwner(ownership.owner)) {
+      return null;
+    }
+    return { userId: ownership.owner.userId!, role: "COMMERCIAL" };
+  }
+
+  if (moduleCode === "B" || moduleCode === "C" || moduleCode === "D") {
+    const assignments = await listFciAssignmentsByAppelOffresCode(appelOffreCode);
+    const assignment = assignments.find((item) => item.moduleCode === moduleCode);
+    if (!assignment || assignment.assignedUserStatus !== "ACTIVE") {
+      return null;
+    }
+    return { userId: assignment.assignedUserId, role: assignment.assignedRole };
+  }
+
+  return null;
+}
+
+/**
+ * Notifies whoever is actually assigned to a module (Commercial owner for A,
+ * the Finance/Operations/DG assignment for B/C/D) about a generation
+ * lifecycle event. Distinct from notifyCommercialUsers, which always targets
+ * the Commercial owner regardless of which module the event concerns.
+ */
+export async function notifyFciModuleLifecycleEvent(input: {
+  appelOffreCode: string;
+  moduleCode: FciModuleCode;
+  eventType: "FCI_STARTED" | "FCI_COMPLETED";
+  currentUser?: CurrentUser | null;
+  metadata?: Record<string, unknown> | null;
+  dedupeKey: string;
+}) {
+  const recipient = await resolveFciModuleRecipient(input.appelOffreCode, input.moduleCode);
+  if (!recipient) {
+    await appendAuditLog(
+      input.appelOffreCode,
+      "notification.module_assignee_missing",
+      {
+        eventType: input.eventType,
+        moduleCode: input.moduleCode
+      },
+      input.currentUser?.name ?? null
+    );
+    return null;
+  }
+
+  const dedupeKey = `${input.dedupeKey}:${recipient.userId}`;
+  const existing = await notificationExists(dedupeKey);
+  if (existing) {
+    return existing;
+  }
+
+  return createNotification({
+    recipientUserId: recipient.userId,
+    recipientRole: recipient.role,
+    appelOffreCode: input.appelOffreCode,
+    moduleCode: input.moduleCode,
+    eventType: input.eventType,
+    actorUserId: parseActorUserId(input.currentUser),
+    metadata: {
+      actorName: input.currentUser?.name ?? null,
+      ...(input.metadata ?? {})
+    },
+    dedupeKey,
+    section: "overview"
+  });
 }
 
 export function buildFicheCdcReadyDedupeKey(

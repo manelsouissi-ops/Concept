@@ -80,6 +80,7 @@ export type FciModuleSummaryPresentation = {
     last_attempt_at: string | null;
   } | null;
   stale_source: boolean;
+  missing_prerequisite_modules: Array<"A" | "B" | "C">;
   available_actions: FciModuleAllowedAction[];
   current_user: UserPresentation;
   permissions: {
@@ -91,6 +92,7 @@ export type FciModuleSummaryPresentation = {
     can_make_final_decision: boolean;
     read_only: boolean;
     read_only_message: string | null;
+    generation_blocked_reason: string | null;
   };
 };
 
@@ -192,6 +194,7 @@ export type FciModulePresentation = {
     hash: string | null;
   };
   stale_source: boolean;
+  missing_prerequisite_modules: Array<"A" | "B" | "C">;
   allowed_actions: FciModuleAllowedAction[];
   permissions: {
     can_view: boolean;
@@ -202,6 +205,7 @@ export type FciModulePresentation = {
     can_make_final_decision: boolean;
     read_only: boolean;
     read_only_message: string | null;
+    generation_blocked_reason: string | null;
   };
   history_summary: {
     versions_count: number;
@@ -523,6 +527,39 @@ export function buildFciProgress(input: {
   };
 }
 
+const FCI_D_PREREQUISITE_MODULES = ["A", "B", "C"] as const;
+
+/**
+ * FCI D synthesizes the Commercial/Finance/Operations contributions, so it
+ * may only start once those three are human-validated - a completed AI
+ * generation (needs_review) is not enough, since the content could still
+ * change before validation. Shared by the service-level generation gate and
+ * this presentation layer so the UI and the server enforce the same rule.
+ */
+export function getFciDMissingPrerequisiteModules(
+  allModules: FciModuleRecord[]
+): Array<"A" | "B" | "C"> {
+  return FCI_D_PREREQUISITE_MODULES.filter((moduleCode) => {
+    const module = allModules.find((item) => item.moduleCode === moduleCode);
+    return module?.status !== "validated";
+  });
+}
+
+const PREREQUISITE_MODULE_LABELS: Record<"A" | "B" | "C", string> = {
+  A: "Commerciale",
+  B: "Financiere",
+  C: "Operations"
+};
+
+export function buildFciDWaitingMessage(missingModules: Array<"A" | "B" | "C">) {
+  if (missingModules.length === 0) {
+    return null;
+  }
+
+  const labels = missingModules.map((code) => PREREQUISITE_MODULE_LABELS[code]);
+  return `En attente de validation des contributions ${labels.join(", ")}.`;
+}
+
 export function buildFciModuleAllowedActions(input: {
   module: FciModuleRecord;
   latestData: FciModuleDataRecord | null;
@@ -530,6 +567,7 @@ export function buildFciModuleAllowedActions(input: {
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
   currentUser: CurrentUser;
+  missingPrerequisiteModules?: Array<"A" | "B" | "C">;
 }) {
   const actions: FciModuleAllowedAction[] = ["view_history"];
   const generatable = isFciModuleGeneratable(input.module.moduleCode);
@@ -538,6 +576,7 @@ export function buildFciModuleAllowedActions(input: {
   const canEdit = canEditFciModule(input.currentUser.role, input.module.moduleCode);
   const canValidate = canValidateFciModule(input.currentUser.role, input.module.moduleCode);
   const canRegenerate = canRegenerateFciModule(input.currentUser.role, input.module.moduleCode);
+  const prerequisitesMissing = (input.missingPrerequisiteModules?.length ?? 0) > 0;
 
   if (canEdit && input.latestData && input.module.status !== "generating") {
     if (input.module.status !== "validated") {
@@ -550,7 +589,7 @@ export function buildFciModuleAllowedActions(input: {
     return actions;
   }
 
-  if (generatable && !activeJob && sourceValidated) {
+  if (generatable && !activeJob && sourceValidated && !prerequisitesMissing) {
     // Also expose "regenerate" when there is no data yet but the last
     // generation attempt failed (module.error_code set): this is the retry
     // path for a first-time generation failure (e.g. AO-20260812-0840/FCI A,
@@ -568,11 +607,16 @@ export function buildFciModuleAllowedActions(input: {
   return [...new Set(actions)];
 }
 
-function buildFciModulePermissions(currentUser: CurrentUser, moduleCode: FciModuleCode) {
+function buildFciModulePermissions(
+  currentUser: CurrentUser,
+  moduleCode: FciModuleCode,
+  missingPrerequisiteModules: Array<"A" | "B" | "C"> = []
+) {
   const canView = canViewFciModule(currentUser.role, moduleCode);
   const canEdit = canEditFciModule(currentUser.role, moduleCode);
-  const canGenerate = canGenerateFciModule(currentUser.role, moduleCode);
-  const canRegenerate = canRegenerateFciModule(currentUser.role, moduleCode);
+  const prerequisitesMissing = missingPrerequisiteModules.length > 0;
+  const canGenerate = canGenerateFciModule(currentUser.role, moduleCode) && !prerequisitesMissing;
+  const canRegenerate = canRegenerateFciModule(currentUser.role, moduleCode) && !prerequisitesMissing;
   const canValidate = canValidateFciModule(currentUser.role, moduleCode);
   const canMakeDecision = canMakeFinalDecision(currentUser.role);
   const readOnlyMessage = getFciReadOnlyMessage(currentUser.role, moduleCode);
@@ -585,7 +629,8 @@ function buildFciModulePermissions(currentUser: CurrentUser, moduleCode: FciModu
     can_validate: canValidate,
     can_make_final_decision: canMakeDecision,
     read_only: canView && !canEdit,
-    read_only_message: readOnlyMessage
+    read_only_message: readOnlyMessage,
+    generation_blocked_reason: buildFciDWaitingMessage(missingPrerequisiteModules)
   };
 }
 
@@ -597,6 +642,7 @@ export function buildFciModuleSummary(input: {
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
   currentUser: CurrentUser;
+  allModules?: FciModuleRecord[];
 }): FciModuleSummaryPresentation {
   const staleSource = isModuleSourceStale(input.latestData, input.sourceFiche);
   const normalizedPayload = normalizeLatestPayload({
@@ -614,9 +660,13 @@ export function buildFciModuleSummary(input: {
   const definition = isDepartmentalModuleCode(input.module.moduleCode)
     ? getFciModuleDefinition(input.module.moduleCode)
     : null;
+  const missingPrerequisiteModules = input.module.moduleCode === "D"
+    ? getFciDMissingPrerequisiteModules(input.allModules ?? [])
+    : [];
   const permissions = buildFciModulePermissions(
     input.currentUser,
-    input.module.moduleCode
+    input.module.moduleCode,
+    missingPrerequisiteModules
   );
 
   return {
@@ -644,13 +694,15 @@ export function buildFciModuleSummary(input: {
           }
         : null,
     stale_source: staleSource,
+    missing_prerequisite_modules: missingPrerequisiteModules,
     available_actions: buildFciModuleAllowedActions({
       module: input.module,
       latestData: input.latestData,
       latestJob: input.latestJob,
       sourceFiche: input.sourceFiche,
       knowledgeBaseEnabled: input.knowledgeBaseEnabled,
-      currentUser: input.currentUser
+      currentUser: input.currentUser,
+      missingPrerequisiteModules
     }),
     current_user: buildUserPresentation(input.currentUser),
     permissions
@@ -734,7 +786,8 @@ export function buildFciWorkspacePresentation(input: {
           latestJob: latestJobsByModuleId.get(module.id) ?? null,
           sourceFiche: input.sourceFiche,
           knowledgeBaseEnabled: input.knowledgeBaseEnabled,
-          currentUser: input.currentUser
+          currentUser: input.currentUser,
+          allModules: input.detail.modules
         })
       )
   };
@@ -751,6 +804,7 @@ export function buildFciModulePresentation(input: {
   sourceFiche: SourceFicheSnapshot | null;
   knowledgeBaseEnabled: boolean;
   currentUser: CurrentUser;
+  allModules?: FciModuleRecord[];
 }): FciModulePresentation {
   const staleSource = isModuleSourceStale(input.latestData, input.sourceFiche);
   const normalizedPayload = normalizeLatestPayload({
@@ -768,9 +822,13 @@ export function buildFciModulePresentation(input: {
   const definition = isDepartmentalModuleCode(input.module.moduleCode)
     ? getFciModuleDefinition(input.module.moduleCode)
     : null;
+  const missingPrerequisiteModules = input.module.moduleCode === "D"
+    ? getFciDMissingPrerequisiteModules(input.allModules ?? [])
+    : [];
   const permissions = buildFciModulePermissions(
     input.currentUser,
-    input.module.moduleCode
+    input.module.moduleCode,
+    missingPrerequisiteModules
   );
 
   return {
@@ -836,13 +894,15 @@ export function buildFciModulePresentation(input: {
       hash: input.sourceFiche?.hash ?? null
     },
     stale_source: staleSource,
+    missing_prerequisite_modules: missingPrerequisiteModules,
     allowed_actions: buildFciModuleAllowedActions({
       module: input.module,
       latestData: input.latestData,
       latestJob: input.latestJob,
       sourceFiche: input.sourceFiche,
       knowledgeBaseEnabled: input.knowledgeBaseEnabled,
-      currentUser: input.currentUser
+      currentUser: input.currentUser,
+      missingPrerequisiteModules
     }),
     permissions,
     history_summary: {

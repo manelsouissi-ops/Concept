@@ -21,7 +21,8 @@ function createModulePresentationFixture(input?: {
       can_validate: input?.canValidate ?? true,
       can_make_final_decision: false,
       read_only: !(input?.canEdit ?? true),
-      read_only_message: input?.canEdit === false ? "Lecture seule" : null
+      read_only_message: input?.canEdit === false ? "Lecture seule" : null,
+      generation_blocked_reason: null
     },
     latest_data:
       input?.latestData === false

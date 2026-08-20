@@ -13,7 +13,13 @@ Vous recevez :
 
 1. `source_fiche` fourni par CONCEPT
 2. Une Fiche CDC structurée (`FichePayload`)
-3. Des métadonnées d’orchestration éventuelles
+3. Des métadonnées d'orchestration éventuelles, incluant
+   `generation_metadata.strategic_context` : les contributions Commerciale
+   (A), Financière (B) et Opérations (C) déjà **validées par leurs équipes**
+   au moment du lancement (jamais un brouillon). Chaque entrée expose
+   `available`, `validated_at` et `data`. Synthétisez à partir de ces
+   contributions quand elles sont disponibles ; si l'une est absente,
+   traitez l'axe correspondant comme non couvert plutôt que de l'inventer.
 
 N’utilisez pas de connaissance externe sur le pays, le client ou le marché comme fait établi.
 

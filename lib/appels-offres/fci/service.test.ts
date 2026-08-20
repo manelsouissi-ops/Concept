@@ -294,7 +294,7 @@ function fillField<TValue>(
 }
 
 function buildCompletedDepartmentPayload(
-  moduleCode: "B" | "C"
+  moduleCode: "A" | "B" | "C"
 ) {
   const payload = createEmptyFciModulePayload(moduleCode, {
     codeInterne: "AO-TEST",
@@ -312,6 +312,17 @@ function buildCompletedDepartmentPayload(
   const identification = payload.data.identification_commune as Record<string, Record<string, unknown>>;
   identification.prepared_by_name = fillField(identification.prepared_by_name, "Bob Durand");
   identification.validated_by_name = fillField(identification.validated_by_name, "Bob Durand");
+
+  if (moduleCode === "A") {
+    const positioning = payload.data.a2_positionnement as Record<string, Record<string, unknown>>;
+    positioning.avantage_differentiel = fillField(positioning.avantage_differentiel, "Reference interne validee par la direction commerciale.");
+    positioning.vulnerabilite_principale = fillField(positioning.vulnerabilite_principale, "Charge de travail concurrente sur la periode.");
+    positioning.niveau_prix_cible = fillField(positioning.niveau_prix_cible, 1200000000);
+
+    const logistics = payload.data.a3_logistique_interne as Record<string, Record<string, unknown>>;
+    logistics.responsable_depot = fillField(logistics.responsable_depot, "Bob Durand");
+    logistics.representation_locale_existante = fillField(logistics.representation_locale_existante, false);
+  }
 
   if (moduleCode === "B") {
     const finance = payload.data.b1_elements_financiers as Record<string, Record<string, unknown>>;
@@ -1368,6 +1379,229 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
   });
 });
 
+async function assertNoModuleEventNotification(
+  userId: number,
+  code: string,
+  eventType: string,
+  moduleCode: string
+) {
+  const notifications = await listAppNotificationsForUser(userId, 50);
+  assert.equal(
+    notifications.some((notification) =>
+      notification.appelOffreCode === code
+      && notification.eventType === eventType
+      && notification.moduleCode === moduleCode
+    ),
+    false
+  );
+}
+
+async function runModuleLifecycleNotificationScenario(
+  moduleCode: "A" | "B" | "C",
+  actor: CurrentUser,
+  recipient: CurrentUser,
+  unrelated: CurrentUser[],
+  expectPriorAssignedNotification: boolean
+) {
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+
+    if (expectPriorAssignedNotification) {
+      const assignedBefore = await listAppNotificationsForUser(Number(recipient.id), 50);
+      assert.equal(
+        assignedBefore.filter((notification) =>
+          notification.appelOffreCode === code
+          && notification.eventType === "FCI_ASSIGNED"
+          && notification.moduleCode === moduleCode
+        ).length,
+        1
+      );
+    }
+
+    let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: `exec-lifecycle-${moduleCode}`,
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          launchResult = await prepareFciGeneration(code, moduleCode, actor);
+        }
+      );
+
+      assert.ok(launchResult);
+      if (!launchResult) {
+        throw new Error("Expected FCI launch result.");
+      }
+
+      const startedDedupeKey =
+        `fci-started:${code}:${moduleCode}:${launchResult.job.id}:${Number(recipient.id)}`;
+      const afterStart = await listAppNotificationsForUser(Number(recipient.id), 50);
+      const startedForRecipient = afterStart.filter((notification) =>
+        notification.appelOffreCode === code
+        && notification.eventType === "FCI_STARTED"
+        && notification.moduleCode === moduleCode
+      );
+      assert.equal(startedForRecipient.length, 1);
+      assert.equal(startedForRecipient[0]?.dedupeKey, startedDedupeKey);
+
+      for (const other of unrelated) {
+        await assertNoModuleEventNotification(Number(other.id), code, "FCI_STARTED", moduleCode);
+      }
+
+      const moduleBeforeCallback = await getFciModule(code, moduleCode, actor);
+      const workspace = await getFciWorkspace(code, actor);
+      const payload = buildFciModulePayloadFixture({
+        moduleCode,
+        sourceVersion: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+        sourceHash: moduleBeforeCallback.source_fiche.hash ?? "missing",
+        code
+      });
+
+      const successEnvelope: FciN8nSuccessCallback = {
+        event: "fci.generation.completed",
+        contract_version: "1.0",
+        generation_job_id: launchResult.job.id,
+        fci_set_id: workspace.fci_set.id,
+        fci_module_id: moduleBeforeCallback.module.id,
+        appel_offre_id: workspace.appel_offres.id,
+        code_interne: code,
+        module_code: moduleCode,
+        correlation_id: launchResult.job.correlation_id ?? "missing",
+        execution_id: `exec-lifecycle-${moduleCode}`,
+        status: "completed",
+        provider: "gemini",
+        model: "gemini-3.6-flash",
+        prompt_version: "1.1",
+        schema_version: "1.1",
+        source_fiche: {
+          version: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+          hash: moduleBeforeCallback.source_fiche.hash ?? "missing"
+        },
+        generated_at: new Date().toISOString(),
+        generation_parameters: {},
+        payload
+      };
+
+      const firstResponse = await applyFciN8nCallback(successEnvelope);
+      assert.equal(firstResponse.httpStatus, 200);
+
+      const completedDedupeKey =
+        `fci-completed:${code}:${moduleCode}:${launchResult.job.id}:${Number(recipient.id)}`;
+      const afterCompletion = await listAppNotificationsForUser(Number(recipient.id), 50);
+      const completedForRecipient = afterCompletion.filter((notification) =>
+        notification.appelOffreCode === code
+        && notification.eventType === "FCI_COMPLETED"
+        && notification.moduleCode === moduleCode
+      );
+      assert.equal(completedForRecipient.length, 1);
+      assert.equal(completedForRecipient[0]?.dedupeKey, completedDedupeKey);
+
+      for (const other of unrelated) {
+        await assertNoModuleEventNotification(Number(other.id), code, "FCI_COMPLETED", moduleCode);
+      }
+
+      const duplicateResponse = await applyFciN8nCallback(successEnvelope);
+      assert.equal(duplicateResponse.httpStatus, 200);
+      assert.equal(duplicateResponse.body.idempotent, true);
+
+      const afterDuplicate = await listAppNotificationsForUser(Number(recipient.id), 50);
+      assert.equal(
+        afterDuplicate.filter((notification) =>
+          notification.appelOffreCode === code
+          && notification.eventType === "FCI_COMPLETED"
+          && notification.moduleCode === moduleCode
+        ).length,
+        1
+      );
+      assert.equal(
+        afterDuplicate.filter((notification) =>
+          notification.appelOffreCode === code
+          && notification.eventType === "FCI_STARTED"
+          && notification.moduleCode === moduleCode
+        ).length,
+        1
+      );
+      if (expectPriorAssignedNotification) {
+        assert.equal(
+          afterDuplicate.filter((notification) =>
+            notification.appelOffreCode === code
+            && notification.eventType === "FCI_ASSIGNED"
+            && notification.moduleCode === moduleCode
+          ).length,
+          1
+        );
+      }
+    });
+  });
+}
+
+test("FCI_STARTED/FCI_COMPLETED notify the Commercial owner for module A exactly once and stay isolated from other roles", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  await runModuleLifecycleNotificationScenario(
+    "A",
+    COMMERCIAL_USER,
+    COMMERCIAL_USER,
+    [FINANCE_USER, OPERATIONS_USER, DIRECTION_GENERALE_USER],
+    false
+  );
+});
+
+test("FCI_STARTED/FCI_COMPLETED notify the assigned Finance user for module B exactly once and stay isolated from other roles", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  await runModuleLifecycleNotificationScenario(
+    "B",
+    FINANCE_USER,
+    FINANCE_USER,
+    [COMMERCIAL_USER, OPERATIONS_USER, DIRECTION_GENERALE_USER],
+    true
+  );
+});
+
+test("FCI_STARTED/FCI_COMPLETED notify the assigned Operations user for module C exactly once and stay isolated from other roles", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  await runModuleLifecycleNotificationScenario(
+    "C",
+    OPERATIONS_USER,
+    OPERATIONS_USER,
+    [COMMERCIAL_USER, FINANCE_USER, DIRECTION_GENERALE_USER],
+    true
+  );
+});
+
 test("callback authentication rejects invalid signatures before callback processing", async () => {
   await withFciEnv({}, async () => {
     const signed = buildSignedCallbackEnvelope(
@@ -1642,10 +1876,204 @@ test("DG edits FCI D and keeps final decision rights", async (t) => {
 
     assert.equal(operationsModule.permissions.can_edit, true);
     assert.equal(dgModule.permissions.can_edit, true);
-    assert.equal(dgModule.permissions.can_generate, true);
+    // D generation stays blocked here: A/B/C are freshly initialized
+    // (not_started), not human-validated yet - see the dedicated
+    // "FCI D generation prerequisites" tests below for the full gate.
+    assert.equal(dgModule.permissions.can_generate, false);
+    assert.deepEqual(dgModule.missing_prerequisite_modules, ["A", "B", "C"]);
     assert.equal(dgModule.permissions.can_validate, true);
     assert.equal(dgModule.permissions.read_only, false);
     assert.equal(dgModule.permissions.can_make_final_decision, true);
+  });
+});
+
+async function bringModuleToNeedsReview(
+  code: string,
+  moduleCode: "A" | "B" | "C",
+  actor: CurrentUser
+) {
+  await saveFciModuleEdits(code, moduleCode, {
+    data: buildCompletedDepartmentPayload(moduleCode),
+    sourceSummary: null,
+    confidence: null,
+    aiNotes: null,
+    editor: actor.name,
+    expectedVersion: null
+  }, actor);
+}
+
+async function validateDepartmentModule(
+  code: string,
+  moduleCode: "A" | "B" | "C",
+  actor: CurrentUser
+) {
+  await validateFciModule(code, moduleCode, {
+    validatedBy: actor.name,
+    comment: null,
+    expectedVersion: 1,
+    acknowledgeStaleSource: false
+  }, actor);
+}
+
+async function completeAndValidateModule(
+  code: string,
+  moduleCode: "A" | "B" | "C",
+  actor: CurrentUser
+) {
+  await bringModuleToNeedsReview(code, moduleCode, actor);
+  await validateDepartmentModule(code, moduleCode, actor);
+}
+
+test("FCI D generation is blocked when only Commercial (A) is not yet validated", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await bringModuleToNeedsReview(code, "A", COMMERCIAL_USER);
+    await completeAndValidateModule(code, "B", FINANCE_USER);
+    await completeAndValidateModule(code, "C", OPERATIONS_USER);
+
+    await assert.rejects(
+      () => prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER),
+      (error: unknown) => {
+        assert.ok(error instanceof FciServiceError);
+        assert.equal(error.code, "FCI_D_PREREQUISITES_NOT_VALIDATED");
+        assert.deepEqual(error.details?.missing_modules, ["A"]);
+        return true;
+      }
+    );
+
+    const dModule = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+    assert.equal(dModule.permissions.can_generate, false);
+    assert.deepEqual(dModule.missing_prerequisite_modules, ["A"]);
+    assert.match(dModule.permissions.generation_blocked_reason ?? "", /Commerciale/);
+  });
+});
+
+test("FCI D generation is blocked when only Finance (B) is not yet validated", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await completeAndValidateModule(code, "A", COMMERCIAL_USER);
+    await bringModuleToNeedsReview(code, "B", FINANCE_USER);
+    await completeAndValidateModule(code, "C", OPERATIONS_USER);
+
+    await assert.rejects(
+      () => prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "FCI_D_PREREQUISITES_NOT_VALIDATED"
+        && Array.isArray((error.details as { missing_modules?: unknown[] } | null)?.missing_modules)
+        && JSON.stringify((error.details as { missing_modules: unknown[] }).missing_modules) === JSON.stringify(["B"])
+    );
+  });
+});
+
+test("FCI D generation is blocked when only Operations (C) is not yet validated", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await completeAndValidateModule(code, "A", COMMERCIAL_USER);
+    await completeAndValidateModule(code, "B", FINANCE_USER);
+    await bringModuleToNeedsReview(code, "C", OPERATIONS_USER);
+
+    await assert.rejects(
+      () => prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER),
+      (error: unknown) =>
+        error instanceof FciServiceError
+        && error.code === "FCI_D_PREREQUISITES_NOT_VALIDATED"
+        && Array.isArray((error.details as { missing_modules?: unknown[] } | null)?.missing_modules)
+        && JSON.stringify((error.details as { missing_modules: unknown[] }).missing_modules) === JSON.stringify(["C"])
+    );
+  });
+});
+
+test("FCI D generation is permitted once A, B and C are all validated, and its AI context carries only the validated contributions", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await completeAndValidateModule(code, "A", COMMERCIAL_USER);
+    await completeAndValidateModule(code, "B", FINANCE_USER);
+    await completeAndValidateModule(code, "C", OPERATIONS_USER);
+
+    const dModuleBefore = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+    assert.equal(dModuleBefore.permissions.can_generate, true);
+    assert.deepEqual(dModuleBefore.missing_prerequisite_modules, []);
+    assert.equal(dModuleBefore.permissions.generation_blocked_reason, null);
+
+    type CapturedLaunchRequest = {
+      generation_job_id?: number;
+      correlation_id?: string;
+      generation_metadata?: {
+        strategic_context?: {
+          commercial: { available: boolean };
+          finance: { available: boolean };
+          operations: { available: boolean };
+        };
+      };
+    };
+    const captured: { body: CapturedLaunchRequest | null } = { body: null };
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          captured.body = JSON.parse(String(init?.body ?? "{}")) as CapturedLaunchRequest;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: captured.body?.generation_job_id ?? null,
+              correlation_id: captured.body?.correlation_id ?? null,
+              execution_id: "exec-fci-d-1",
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          const launchResult = await prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER);
+          assert.ok(launchResult);
+        }
+      );
+    });
+
+    assert.ok(captured.body);
+    const strategicContext = captured.body?.generation_metadata?.strategic_context;
+    assert.ok(strategicContext);
+    assert.equal(strategicContext?.commercial.available, true);
+    assert.equal(strategicContext?.finance.available, true);
+    assert.equal(strategicContext?.operations.available, true);
   });
 });
 
@@ -1804,7 +2232,9 @@ test("DG owns FCI D but remains forbidden from mutating FCI A", async (t) => {
     await initializeAssignedFciWorkspace(code);
     const moduleD = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
     assert.equal(moduleD.permissions.can_edit, true);
-    assert.equal(moduleD.permissions.can_generate, true);
+    // A/B/C are freshly initialized (not_started, not validated), so D
+    // generation stays blocked regardless of DG's RBAC ownership of D.
+    assert.equal(moduleD.permissions.can_generate, false);
     assert.equal(moduleD.permissions.can_validate, true);
 
     await assert.rejects(

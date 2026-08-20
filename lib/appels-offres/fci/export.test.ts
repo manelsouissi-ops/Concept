@@ -284,6 +284,7 @@ function buildModulePresentationFixture(
       hash: payload.source_fiche.hash
     },
     stale_source: false,
+    missing_prerequisite_modules: [],
     allowed_actions: ["edit", "validate", "regenerate", "view_history"],
     current_user: {
       id: "user-admin",
@@ -311,7 +312,8 @@ function buildModulePresentationFixture(
       can_validate: true,
       can_make_final_decision: moduleCode === "D",
       read_only: false,
-      read_only_message: null
+      read_only_message: null,
+      generation_blocked_reason: null
     },
     history_summary: {
       versions_count: 2,
