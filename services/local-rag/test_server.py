@@ -106,6 +106,36 @@ class LocalRagBoundaryTests(unittest.TestCase):
         selected = server.select_field_candidates("zone_execution", [], [*sites, personnel])
         self.assertEqual({item["node"].node_id for item in selected}, {"s0", "s1", "s2"})
 
+    def test_exigences_es_prefers_obligation_chunk_over_top_ranked_intro(self):
+        # Regression for AO-20260824-1322: the top-ranked chunk for exigences_es
+        # was the E&S section's intro sentence (no obligation language); the
+        # actual obligation clause ranked #3 and was previously never offered
+        # to the model because the field is limited to a single candidate.
+        from llama_index.core.schema import TextNode
+        intro = TextNode(id_="intro", text="Cadre environnemental et social du projet et présentation générale.", metadata={"chunk_profile": "structured_section", "section_family": "environmental_social", "section_heading": "E&S", "chunk_index": "section_1"})
+        scope = TextNode(id_="scope", text="Le projet est situé dans une zone périurbaine sensible.", metadata={"chunk_profile": "structured_section", "section_family": "environmental_social", "section_heading": "E&S", "chunk_index": "section_2"})
+        obligation = TextNode(id_="obligation", text="Le Consultant doit soumettre son Code de conduite EAS/HS avant le démarrage.", metadata={"chunk_profile": "structured_section", "section_family": "environmental_social", "section_heading": "E&S", "chunk_index": "section_3"})
+        ranked = [
+            {"node": intro, "dense_rank": 1, "lexical_rank": 1, "routed_rank": 1, "fused_rank": 1, "reranked_rank": 1},
+            {"node": scope, "dense_rank": 2, "lexical_rank": 2, "routed_rank": 2, "fused_rank": 2, "reranked_rank": 2},
+            {"node": obligation, "dense_rank": 3, "lexical_rank": 3, "routed_rank": 3, "fused_rank": 3, "reranked_rank": 3},
+        ]
+        selected = server.select_field_candidates("exigences_es", ranked, [intro, scope, obligation])
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["node"].node_id, "obligation")
+
+    def test_exigences_es_falls_back_to_top_rank_when_no_obligation_in_window(self):
+        from llama_index.core.schema import TextNode
+        intro = TextNode(id_="intro", text="Cadre environnemental et social du projet et présentation générale.", metadata={"chunk_profile": "structured_section", "section_family": "environmental_social", "section_heading": "E&S", "chunk_index": "section_1"})
+        scope = TextNode(id_="scope", text="Le projet est situé dans une zone périurbaine sensible.", metadata={"chunk_profile": "structured_section", "section_family": "environmental_social", "section_heading": "E&S", "chunk_index": "section_2"})
+        ranked = [
+            {"node": intro, "dense_rank": 1, "lexical_rank": 1, "routed_rank": 1, "fused_rank": 1, "reranked_rank": 1},
+            {"node": scope, "dense_rank": 2, "lexical_rank": 2, "routed_rank": 2, "fused_rank": 2, "reranked_rank": 2},
+        ]
+        selected = server.select_field_candidates("exigences_es", ranked, [intro, scope])
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["node"].node_id, "intro")
+
     def test_semantic_comparison_accepts_supported_wording_variant(self):
         self.assertTrue(
             server.values_agree(

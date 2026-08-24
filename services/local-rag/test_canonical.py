@@ -45,6 +45,12 @@ class CanonicalContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             canonical.validate_canonical_xml("<fiche_projet><extraction /></fiche_projet>")
 
+    def test_es_obligation_helper_matches_validator_behavior(self):
+        # Regression for AO-20260824-1322: the shared helper must agree with
+        # validate_field's own exigences_es grounding check on both sides.
+        self.assertTrue(canonical.is_es_obligation_evidence("Le Consultant doit soumettre son Code de conduite EAS/HS"))
+        self.assertFalse(canonical.is_es_obligation_evidence("Cadre environnemental et social du projet"))
+
     def test_six_field_semantic_guards(self):
         self.assertFalse(canonical.validate_field("contraintes_site", {"value": "Abidjan, Cocody", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "Sites situés à Abidjan et Cocody"})[0])
         self.assertTrue(canonical.validate_field("contraintes_site", {"value": "ravinement et érosion", "supported": True, "source_chunks": ["chunk_1"]}, {"chunk_1": "Le site présente un ravinement et une érosion régressive"})[0])

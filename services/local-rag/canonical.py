@@ -121,6 +121,17 @@ def is_placeholder(value: object) -> bool:
     return bool(re.search(r"ins[eé]rer|à compl[eé]ter|\.{3,}|…{2,}|\[\s*(nom|date|r[eé]f)", str(value), re.I))
 
 
+ES_OBLIGATION_PATTERN = re.compile(
+    r"doit|exig[eé]|obligation|code de conduite|mesures|att[eé]nuation|travail forc[eé]|travail des enfants|EAS|harc[eè]lement sexuel",
+    re.I,
+)
+
+
+def is_es_obligation_evidence(text: str) -> bool:
+    """Shared by validation and candidate selection so both agree on what counts as an E&S obligation clause."""
+    return bool(ES_OBLIGATION_PATTERN.search(text))
+
+
 def validate_field(field: str, item: object, evidence: dict[str, str]) -> tuple[bool, str]:
     if not isinstance(item, dict) or set(item) != {"value", "supported", "source_chunks"}:
         return False, "exactly value, supported and source_chunks are required"
@@ -156,7 +167,7 @@ def validate_field(field: str, item: object, evidence: dict[str, str]) -> tuple[
     if field == "contraintes_site" and not re.search(r"inondation|ravinement|[eé]rosion|profondeur|occupation|acc[eè]s|circulation|s[eé]curit[eé]|r[eé]seau|d[eé]chets?|risque|restriction|sites? (?:sont|[eé]tant) ind[eé]pendants|d[eé]calage|maintien du service", cited, re.I):
         return False, "site evidence contains locations but no actual constraint"
     if field == "exigences_es":
-        obligation = re.search(r"doit|exig[eé]|obligation|code de conduite|mesures|att[eé]nuation|travail forc[eé]|travail des enfants|EAS|harc[eè]lement sexuel", cited, re.I)
+        obligation = is_es_obligation_evidence(cited)
         qualification = re.search(r"dipl[oô]me|ann[eé]es? d.exp[eé]rience|expert environnementaliste|profil|CV|missions relatives", cited, re.I)
         if not obligation or qualification and not re.search(r"code de conduite|mesures d.att[eé]nuation|travail forc[eé]|travail des enfants", cited, re.I):
             return False, "expert qualification evidence is not a project E&S obligation"

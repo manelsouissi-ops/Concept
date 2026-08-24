@@ -53,6 +53,7 @@ from canonical import (  # noqa: E402
     NON_TROUVE,
     build_xml,
     deterministic_control,
+    is_es_obligation_evidence,
     validate_canonical_xml,
     validate_field,
 )
@@ -172,8 +173,19 @@ def select_field_candidates(key: str, ranked: list[dict], nodes: list) -> list[d
         add(existing or {"node": node, **section_route_score(key, node)[1], "dense_rank": None, "lexical_rank": None, "routed_rank": None, "fused_rank": None, "reranked_rank": None})
 
     if not populated or key not in scalar_populated_fields:
-        for item in ranked[:limit]:
-            add(item)
+        if key == "exigences_es":
+            # The single top-ranked chunk for this field is sometimes the E&S
+            # section's intro/scope sentence rather than its operative
+            # obligation clause. Prefer the first obligation-bearing chunk
+            # within the top of the ranked list before falling back to rank 1,
+            # using the same test the grounding validator applies.
+            window = ranked[:4]
+            preferred = next((item for item in window if is_es_obligation_evidence(item["node"].text)), None)
+            for item in ([preferred] if preferred else ranked[:limit]):
+                add(item)
+        else:
+            for item in ranked[:limit]:
+                add(item)
 
     if key == "zone_execution":
         continuations = [node for node in nodes if node.metadata.get("chunk_profile") == "structured_section" and node.metadata.get("section_family") == "sites" and not re.search(r"D[eé]signation des experts|Qualification|Temps de mobilisation", node.text, re.I)]
