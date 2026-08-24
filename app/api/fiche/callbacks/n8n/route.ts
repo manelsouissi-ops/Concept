@@ -7,6 +7,10 @@ import {
   verifyN8nCallbackAuthentication
 } from "@/lib/integrations/n8n-callback-auth.ts";
 import { runLocalRagShadowAfterOfficialSuccess } from "@/lib/integrations/local-rag-shadow.ts";
+import {
+  assertExternalCdcCallbackAllowed,
+  CdcAiPolicyError
+} from "@/lib/integrations/cdc-ai-provider.ts";
 
 export const runtime = "nodejs";
 
@@ -50,6 +54,7 @@ export async function POST(request: Request) {
     }
 
     const payload = validateCallbackPayload(parsedBody, config.contractVersion);
+    assertExternalCdcCallbackAllowed();
     const result = await applyCanonicalN8nCallback(payload);
     if (
       payload.status === "COMPLETED"
@@ -72,6 +77,10 @@ export async function POST(request: Request) {
 
     if (error instanceof N8nContractValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (error instanceof CdcAiPolicyError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
     }
 
     const message =

@@ -22,6 +22,7 @@ import {
 } from "./repository.ts";
 import { storeGeneratedMarkdown } from "./storage.ts";
 import { markProcessingActive, markProcessingError } from "@/lib/storage.ts";
+import { assertCdcAiLaunchAllowed } from "@/lib/integrations/cdc-ai-provider.ts";
 
 export type SplitCallbackResult = {
   httpStatus: number;
@@ -128,6 +129,9 @@ export async function launchPersistedCdcExtraction(input: {
   contentHash: string;
   byteSize: number;
 }) {
+  // Re-resolve immediately before W2 so an in-flight local document conversion
+  // cannot cross into external CDC extraction after confidentiality is enabled.
+  assertCdcAiLaunchAllowed();
   const config = getN8nIntegrationConfig();
   const urls = getSplitN8nWebhookUrls();
   const payload: CdcExtractionLaunchRequest = {

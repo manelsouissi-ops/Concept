@@ -23,15 +23,23 @@ const identity: LocalRagShadowIdentity = {
 function withShadowEnv<T>(callback: () => Promise<T> | T) {
   const previous = {
     enabled: process.env.LOCAL_RAG_SHADOW_ENABLED,
+    confidential: process.env.CONFIDENTIAL_MODE,
+    provider: process.env.CDC_AI_PROVIDER,
     token: process.env.LOCAL_RAG_SERVICE_TOKEN,
     timeout: process.env.LOCAL_RAG_SHADOW_TIMEOUT_MS
   };
   process.env.LOCAL_RAG_SHADOW_ENABLED = "true";
+  process.env.CONFIDENTIAL_MODE = "false";
+  delete process.env.CDC_AI_PROVIDER;
   process.env.LOCAL_RAG_SERVICE_TOKEN = "test-token";
   process.env.LOCAL_RAG_SHADOW_TIMEOUT_MS = "120000";
   return Promise.resolve(callback()).finally(() => {
     if (previous.enabled === undefined) delete process.env.LOCAL_RAG_SHADOW_ENABLED;
     else process.env.LOCAL_RAG_SHADOW_ENABLED = previous.enabled;
+    if (previous.confidential === undefined) delete process.env.CONFIDENTIAL_MODE;
+    else process.env.CONFIDENTIAL_MODE = previous.confidential;
+    if (previous.provider === undefined) delete process.env.CDC_AI_PROVIDER;
+    else process.env.CDC_AI_PROVIDER = previous.provider;
     if (previous.token === undefined) delete process.env.LOCAL_RAG_SERVICE_TOKEN;
     else process.env.LOCAL_RAG_SERVICE_TOKEN = previous.token;
     if (previous.timeout === undefined) delete process.env.LOCAL_RAG_SHADOW_TIMEOUT_MS;
@@ -51,6 +59,32 @@ test("shadow is disabled by default and makes no request", async () => {
   assert.equal(calls, 0);
   assert.deepEqual(result, { status: "DISABLED" });
   if (previous !== undefined) process.env.LOCAL_RAG_SHADOW_ENABLED = previous;
+});
+
+test("confidential mode overrides the legacy shadow flag with zero requests", async () => {
+  const previous = {
+    confidential: process.env.CONFIDENTIAL_MODE,
+    provider: process.env.CDC_AI_PROVIDER,
+    shadow: process.env.LOCAL_RAG_SHADOW_ENABLED
+  };
+  process.env.CONFIDENTIAL_MODE = "true";
+  delete process.env.CDC_AI_PROVIDER;
+  process.env.LOCAL_RAG_SHADOW_ENABLED = "true";
+  let localCalls = 0;
+  try {
+    const result = await executeLocalRagShadow(identity, {
+      fetchImpl: async () => { localCalls += 1; return new Response(); }
+    });
+    assert.deepEqual(result, { status: "DISABLED" });
+    assert.equal(localCalls, 0);
+  } finally {
+    if (previous.confidential === undefined) delete process.env.CONFIDENTIAL_MODE;
+    else process.env.CONFIDENTIAL_MODE = previous.confidential;
+    if (previous.provider === undefined) delete process.env.CDC_AI_PROVIDER;
+    else process.env.CDC_AI_PROVIDER = previous.provider;
+    if (previous.shadow === undefined) delete process.env.LOCAL_RAG_SHADOW_ENABLED;
+    else process.env.LOCAL_RAG_SHADOW_ENABLED = previous.shadow;
+  }
 });
 
 test("Gemini success plus local success stores a separate 34-field comparison", () => withShadowEnv(async () => {
@@ -98,12 +132,24 @@ test("local validation failure is recorded without changing authoritative state"
   assert.equal(persisted[0].official_state_mutated_by_shadow, false);
 }));
 
-test("unavailable local service remains fail-open", () => withShadowEnv(async () => {
+test("unavailable local service records failure without any external fallback", () => withShadowEnv(async () => {
+  let externalCalls = 0;
   const result = await executeLocalRagShadow(identity, {
     fetchImpl: async () => { throw new TypeError("fetch failed"); },
     persist: async () => undefined
   });
   assert.equal(result.status, "SERVICE_UNAVAILABLE");
+  assert.equal(externalCalls, 0);
+}));
+
+test("local grounding failure records failure without any external fallback", () => withShadowEnv(async () => {
+  let externalCalls = 0;
+  const result = await executeLocalRagShadow(identity, {
+    fetchImpl: async () => Response.json({ code: "LOCAL_VALIDATION_FAILED", error: "synthetic" }, { status: 422 }),
+    persist: async () => undefined
+  });
+  assert.equal(result.status, "VALIDATION_FAILED");
+  assert.equal(externalCalls, 0);
 }));
 
 test("request contains exact identity and authoritative XML but no mutation callback", () => withShadowEnv(async () => {

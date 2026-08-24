@@ -6,6 +6,10 @@ import {
 } from "@/lib/appels-offres/repository.ts";
 import { DEFAULT_N8N_CONTRACT_VERSION, type N8nCallbackPayload, type N8nErrorStage } from "@/lib/integrations/n8n-contract.ts";
 import type { FicheErrorStage } from "@/lib/types";
+import {
+  assertExternalCdcCallbackAllowed,
+  CdcAiPolicyError
+} from "@/lib/integrations/cdc-ai-provider.ts";
 
 export const runtime = "nodejs";
 
@@ -99,6 +103,7 @@ export async function POST(
   }
 
   try {
+    assertExternalCdcCallbackAllowed();
     const { code } = await params;
     const body = (await request.json()) as unknown;
 
@@ -174,6 +179,9 @@ export async function POST(
     const result = await applyCanonicalN8nCallback(payload);
     return NextResponse.json(result.body, { status: result.httpStatus });
   } catch (error) {
+    if (error instanceof CdcAiPolicyError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+    }
     const message =
       error instanceof Error ? error.message : "Impossible de terminer la fiche.";
     return NextResponse.json({ error: message }, { status: 500 });

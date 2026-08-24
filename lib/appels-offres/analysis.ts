@@ -23,6 +23,10 @@ import {
   type N8nIntegrationConfig
 } from "@/lib/integrations/n8n-config";
 import {
+  assertCdcAiLaunchAllowed,
+  CdcAiPolicyError
+} from "@/lib/integrations/cdc-ai-provider.ts";
+import {
   createContractProcessingJobByCode,
   getActiveProcessingJobByCode,
   getAppelOffresDetailByCode,
@@ -657,6 +661,20 @@ export async function launchAnalysisForAppelOffres(
   options: LaunchAnalysisOptions
 ): Promise<LaunchAnalysisResult> {
   const code = options.code.trim();
+
+  try {
+    assertCdcAiLaunchAllowed();
+  } catch (error) {
+    if (error instanceof CdcAiPolicyError) {
+      throw new AnalysisRequestError(
+        409,
+        error.message,
+        { code: error.code },
+        "configuration_error"
+      );
+    }
+    throw error;
+  }
 
   const appel = await getAppelOffresDetailByCode(code, { includeArchived: true });
   if (!appel) {

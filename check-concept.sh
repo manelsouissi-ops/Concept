@@ -23,6 +23,18 @@ for key in "${required[@]}"; do
   if [[ -z "$value" || "$value" == *CHANGE_ME* ]]; then fail "Required variable $key is missing or still a placeholder"; else pass "Variable $key is set"; fi
 done
 
+confidential_mode="${CONFIDENTIAL_MODE:-false}"
+confidential_mode="${confidential_mode,,}"
+cdc_ai_provider="${CDC_AI_PROVIDER:-gemini}"
+cdc_ai_provider="${cdc_ai_provider,,}"
+if [[ "$confidential_mode" != "true" && "$confidential_mode" != "false" ]]; then
+  fail "Confidential mode: INVALID (CONFIDENTIAL_MODE must be true or false)"
+elif [[ "$confidential_mode" == "true" ]]; then
+  fail "CDC AI provider: ${cdc_ai_provider^^}; Confidential mode: ON; readiness: BLOCKED (local CDC authority not ready)"
+else
+  pass "CDC AI provider: ${cdc_ai_provider^^}; Confidential mode: OFF"
+fi
+
 pg_isready -h "${PGHOST:-127.0.0.1}" -p "${PGPORT:-5432}" >/dev/null 2>&1 && pass "PostgreSQL accepts connections" || fail "PostgreSQL is unreachable"
 if [[ -n "${DATABASE_URL:-}" ]] && psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atc 'select 1' >/dev/null 2>&1; then pass "DATABASE_URL login/query works"; else fail "DATABASE_URL login/query failed"; fi
 

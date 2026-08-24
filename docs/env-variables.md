@@ -76,11 +76,20 @@
 
 ## Controlled local CDC AI shadow
 
+- `CONFIDENTIAL_MODE`
+  Strict `true`/`false` CDC confidentiality invariant; defaults to `false`. When `true`,
+  external CDC AI and shadow routing are blocked before any Gemini call. Local processing
+  also fails closed until local CDC authority is separately approved.
+
 - `CDC_AI_PROVIDER`
   CDC extraction provider selector consumed by W2. Supported values are `gemini`, `shadow`,
   and `local`. It defaults to `gemini`. `shadow` keeps Gemini authoritative and records a
-  local comparison. `local` currently fails closed because the validated local contract
-  covers eight identification fields rather than the entire canonical Fiche XML.
+  local comparison. `local` currently fails closed because local CDC authority has not
+  passed its separate quality and generalization gate.
+
+- `LOCAL_RAG_SHADOW_ENABLED`
+  Backward-compatible shadow selector only when `CDC_AI_PROVIDER` is unset. It cannot
+  override an explicit provider or `CONFIDENTIAL_MODE=true`.
 
 - `LOCAL_RAG_SERVICE_URL`
   Loopback URL for the dedicated local semantic extraction service. Defaults operationally

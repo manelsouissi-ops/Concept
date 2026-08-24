@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { getAppelOffresDetailByCode, getProcessingJobByPublicId } from "../appels-offres/repository.ts";
 import { markdownPath, projectDir, readStoredFicheXml } from "../storage.ts";
+import { resolveCdcAiProvider } from "./cdc-ai-provider.ts";
 
 export type LocalRagShadowStatus =
   | "SUCCESS"
@@ -79,7 +80,7 @@ function positiveInteger(raw: string | undefined, fallback: number) {
 }
 
 export function isLocalRagShadowEnabled() {
-  return process.env.LOCAL_RAG_SHADOW_ENABLED?.trim().toLowerCase() === "true";
+  return resolveCdcAiProvider().shadowAllowed;
 }
 
 export function getLocalRagShadowConfig() {

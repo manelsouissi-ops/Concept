@@ -14,7 +14,7 @@ The active n8n CDC flow remains PDF → Marker/Docling → persisted `data/<code
 
 ## D. Feature flag
 
-`LOCAL_RAG_SHADOW_ENABLED=false` is the safe default. A value is enabled only when it equals `true` case-insensitively. Disabled mode performs no local request.
+`CDC_AI_PROVIDER=shadow` is the central authorization. `LOCAL_RAG_SHADOW_ENABLED=true` remains backward compatible only when `CDC_AI_PROVIDER` is unset. `CONFIDENTIAL_MODE=true` always overrides both and disables the shadow path. Disabled mode performs no local request.
 
 Configuration:
 
@@ -61,11 +61,11 @@ Tests cover disabled behavior, successful separate storage, timeout, 422, unavai
 
 ## N. How to enable shadow mode locally
 
-Start Ollama, Qdrant, PostgreSQL, and the local service using `.venv-rag/bin/python services/local-rag/server.py`. Set a shared local service token and `LOCAL_RAG_SHADOW_ENABLED=true`, then restart Next.js so server-side configuration is reloaded. Keep Gemini and `CDC_AI_PROVIDER=gemini` unchanged.
+Start Ollama, Qdrant, PostgreSQL, and the local service using `.venv-rag/bin/python services/local-rag/server.py`. Set a shared local service token, `CONFIDENTIAL_MODE=false`, and `CDC_AI_PROVIDER=shadow`, then restart Next.js so server-side configuration is reloaded. Gemini remains authoritative in shadow mode.
 
 ## O. How to disable it immediately
 
-Set `LOCAL_RAG_SHADOW_ENABLED=false` and restart Next.js. The next official callback will not make a local-RAG request. Stopping the local service is also safe for the official workflow, but disabling the flag avoids recorded unavailable results.
+Set `CDC_AI_PROVIDER=gemini` and `LOCAL_RAG_SHADOW_ENABLED=false`, then restart Next.js. The next official callback will not make a local-RAG request. Stopping the local service is also safe for the official workflow.
 
 ## P. Known limitations
 

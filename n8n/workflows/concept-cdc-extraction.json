@@ -483,7 +483,7 @@
           260
         ],
         "parameters": {
-          "jsCode": "const item=$input.first().json; const env=typeof $env==='object'&&$env?$env:{}; const provider=String(env.CDC_AI_PROVIDER||'gemini').trim().toLowerCase(); const valid=['gemini','shadow','local'].includes(provider); return [{json:{...item,cdc_ai_provider:provider,provider_valid:valid,error_stage:valid?item.error_stage:'LLM',error_code:valid?item.error_code:'AI_PROVIDER_INVALID',error_message:valid?item.error_message:'CDC_AI_PROVIDER doit valoir gemini, shadow ou local.'}}];"
+          "jsCode": "const item=$input.first().json; const env=typeof $env==='object'&&$env?$env:{}; const rawConfidential=String(env.CONFIDENTIAL_MODE||'false').trim().toLowerCase(); const confidentialValid=['true','false'].includes(rawConfidential); const confidentialMode=rawConfidential==='true'; const provider=String(env.CDC_AI_PROVIDER||'gemini').trim().toLowerCase(); const providerValid=['gemini','shadow','local'].includes(provider); const routeAllowed=confidentialValid&&providerValid&&!confidentialMode&&provider!=='local'; let errorCode=item.error_code; let errorMessage=item.error_message; if(!confidentialValid){errorCode='CONFIDENTIAL_MODE_INVALID';errorMessage='CONFIDENTIAL_MODE doit valoir exactement true ou false.';}else if(!providerValid){errorCode='AI_PROVIDER_INVALID';errorMessage='CDC_AI_PROVIDER doit valoir gemini, shadow ou local.';}else if(confidentialMode&&provider==='local'){errorCode='CONFIDENTIAL_LOCAL_PROVIDER_NOT_READY';errorMessage='Le mode confidentiel exige le fournisseur local, mais l autorite locale CDC n est pas prete.';}else if(confidentialMode){errorCode='CONFIDENTIAL_EXTERNAL_PROVIDER_BLOCKED';errorMessage='Le mode confidentiel interdit tout appel CDC externe.';}else if(provider==='local'){errorCode='LOCAL_CANONICAL_CONTRACT_NOT_READY';errorMessage='Le fournisseur local CDC n est pas encore autorise comme source officielle.';} return [{json:{...item,confidential_mode:confidentialMode,confidential_mode_valid:confidentialValid,cdc_ai_provider:provider,provider_valid:providerValid,route_allowed:routeAllowed,error_stage:routeAllowed?item.error_stage:'LLM',error_code:errorCode,error_message:errorMessage}}];"
         }
       },
       {
@@ -505,7 +505,7 @@
             },
             "conditions": [
               {
-                "leftValue": "={{ $json.provider_valid }}",
+                "leftValue": "={{ $json.route_allowed }}",
                 "rightValue": true,
                 "operator": {
                   "type": "boolean",
@@ -836,7 +836,7 @@
         "main": [
           [
             {
-              "node": "CDC AI Shadow Enabled?",
+              "node": "Continue Authoritative Gemini Success",
               "type": "main",
               "index": 0
             }
@@ -920,7 +920,7 @@
         "main": [
           [
             {
-              "node": "CDC AI Provider Local?",
+              "node": "HTTP Request → Gemini XML",
               "type": "main",
               "index": 0
             }
