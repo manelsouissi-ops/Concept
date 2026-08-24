@@ -17,6 +17,16 @@ class CanonicalContractTests(unittest.TestCase):
         self.assertEqual(len(set(canonical.EXTRACTION_FIELDS)), 34)
         self.assertEqual(set(canonical.FIELD_ROUTES), set(canonical.EXTRACTION_FIELDS))
 
+    def test_disputed_fields_have_explicit_canonical_interpretation(self):
+        disputed = {
+            "duree_totale", "nombre_profils_experts", "nombre_sites", "type_procedure",
+            "nature_prestation", "phases_mission", "livrables_principaux",
+            "disciplines_techniques", "outils_methodes", "moyens_materiels",
+            "exigences_es", "normes_referentiels", "points_techniques_structurants",
+        }
+        self.assertEqual(set(canonical.CANONICAL_INTERPRETATION_RULES), disputed)
+        self.assertIn("STRUCTURING_ONLY", canonical.CANONICAL_INTERPRETATION_RULES["points_techniques_structurants"])
+
     def test_builder_is_canonical_and_escapes_values(self):
         fields = {
             key: {"value": "A & B" if key == "intitule_mission" else None, "supported": key == "intitule_mission", "source_chunks": ["chunk_1"] if key == "intitule_mission" else []}

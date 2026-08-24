@@ -44,6 +44,7 @@ from poc_tender_rag import (  # noqa: E402
     resolve_tender,
 )
 from canonical import (  # noqa: E402
+    CANONICAL_INTERPRETATION_RULES,
     EVALUATION_FIELDS,
     EXTRACTION_FIELDS,
     FIELD_GROUPS,
@@ -141,6 +142,7 @@ def select_field_candidates(key: str, ranked: list[dict], nodes: list) -> list[d
     """Select bounded structural continuations without changing global retrieval Top-K."""
     limit = 1 if key in {"contraintes_site", "exigences_es"} else 2
     structural_limits = {
+        "date_emission": 2,
         "zone_execution": 4,
         "volume_hommes_mois": 4,
         "nombre_profils_experts": 5,
@@ -150,7 +152,7 @@ def select_field_candidates(key: str, ranked: list[dict], nodes: list) -> list[d
         "livrables_principaux": 4,
         "nombre_livrables_structurants": 4,
         "moyens_materiels": 3,
-        "normes_referentiels": 3,
+        "normes_referentiels": 5,
         "points_techniques_structurants": 3,
     }
     selected = []
@@ -199,6 +201,10 @@ def select_field_candidates(key: str, ranked: list[dict], nodes: list) -> list[d
             r"Rapport de d[eé]marrage|rapport final|livrables?|production des rapports|phase (?:des travaux|pr[eé]paratoire|de garantie)",
             node.text, re.I,
         ) and not re.search(r"FORMULAIRE TECH-5|liste des livrables/t[aâ]ches", node.text, re.I)]
+    elif key == "date_emission":
+        continuations = [node for node in nodes if node.metadata.get("section_family") in {"front_matter", "procurement"} and re.search(
+            r"(?:[eé]mis le|date d.[eé]mission)\s*:\s*\d{1,2}[/-]\d{1,2}[/-]\d{4}", node.text, re.I,
+        )]
     elif key in structural_limits:
         primary = set(FIELD_ROUTES[key][0])
         continuations = [node for node in nodes if node.metadata.get("section_family") in primary and section_route_score(key, node)[0] > 0]
@@ -227,7 +233,7 @@ def group_prompt(group: str, fields: tuple[str, ...], evidence: dict[str, str], 
     schema = {key: {"value": "extracted value", "supported": True, "source_chunks": ["chunk_id"]} for key in fields}
     rules = "\n".join(f"- {key}: {FIELD_RULES[key]}" for key in fields)
     focused_guards = {
-        "type_procedure": "An official populated heading 'Demande de Propositions Services de Consultants' directly supports the procedure value 'Demande de Propositions (DP) / Services de Consultants'.",
+        "type_procedure": "Use the populated procurement document/notice title as the procedure. Do not substitute the consultant selection method or the technical proposal type.",
         "type_proposition": "Return only the single type explicitly required by the populated 15.2 clause; never return PTC and PTS alternatives together.",
         "note_technique_minimale": "Return the complete explicit minimum score including 'points'; reject maximum criterion scores and T/F weighting.",
         "disciplines_techniques": "Convert profile labels to their exact specialty terms by removing role prefixes: 'Ingénieur génie civil' becomes 'génie civil', 'Expert Hydraulicien' becomes 'Hydraulicien', and 'Architecte Paysagiste' becomes 'Paysagiste'. Do not output Expert, Ingénieur, Architecte, or Chef de Mission.",

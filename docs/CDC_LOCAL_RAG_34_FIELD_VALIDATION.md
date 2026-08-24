@@ -45,6 +45,28 @@ Every extraction element is structurally required and requires a `source` attrib
 
 The three evaluation nodes (`complexite_technique`, `difficulte_terrain`, `risque_sous_dimensionnement`) are semantic Qwen judgments over already-grounded extracted facts. Notes must be integers 1–5 and justifications are mandatory; under-sizing also requires `charge_estimee`. Qwen is explicitly forbidden to invent a replacement effort estimate. `champs_non_trouves`, `incoherences`, and `a_verifier` are application-owned deterministic controls. Missing fields are derived mechanically; no inconsistency is asserted without a validated deterministic rule.
 
+## Canonical interpretation rules for disputed fields
+
+These rules define the application contract independently of any benchmark Fiche. A populated item must remain directly grounded in its cited CDC evidence.
+
+| Field | Canonical interpretation |
+|---|---|
+| `duree_totale` | The consultant assignment execution period, from commencement through completion of required services. Prefer an explicit total; otherwise use the complete mandatory phase sum/range. Exclude proposal validity, the wider project or works duration, defect-liability monitoring, and a maximum contract period unless explicitly included in the assignment. |
+| `nombre_profils_experts` | Count distinct mandatory key-expert profile categories once. Exclude support/non-key personnel, alternates, optional profiles, and repeated deployment of one profile. An explicit total controls only when it has that same scope. |
+| `nombre_sites` | Count distinct explicitly identified physical execution locations once. Lots, components, structures, and repeated mentions are not additional sites. Return `Non trouvé` when available evidence cannot support a complete count. |
+| `type_procedure` | Use the populated procurement document/notice taxonomy: request for proposals, invitation for bids, request for expressions of interest, or another explicitly titled procedure. It is distinct from `methode_selection`, `type_proposition`, and `type_contrat`; the populated title has priority over generic instructions. |
+| `nature_prestation` | Return the primary explicitly required service category, such as study/design, supervision/control, audit, or technical assistance. Add secondary categories only when separately mandated. |
+| `phases_mission` | **EXHAUSTIVE:** normalized unique list of explicitly named mandatory consultant-assignment phases. Activities, deliverables, works phases, and optional extensions are excluded. |
+| `livrables_principaux` | **EXHAUSTIVE:** normalized unique list of explicitly required formal deliverables or approval milestones. Routine correspondence, internal working papers, and template examples are excluded. |
+| `disciplines_techniques` | **EXHAUSTIVE:** normalized unique technical specialties represented by mandatory key profiles or required workstreams. Remove role prefixes and exclude management-only or support roles. |
+| `outils_methodes` | **EXHAUSTIVE:** normalized unique mandatory methods, investigations, calculations, models, and software/tool uses. Exclude generic methodology prose and optional examples. |
+| `moyens_materiels` | **EXHAUSTIVE:** normalized unique consultant-provided equipment, instruments, vehicles, laboratory, and software resources explicitly required. Exclude client-provided resources and examples. |
+| `exigences_es` | **EXHAUSTIVE:** normalized unique project/contract E&S duties, safeguards, mitigation, and compliance requirements. Background descriptions and expert qualifications are excluded. |
+| `normes_referentiels` | **EXHAUSTIVE:** normalized unique named standards, codes, regulations, manuals, and reference frameworks explicitly made applicable. A generic statement that rules apply is insufficient. |
+| `points_techniques_structurants` | **STRUCTURING_ONLY:** normalized unique source-explicit technical features that materially shape scope, design, or delivery. Minor tasks, generic quality statements, and inferred conclusions are excluded. |
+
+For every exhaustive list, “exhaustive” means exhaustive within the bounded evidence supplied to extraction. Candidate selection currently aggregates relevant structured sections only for fields with an implemented bounded continuation strategy; other list fields can still be partial and must not be treated as exhaustive without adjudication. Extraction must never widen a list using uncited source text.
+
 ## Results
 
 AO-20260810-0958 produced a structurally complete 34-field candidate in 34.75 s (207 chunks, 1024-dimensional embeddings). The unchanged `parseFiche` validator accepted 34 extraction fields, 3 evaluations, and all controls. Content comparison against the persisted Gemini fiche gave 5 exact, 4 semantically matching, 3 conflicting, and 22 missing fields. All populated local claims cited supplied tender-scoped chunks, but citation grounding does not make a value semantically correct (for example `source_financement` incorrectly selected the credit identifier).

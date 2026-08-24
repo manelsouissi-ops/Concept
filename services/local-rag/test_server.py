@@ -106,6 +106,44 @@ class LocalRagBoundaryTests(unittest.TestCase):
         selected = server.select_field_candidates("zone_execution", [], [*sites, personnel])
         self.assertEqual({item["node"].node_id for item in selected}, {"s0", "s1", "s2"})
 
+    def test_multiple_sites_route_beats_component_section(self):
+        from llama_index.core.schema import TextNode
+        locations = TextNode(id_="locations", text="Sites d'intervention : Localité Alpha; Localité Bêta; Localité Gamma", metadata={"chunk_profile": "structured_section", "section_family": "sites", "section_heading": "Sites d'intervention", "chunk_index": "section_sites"})
+        components = TextNode(id_="components", text="Chaque site comprend une prise, un réservoir et une conduite.", metadata={"chunk_profile": "structured_section", "section_family": "technical", "section_heading": "Composantes", "chunk_index": "section_components"})
+        self.assertGreater(server.section_route_score("nombre_sites", locations)[0], server.section_route_score("nombre_sites", components)[0])
+
+    def test_key_profile_candidates_include_split_table_but_not_support_table(self):
+        from llama_index.core.schema import TextNode
+        key = TextNode(id_="key", text="Composition de l'équipe | Personnel clé | Chef de mission | Spécialiste eau", metadata={"chunk_profile": "compact_table", "section_family": "personnel", "section_heading": "Experts clés", "chunk_index": "table_key"})
+        support = TextNode(id_="support", text="Personnel d'appui | Chauffeur | Secrétaire", metadata={"chunk_profile": "compact_table", "section_family": "personnel", "section_heading": "Personnel d'appui", "chunk_index": "table_support"})
+        selected = server.select_field_candidates("nombre_profils_experts", [], [key, support])
+        self.assertEqual([item["node"].node_id for item in selected], ["key"])
+
+    def test_standards_sections_are_aggregated_across_generic_headings(self):
+        from llama_index.core.schema import TextNode
+        nodes = [
+            TextNode(id_="code", text="Le titulaire doit respecter le code technique explicitement applicable.", metadata={"chunk_profile": "structured_section", "section_family": "standards", "section_heading": "Codes applicables", "chunk_index": "section_code"}),
+            TextNode(id_="manual", text="Les prestations doivent suivre le manuel de référence nommé dans le dossier.", metadata={"chunk_profile": "structured_section", "section_family": "standards", "section_heading": "Documents de référence", "chunk_index": "section_manual"}),
+        ]
+        selected = server.select_field_candidates("normes_referentiels", [], nodes)
+        self.assertEqual({item["node"].node_id for item in selected}, {"code", "manual"})
+
+    def test_accented_issue_date_candidate_is_selected_from_front_matter(self):
+        from llama_index.core.schema import TextNode
+        date = TextNode(id_="date", text="Émis le : 03/04/2026", metadata={"chunk_profile": "compact_front_matter", "section_family": "front_matter", "section_heading": "Avis", "chunk_index": "front"})
+        generic = TextNode(id_="generic", text="Calendrier général sans date d'émission.", metadata={"chunk_profile": "structured_section", "section_family": "schedule", "section_heading": "Calendrier", "chunk_index": "schedule"})
+        selected = server.select_field_candidates("date_emission", [], [generic, date])
+        self.assertEqual([item["node"].node_id for item in selected], ["date"])
+
+    def test_multi_phase_assignment_has_canonical_duration_and_phase_rules(self):
+        rules = server.CANONICAL_INTERPRETATION_RULES
+        self.assertIn("assignment execution period", rules["duree_totale"])
+        self.assertIn("EXHAUSTIVE", rules["phases_mission"])
+
+    def test_procedure_prompt_separates_document_method_and_proposal_terms(self):
+        prompt = server.group_prompt("procedure", ("type_procedure",), {"chunk_1": "Avis de procédure générique."})
+        self.assertIn("Do not substitute the consultant selection method", prompt)
+
     def test_exigences_es_prefers_obligation_chunk_over_top_ranked_intro(self):
         # Regression for AO-20260824-1322: the top-ranked chunk for exigences_es
         # was the E&S section's intro sentence (no obligation language); the

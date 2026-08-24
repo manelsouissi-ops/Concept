@@ -63,7 +63,7 @@ FIELD_RULES = {
     "livrables_principaux": "principal deliverables",
     "nombre_livrables_structurants": "count of explicitly structured principal deliverable milestones",
     "profils_cles": "required key expert profiles",
-    "disciplines_techniques": "technical specialties explicitly represented by required profiles; remove role prefixes Expert/Ingénieur/Chef and preserve the remaining tender terms (for example Hydraulicien, Routier, Topographe), supporting every item",
+    "disciplines_techniques": "technical specialties explicitly represented by required profiles; remove role prefixes Expert/Ingénieur/Chef and preserve the remaining tender terms, supporting every item",
     "nombre_sites": "count of distinct execution sites",
     "contraintes_site": "explicit physical, access, occupation, safety, climate, network or operating constraints; pure locations are not constraints",
     "outils_methodes": "required methods, calculations, models and tools",
@@ -71,6 +71,25 @@ FIELD_RULES = {
     "exigences_es": "project environmental/social obligations, safeguards, mitigation or compliance requirements; reject expert diplomas and experience criteria",
     "normes_referentiels": "applicable standards, codes and reference frameworks",
     "points_techniques_structurants": "major technical features shaping the assignment",
+}
+
+# Normative interpretation is deliberately separate from the terse LLM field
+# instructions above: these rules govern adjudication and candidate design,
+# while prompts avoid supplying uncited answer vocabulary that a model could copy.
+CANONICAL_INTERPRETATION_RULES = {
+    "duree_totale": "assignment execution period; explicit total first, otherwise complete mandatory phase span; exclude proposal, works/project and post-completion periods unless explicitly included",
+    "nombre_profils_experts": "distinct mandatory key-profile categories once; exclude support, optional, alternate and repeated profiles",
+    "nombre_sites": "distinct explicitly identified physical execution locations once; exclude lots, components, structures and repeats; null if a complete count is unsupported",
+    "type_procedure": "populated procurement document/notice taxonomy, distinct from selection method, proposal type and contract type",
+    "nature_prestation": "primary explicitly required service category; secondary categories only when separately mandated",
+    "phases_mission": "EXHAUSTIVE normalized unique mandatory consultant-assignment phases only",
+    "livrables_principaux": "EXHAUSTIVE normalized unique formal required deliverables or approval milestones",
+    "disciplines_techniques": "EXHAUSTIVE normalized unique mandatory technical specialties, without role prefixes or support roles",
+    "outils_methodes": "EXHAUSTIVE normalized unique mandatory methods, investigations, calculations, models and tool uses",
+    "moyens_materiels": "EXHAUSTIVE normalized unique consultant-provided required equipment, instruments, vehicles, laboratory and software",
+    "exigences_es": "EXHAUSTIVE normalized unique operative project/contract E&S duties; exclude background and qualifications",
+    "normes_referentiels": "EXHAUSTIVE normalized unique named applicable standards, codes, regulations, manuals and frameworks",
+    "points_techniques_structurants": "STRUCTURING_ONLY normalized unique source-explicit major technical features",
 }
 
 FIELD_QUERIES = {key: f"{key.replace('_', ' ')} {rule}" for key, rule in FIELD_RULES.items()}

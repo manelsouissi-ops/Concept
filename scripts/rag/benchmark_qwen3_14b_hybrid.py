@@ -127,9 +127,9 @@ def section_family(heading: str | None, parent: str | None, text: str, *, front:
         ("schedule", r"lieu et duree|calendrier"),
         ("deliverables", r"livrables|resultats attendus|rapports demandes|plans"),
         ("personnel", r"profil des experts|experts cles|composition de l equipe|temps d intervention"),
-        ("sites", r"localisation des zones|zones du projet"),
+        ("sites", r"localisation des zones|zones du projet|sites? d.intervention|lieux? d.ex[eé]cution|implantation|emplacements?"),
         ("environmental_social", r"environnemental|developpement social|eas|harcelement sexuel|vbg"),
-        ("standards", r"normes|referentiels"),
+        ("standards", r"normes|referentiels|cadre normatif|codes? applicables?|prescriptions techniques|documents? de reference"),
         ("technical", r"etudes topographiques|etudes geotechniques|methodologie"),
         ("scope", r"objectifs et description|contenu de la mission|presentation du paru|contexte et justification"),
         ("procurement", r"donnees particulieres|demande de proposition|methode de selection|instructions aux candidats|contrat type"),
@@ -142,10 +142,10 @@ def section_family(heading: str | None, parent: str | None, text: str, *, front:
         ("personnel", r"profil des experts|experts cles|composition de l equipe|temps d intervention|personnel cle"),
         ("deliverables", r"livrables|resultats attendus|rapports et delais|plans"),
         ("schedule", r"lieu et duree|calendrier|delai de transmission|duree de la mission"),
-        ("sites", r"localisation des zones|zones du projet|talweg|cuvette|bassin versant|lieu de la mission"),
+        ("sites", r"localisation des zones|zones du projet|talweg|cuvette|bassin versant|lieu de la mission|sites? d.intervention|lieux? d.ex[eé]cution|implantation|emplacements?"),
         ("equipment", r"moyens logistiques|moyens materiels|materiel informatique|laboratoire"),
         ("environmental_social", r"environnemental|developpement social|eas|harcelement sexuel|vbg|sauvegarde"),
-        ("standards", r"normes et standards|reglement de passation|code des marches|directives anti corruption|fascicules"),
+        ("standards", r"normes et standards|referentiels|cadre normatif|codes? applicables?|prescriptions techniques|documents? de reference|reglement de passation|code des marches|directives anti corruption|fascicules"),
         ("financing", r"pret credit don|source de financement|association internationale de developpement|accord de credit"),
         ("client_authority", r"obligations de l ucp|maitre d ouvrage|unite de coordination|client"),
         ("procurement", r"donnees particulieres|demande de proposition|methode de selection|instructions aux candidats|contrat type"),
@@ -170,7 +170,7 @@ def populated_front_matter(markdown: str) -> str | None:
     """Build a compact populated cover block and stop before TOC contamination."""
     lines = markdown.splitlines()
     start = next((i for i, line in enumerate(lines) if re.match(
-        r"^##\s+(?:(?:DP|DAO|AMI)\s+(?:No|N[o°])\s*:|DOSSIER\s+DE\s+DEMANDE\s+DE\s+PROPOSITIONS)",
+        r"^##\s+(?:(?:DP|DAO|AMI)\s+(?:No|N[o°])\s*:|DOSSIER\s+DE\s+DEMANDE\s+DE\s+PROPOSITIONS|AVIS\s+(?:D.APPEL|DE\s+CONSULTATION)|IDENTIFICATION\s+DU\s+MARCH[EÉ])",
         line, re.I,
     )), None)
     if start is None:
@@ -179,7 +179,7 @@ def populated_front_matter(markdown: str) -> str | None:
     raw = lines[start:end]
     kept = []
     pending_label = None
-    labels = re.compile(r"^(Client|Pays|Emis le|Date|DP\s*N[o°]|Cr[eé]dit\s*N[o°]|Pr[eê]t\s*N[o°]|Don\s*N[o°]|Pr[eê]t/Cr[eé]dit/Don\s*N[o°]|Services de Consultant pour|D[eé]signation de la Mission|Passation de March[eé]s de)\s*:\s*(.*)$", re.I)
+    labels = re.compile(r"^(Client|Autorit[eé] contractante|Ma[iî]tre d.ouvrage|Pays|[EÉ]mis le|Date d.[eé]mission|Date|DP\s*N[o°]|DAO\s*N[o°]|AMI\s*N[o°]|Cr[eé]dit\s*N[o°]|Pr[eê]t\s*N[o°]|Don\s*N[o°]|Pr[eê]t/Cr[eé]dit/Don\s*N[o°]|Services de Consultant pour|D[eé]signation de la Mission|Objet de la mission|Passation de March[eé]s de)\s*:\s*(.*)$", re.I)
     for line in raw:
         clean = line.strip()
         if not clean or "insérer" in clean.lower() or re.fullmatch(r"[.…/\s-]+(?:20\d\d)?", clean):
@@ -209,7 +209,7 @@ def populated_financing_matter(markdown: str) -> str | None:
     end = min(ends) if ends else -1
     probe = markdown[start:end if end > start else min(len(markdown), start + 60000)]
     kept = []
-    label_pattern = re.compile(r"^(Pr[eê]t/Cr[eé]dit/Don\s*N[o°]?|Cr[eé]dit\s*N[o°]?|Pr[eê]t\s*N[o°]?|Don\s*N[o°]?|DP\s*N[o°]?|D[eé]signation de la Mission|Client|Pays|Date|Emis le)\s*:\s*(.*)$", re.I)
+    label_pattern = re.compile(r"^(Pr[eê]t/Cr[eé]dit/Don\s*N[o°]?|Cr[eé]dit\s*N[o°]?|Pr[eê]t\s*N[o°]?|Don\s*N[o°]?|DP\s*N[o°]?|DAO\s*N[o°]?|AMI\s*N[o°]?|D[eé]signation de la Mission|Objet de la mission|Client|Autorit[eé] contractante|Ma[iî]tre d.ouvrage|Pays|Date|[EÉ]mis le|Date d.[eé]mission)\s*:\s*(.*)$", re.I)
     lines = probe.splitlines()
     for index, line in enumerate(lines):
         clean = line.strip().removeprefix("## ")
@@ -422,12 +422,12 @@ def populated_value_score(key: str, text: str) -> float:
         "zone_execution": r"(?:localisation des zones|lieu d.ex[eé]cution|zones? des travaux).{0,500}(?:commune|quartier|site|talweg|bassin)",
         "type_proposition": r"(?:\b15\.2\b.{0,180}|(?:doit fournir|est demand[eé]e)\s+une\s+proposition\s+technique\s+)(?:compl[eè]te|simplifi[eé]e?)\s*\(?(?:PTC|PTS)\)?",
         "type_contrat": r"(?:section\s*8.{0,80}|contrat\s+type\s*:)\s*r[eé]mun[eé]ration\s+(?:au\s+temps\s+pass[eé]|forfaitaire)",
-        "date_emission": r"(?:emis le|date)\s*:\s*\d{1,2}[/-]\d{1,2}[/-]\d{4}",
+        "date_emission": r"(?:[eé]mis le|date d.[eé]mission|date)\s*:\s*\d{1,2}[/-]\d{1,2}[/-]\d{4}",
         "date_limite_depot": r"(?:17\.7|date et.{0,30}heure).{0,180}\d{1,2}[/-]\d{1,2}[/-]\d{4}",
         "ponderation_technique_financiere": r"\bT\s*=\s*\d+.{0,80}\bF\s*=\s*\d+",
-        "duree_totale": r"(?:\b14\.1\.2\b.{0,160}|d[eé]lai de r[eé]alisation de la mission (?:est|:).{0,80})\b(?:jours?|mois)\b",
-        "volume_hommes_mois": r"\b14\.1\.3\b.{0,180}\d+(?:[,.]\d+)?\s*(?:expert|homme|H\.)[- .]?mois",
-        "phases_mission": r"\b14\.1\.2\b.{0,600}\bmobilisation\b.{0,600}\b(?:phase des travaux|garantie)\b",
+        "duree_totale": r"(?:\b14\.1\.2\b.{0,160}|d[eé]lai de r[eé]alisation de la mission (?:est|:).{0,80}|(?:dur[eé]e|p[eé]riode) (?:totale? |globale? |d.ex[eé]cution )?(?:de )?(?:la mission|des prestations)\s*(?:est|sera|:).{0,100})\b(?:jours?|semaines?|mois|ann[eé]es?)\b",
+        "volume_hommes_mois": r"(?:\b14\.1\.3\b.{0,180}|(?:volume|charge|total).{0,100})\d+(?:[,.]\d+)?\s*(?:expert|homme|personne|H\.)[- .]?mois",
+        "phases_mission": r"(?:\b14\.1\.2\b.{0,600}\bmobilisation\b.{0,600}\b(?:phase des travaux|garantie)\b|(?:phases?|[eé]tapes?) (?:de |d.)?(?:la mission|des prestations)\s*:.{0,800}(?:phase|[eé]tape)\s*(?:\d+|[IVX]+))",
     }
     pattern = patterns.get(key)
     return 0.13 if pattern and re.search(pattern, text, re.I | re.S) else 0.0

@@ -20,6 +20,12 @@ class SectionRoutingTests(unittest.TestCase):
         self.assertEqual(section_family("8. LIEU ET DURÉE DE LA MISSION", None, "90 jours"), "schedule")
         self.assertEqual(section_family("7. MOYENS LOGISTIQUES", None, "matériel"), "equipment")
 
+    def test_template_diverse_site_and_standard_headings(self):
+        self.assertEqual(section_family("Sites d'intervention", None, "Trois localités distinctes"), "sites")
+        self.assertEqual(section_family("Implantation des ouvrages", None, "Emplacements physiques"), "sites")
+        self.assertEqual(section_family("Cadre normatif", None, "Codes applicables aux prestations"), "standards")
+        self.assertEqual(section_family("Documents de référence", None, "Prescriptions techniques"), "standards")
+
     def test_financing_facts_ignore_earlier_toc_section_heading(self):
         markdown = """## Section 2 Instructions aux Candidats et Données particulières
 TOC only
@@ -84,6 +90,22 @@ template
         self.assertIn("DP No: DP-TEST-2026", compact or "")
         self.assertIn("Client: Agence Exemple", compact or "")
         self.assertIn("Pays: Côte d'Ivoire", compact or "")
+
+    def test_front_matter_heavy_notice_accepts_accented_issue_date(self):
+        markdown = """## AVIS DE CONSULTATION
+DAO No :
+TEST-GENERIC-2026
+Autorité contractante :
+Agence publique exemple
+Émis le :
+03/04/2026
+## TABLE DES MATIÈRES
+template
+"""
+        compact = populated_front_matter(markdown)
+        self.assertIn("DAO No: TEST-GENERIC-2026", compact or "")
+        self.assertIn("Autorité contractante: Agence publique exemple", compact or "")
+        self.assertIn("Émis le: 03/04/2026", compact or "")
 
     def test_current_mission_statement_beats_historical_project_context(self):
         current = section_route_score("intitule_mission", self.node("Désignation de la Mission : Suivi et contrôle des travaux actuels", "front_matter"))[0]
