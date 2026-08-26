@@ -103,8 +103,8 @@ export async function POST(
   }
 
   try {
-    assertExternalCdcCallbackAllowed();
     const { code } = await params;
+    assertExternalCdcCallbackAllowed(process.env, code, "legacy-complete-route");
     const body = (await request.json()) as unknown;
 
     if (!isSuccessBody(body) && !isFailureBody(body)) {
@@ -151,7 +151,8 @@ export async function POST(
       finished_at: finishedAt,
       duration_ms: calculateDurationMs(startedAt, finishedAt),
       metadata: {
-        compatibilityRoute: "/api/fiche/[code]/complete"
+        compatibilityRoute: "/api/fiche/[code]/complete",
+        provider: "legacy-complete-route"
       }
     };
 

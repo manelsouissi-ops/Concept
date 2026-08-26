@@ -51,14 +51,19 @@ export FCI_CALLBACK_SIGNER_URL="${FCI_CALLBACK_SIGNER_URL:-$N8N_CALLBACK_SIGNER_
 required_variables=(
   N8N_WEBHOOK_TOKEN
   PLATFORM_CALLBACK_TOKEN
-  GEMINI_API_KEY
 )
 
-if [[ "${CDC_AI_PROVIDER:-gemini}" == "local_rag" ]]; then
+if [[ "${CDC_AI_PROVIDER:-local}" == "local" ]]; then
   required_variables+=(
     LOCAL_RAG_SERVICE_URL
     LOCAL_RAG_SERVICE_TOKEN
     LOCAL_RAG_CONTRACT_VERSION
+  )
+elif [[ "${CDC_AI_PROVIDER}" == "gemini" ]]; then
+  required_variables+=(
+    GEMINI_API_KEY
+    EXTERNAL_AI_COMPARISON_ENABLED
+    EXTERNAL_AI_AUTHORIZED_CDC_IDS
   )
 fi
 

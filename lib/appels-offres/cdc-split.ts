@@ -131,7 +131,7 @@ export async function launchPersistedCdcExtraction(input: {
 }) {
   // Re-resolve immediately before W2 so an in-flight local document conversion
   // cannot cross into external CDC extraction after confidentiality is enabled.
-  assertCdcAiLaunchAllowed();
+  assertCdcAiLaunchAllowed(process.env, input.codeInterne);
   const config = getN8nIntegrationConfig();
   const urls = getSplitN8nWebhookUrls();
   const payload: CdcExtractionLaunchRequest = {

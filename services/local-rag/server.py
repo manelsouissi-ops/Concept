@@ -27,7 +27,7 @@ from llama_index.vector_stores.qdrant import QdrantVectorStore  # noqa: E402
 from llama_index.core.vector_stores.utils import node_to_metadata_dict  # noqa: E402
 from qdrant_client import QdrantClient, models  # noqa: E402
 
-from benchmark_qwen3_14b import MODEL, ollama_generate  # noqa: E402
+from benchmark_qwen3_14b import MODEL as PROVEN_MODEL, ollama_generate  # noqa: E402
 from benchmark_qwen3_14b_hybrid import (  # noqa: E402
     BM25,
     build_enhanced_nodes,
@@ -60,6 +60,7 @@ from canonical import (  # noqa: E402
 )
 
 CONTRACT_VERSION = "local-cdc-shadow.v1"
+MODEL = os.environ.get("LOCAL_FICHE_MODEL", PROVEN_MODEL).strip() or PROVEN_MODEL
 COLLECTION_PREFIX = "concept_local_rag_shadow"
 MAX_BODY_BYTES = 2 * 1024 * 1024
 XML_FIELD_MAP = {key: key for key in EXTRACTION_FIELDS}

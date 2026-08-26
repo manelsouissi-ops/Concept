@@ -54,7 +54,11 @@ export async function POST(request: Request) {
     }
 
     const payload = validateCallbackPayload(parsedBody, config.contractVersion);
-    assertExternalCdcCallbackAllowed();
+    assertExternalCdcCallbackAllowed(
+      process.env,
+      payload.code_interne,
+      payload.metadata.provider
+    );
     const result = await applyCanonicalN8nCallback(payload);
     if (
       payload.status === "COMPLETED"

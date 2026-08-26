@@ -16,6 +16,9 @@ SPEC.loader.exec_module(server)
 
 
 class LocalRagBoundaryTests(unittest.TestCase):
+    def test_authoritative_default_uses_proven_qwen_model(self):
+        self.assertEqual(server.MODEL, "qwen3:14b")
+
     def request_fixture(self, root: Path):
         code = "AO-TEST"
         path = root / code / "cdc.md"

@@ -663,7 +663,7 @@ export async function launchAnalysisForAppelOffres(
   const code = options.code.trim();
 
   try {
-    assertCdcAiLaunchAllowed();
+    assertCdcAiLaunchAllowed(process.env, code);
   } catch (error) {
     if (error instanceof CdcAiPolicyError) {
       throw new AnalysisRequestError(

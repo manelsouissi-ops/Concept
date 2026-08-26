@@ -70,7 +70,7 @@ export function buildDocumentProcessingCallbackUrl(baseUrl: string) {
 export type CdcWorkflowMode = "legacy" | "split";
 
 export function getCdcWorkflowMode(): CdcWorkflowMode {
-  const value = process.env.CDC_WORKFLOW_MODE?.trim().toLowerCase() || "legacy";
+  const value = process.env.CDC_WORKFLOW_MODE?.trim().toLowerCase() || "split";
   if (value !== "legacy" && value !== "split") {
     throw new Error("La variable d'environnement CDC_WORKFLOW_MODE doit valoir legacy ou split.");
   }

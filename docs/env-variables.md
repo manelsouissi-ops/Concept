@@ -74,22 +74,28 @@
   These are runtime-only n8n values. See `docs/n8n-canonical-contract-env.md` for the
   verified local values, startup order, and safe PowerShell block.
 
-## Controlled local CDC AI shadow
+## Authoritative local Fiche CDC generation
 
 - `CONFIDENTIAL_MODE`
-  Strict `true`/`false` CDC confidentiality invariant; defaults to `false`. When `true`,
-  external CDC AI and shadow routing are blocked before any Gemini call. Local processing
-  also fails closed until local CDC authority is separately approved.
+  Strict `true`/`false` CDC confidentiality invariant. Local generation is allowed when
+  true; every external CDC provider is blocked.
 
 - `CDC_AI_PROVIDER`
-  CDC extraction provider selector consumed by W2. Supported values are `gemini`, `shadow`,
-  and `local`. It defaults to `gemini`. `shadow` keeps Gemini authoritative and records a
-  local comparison. `local` currently fails closed because local CDC authority has not
-  passed its separate quality and generalization gate.
+  CDC extraction provider selector consumed by the platform and W2. Supported values are
+  `local` and `gemini`; it defaults to `local`.
+
+- `LOCAL_FICHE_MODEL`
+  Local authoritative generation model. Defaults to the validated `qwen3:14b`.
+
+- `EXTERNAL_AI_COMPARISON_ENABLED`
+  Strict boolean, default false. Must be explicitly true before Gemini can be selected.
+
+- `EXTERNAL_AI_AUTHORIZED_CDC_IDS`
+  Comma-separated exact `code_interne` allowlist for controlled external comparison.
+  Defaults empty. An identifier must be present before the external route is reachable.
 
 - `LOCAL_RAG_SHADOW_ENABLED`
-  Backward-compatible shadow selector only when `CDC_AI_PROVIDER` is unset. It cannot
-  override an explicit provider or `CONFIDENTIAL_MODE=true`.
+  Legacy deployment variable only. It no longer enables automatic comparison.
 
 - `LOCAL_RAG_SERVICE_URL`
   Loopback URL for the dedicated local semantic extraction service. Defaults operationally
