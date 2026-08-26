@@ -22,6 +22,7 @@ export const FCI_N8N_ERROR_STAGES = [
   "module_selection",
   "prompt_loading",
   "gemini_request",
+  "provider_request",
   "gemini_response",
   "json_parse",
   "schema_validation",

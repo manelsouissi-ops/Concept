@@ -5,7 +5,8 @@ import path from "node:path";
 import type { FciCommercialPayload } from "./ai-contracts.ts";
 import {
   applyCommercialGenerationGuardrails,
-  extractCommercialShortlistFromMarkdown
+  extractCommercialShortlistFromMarkdown,
+  validateCommercialGrounding
 } from "./commercial-quality.ts";
 import { getFciModuleDefinition } from "./rendering.ts";
 
@@ -56,7 +57,7 @@ test("no explicit shortlist produces no fabricated competitors", () => {
   assert.deepEqual(guarded.data.concurrents_premiere_lecture, []);
 });
 
-test("commercial guardrails blank prose transit and preserve integer days", () => {
+test("commercial guardrails always leave current transit commitments to humans", () => {
   const prose = sampleCommercial();
   (prose.data.points_logistiques_internes.delai_de_transit_necessaire as { value: unknown }).value =
     "Déposer avant le 16/10/2025";
@@ -66,7 +67,11 @@ test("commercial guardrails blank prose transit and preserve integer days", () =
   const numeric = sampleCommercial();
   numeric.data.points_logistiques_internes.delai_de_transit_necessaire.value = 3;
   const preserved = applyCommercialGenerationGuardrails(numeric, { shortlistedConsultants: [] });
-  assert.equal(preserved.data.points_logistiques_internes.delai_de_transit_necessaire.value, 3);
+  assert.equal(preserved.data.points_logistiques_internes.delai_de_transit_necessaire.value, null);
+  assert.equal(
+    preserved.data.points_logistiques_internes.delai_de_transit_necessaire.source_type,
+    "internal_required"
+  );
 });
 
 test("CDC requirements cannot become an unsupported CONCEPT differentiator", () => {
@@ -115,6 +120,7 @@ test("human-owned commercial fields stay null and human-required", () => {
     data.identification_opportunite.prepare_par,
     data.identification_opportunite.valide_par,
     data.positionnement_offre.notre_avantage_differentiel_principal,
+    data.positionnement_offre.notre_vulnerabilite_principale,
     data.positionnement_offre.niveau_de_prix_cible_estime,
     data.points_logistiques_internes.responsable_depot,
     data.points_logistiques_internes.representation_locale_existante
@@ -122,4 +128,20 @@ test("human-owned commercial fields stay null and human-required", () => {
     assert.equal(field.value, null);
     assert.equal(field.requires_human_input, true);
   }
+});
+
+test("grounding rejects unsupported AI claims", () => {
+  const payload = sampleCommercial();
+  payload.data.identification_opportunite.intitule_offre = {
+    value: "Offre inventée",
+    source_type: "ai_inference",
+    confidence: "medium",
+    requires_human_input: false,
+    justification: "Supposition",
+    source_references: []
+  };
+  assert.equal(validateCommercialGrounding(payload, {}).some((issue) =>
+    issue.path === "data.identification_opportunite.intitule_offre"
+      && issue.reason === "unsupported_ai_inference"
+  ), true);
 });

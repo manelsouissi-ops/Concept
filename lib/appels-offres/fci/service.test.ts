@@ -543,6 +543,25 @@ function buildFciModulePayloadFixture(input: {
     validated_at: new Date().toISOString()
   };
 
+  if (input.moduleCode === "A") {
+    const identification = (payload.data as Record<string, unknown>)
+      .identification_opportunite as Record<string, Record<string, unknown>>;
+    for (const key of [
+      "reference_interne_code_dossier",
+      "intitule_offre",
+      "date_depot"
+    ]) {
+      identification[key] = {
+        ...identification[key],
+        value: null,
+        source_type: "unavailable",
+        confidence: "none",
+        requires_human_input: false,
+        source_references: []
+      };
+    }
+  }
+
   return payload;
 }
 
@@ -1332,8 +1351,8 @@ test("signed success callbacks persist one version, remain idempotent, and rejec
         correlation_id: launchResult.job.correlation_id ?? "missing",
         execution_id: "exec-fci-success-1",
         status: "completed",
-        provider: "gemini",
-        model: "gemini-3.6-flash",
+        provider: launchResult.job.provider,
+        model: launchResult.job.model,
         prompt_version: "1.1",
         schema_version: "1.1",
         source_fiche: {
@@ -1488,8 +1507,8 @@ async function runModuleLifecycleNotificationScenario(
         correlation_id: launchResult.job.correlation_id ?? "missing",
         execution_id: `exec-lifecycle-${moduleCode}`,
         status: "completed",
-        provider: "gemini",
-        model: "gemini-3.6-flash",
+        provider: launchResult.job.provider,
+        model: launchResult.job.model,
         prompt_version: "1.1",
         schema_version: "1.1",
         source_fiche: {

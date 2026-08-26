@@ -93,7 +93,8 @@ import { canCoordinateTender } from "../ownership.ts";
 import { notifyCommercialUsers, notifyFciModuleLifecycleEvent } from "../../notifications/orchestration.ts";
 import {
   applyCommercialGenerationGuardrails,
-  readFciCommercialSourceContext
+  readFciCommercialSourceContext,
+  validateCommercialGrounding
 } from "./commercial-quality.ts";
 import {
   applyStrategyGenerationGuardrails,
@@ -1281,7 +1282,7 @@ async function launchFciGenerationJob(input: {
 
   let config: FciN8nIntegrationConfig;
   try {
-    config = getFciN8nIntegrationConfig();
+    config = getFciN8nIntegrationConfig(input.moduleCode, input.code);
     assertFciWebhookUrl(config.webhookUrl);
   } catch (error) {
     if (error instanceof FciServiceError) {
@@ -1915,6 +1916,16 @@ async function applyFciSuccessCallback(
     };
   }
 
+  if (context.job.provider !== payload.provider || context.job.model !== payload.model) {
+    return {
+      httpStatus: 409,
+      body: {
+        error: "Le fournisseur ou modèle du callback FCI ne correspond pas au job.",
+        code: "FCI_PROVIDER_MISMATCH"
+      }
+    };
+  }
+
   const validatedPayload = validateFciAiPayload(payload.module_code, payload.payload);
   if (!validatedPayload.ok) {
     const restoredStatus = getPreviousModuleStatusFromJob(context.job);
@@ -1959,6 +1970,41 @@ async function applyFciSuccessCallback(
     : payload.module_code === "D"
       ? applyStrategyGenerationGuardrails(validatedPayload.data as FciStrategyPayload)
       : validatedPayload.data;
+  if (payload.module_code === "A") {
+    const source = await readSourceFicheSnapshot(context.appelOffres.code);
+    const groundingIssues = validateCommercialGrounding(
+      guardedPayload as FciCommercialPayload,
+      {
+        code_interne: context.appelOffres.code,
+        fiche_cdc: source?.fiche ?? {},
+        commercial_context: await readFciCommercialSourceContext(context.appelOffres.code)
+      }
+    );
+    if (groundingIssues.length > 0) {
+      const restoredStatus = getPreviousModuleStatusFromJob(context.job);
+      await applyFciGenerationFailureState({
+        appelOffresId: context.appelOffres.id,
+        code: context.appelOffres.code,
+        module: context.module,
+        job: context.job,
+        restoredStatus,
+        eventType: "fci.generation.failed",
+        errorCode: "AI_GROUNDING_VALIDATION_FAILED",
+        errorMessage: "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée.",
+        generatedAt: payload.generated_at,
+        callbackPayloadHash,
+        callbackEvent: payload.event,
+        extraParameters: { callback_grounding_issues: groundingIssues }
+      });
+      return {
+        httpStatus: 422,
+        body: {
+          error: "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée.",
+          code: "AI_GROUNDING_VALIDATION_FAILED"
+        }
+      };
+    }
+  }
   const finalPayload = {
     ...guardedPayload,
     source_fiche: buildAuthoritativeSourceFiche(context.appelOffres.code, {

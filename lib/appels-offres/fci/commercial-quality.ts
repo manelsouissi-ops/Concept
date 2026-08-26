@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { markdownPath } from "../../storage.ts";
 import type {
   FciAiField,
+  FciAiFieldValue,
   FciCommercialPayload,
   FciCommercialCompetitorRow
 } from "./ai-contracts.ts";
@@ -14,6 +15,11 @@ export type FciCommercialShortlistEntry = {
 
 export type FciCommercialSourceContext = {
   shortlistedConsultants: FciCommercialShortlistEntry[];
+};
+
+export type FciCommercialGroundingIssue = {
+  path: string;
+  reason: "unsupported_ai_inference" | "missing_source_excerpt";
 };
 
 function cleanCell(value: string) {
@@ -137,10 +143,43 @@ export function buildCommercialCompetitorRows(
   }));
 }
 
-function sanitizeTransitDays(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0
-    ? value
-    : null;
+function collectFields(value: unknown, path = "data"): Array<[string, FciAiField<FciAiFieldValue>]> {
+  if (!value || typeof value !== "object") return [];
+  if ("source_type" in value && "source_references" in value && "value" in value) {
+    return [[path, value as FciAiField<FciAiFieldValue>]];
+  }
+  return Object.entries(value).flatMap(([key, child]) =>
+    collectFields(child, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`)
+  );
+}
+
+/** Reject model claims that cannot be tied back to the exact launch evidence. */
+export function validateCommercialGrounding(
+  payload: FciCommercialPayload,
+  sourceEvidence: unknown
+): FciCommercialGroundingIssue[] {
+  const evidence = JSON.stringify(sourceEvidence).toLocaleLowerCase("fr-FR");
+  const issues: FciCommercialGroundingIssue[] = [];
+  for (const [path, field] of collectFields(payload.data)) {
+    if (field.value == null) continue;
+    if (field.source_type === "ai_inference") {
+      issues.push({ path, reason: "unsupported_ai_inference" });
+      continue;
+    }
+    if (field.source_type !== "fiche_cdc") continue;
+    const excerpts = field.source_references
+      .map((reference) => reference.excerpt?.trim())
+      .filter((excerpt): excerpt is string => Boolean(excerpt));
+    const normalizedValue = String(field.value).trim().toLocaleLowerCase("fr-FR");
+    const valueIsPresent = normalizedValue.length > 0 && evidence.includes(normalizedValue);
+    const excerptsArePresent = excerpts.length > 0 && excerpts.every((excerpt) =>
+      evidence.includes(excerpt.toLocaleLowerCase("fr-FR"))
+    );
+    if (!valueIsPresent && !excerptsArePresent) {
+      issues.push({ path, reason: "missing_source_excerpt" });
+    }
+  }
+  return issues;
 }
 
 /** Deterministic safety layer applied after schema validation and before persistence. */
@@ -148,8 +187,6 @@ export function applyCommercialGenerationGuardrails(
   payload: FciCommercialPayload,
   context: FciCommercialSourceContext
 ): FciCommercialPayload {
-  const transit = payload.data.points_logistiques_internes.delai_de_transit_necessaire;
-  const transitValue = sanitizeTransitDays(transit.value);
   const competitors = context.shortlistedConsultants.length > 0
     ? buildCommercialCompetitorRows(context)
     : [];
@@ -158,26 +195,34 @@ export function applyCommercialGenerationGuardrails(
     ...payload,
     data: {
       ...payload.data,
+      identification_opportunite: {
+        ...payload.data.identification_opportunite,
+        prepare_par: humanField("Le préparateur doit être renseigné par l'équipe commerciale."),
+        valide_par: humanField("Le validateur doit être renseigné par un humain autorisé.")
+      },
       concurrents_premiere_lecture: competitors,
       positionnement_offre: {
         ...payload.data.positionnement_offre,
         notre_avantage_differentiel_principal: humanField(
           "À confirmer par l'équipe commerciale à partir des références internes approuvées."
+        ),
+        notre_vulnerabilite_principale: humanField(
+          "La vulnérabilité commerciale doit être confirmée par l'équipe commerciale."
+        ),
+        niveau_de_prix_cible_estime: humanField(
+          "Le niveau de prix cible relève exclusivement de la stratégie commerciale interne."
         )
       },
       points_logistiques_internes: {
         ...payload.data.points_logistiques_internes,
         delai_de_transit_necessaire: {
-          ...transit,
-          value: transitValue,
-          source_type: transitValue == null ? "internal_required" : transit.source_type,
-          confidence: transitValue == null ? "none" : transit.confidence,
-          requires_human_input: transitValue == null,
-          justification: transitValue == null
-            ? "Durée de transit en jours à renseigner par l'équipe commerciale."
-            : transit.justification,
-          source_references: transitValue == null ? [] : transit.source_references
-        }
+          ...humanField("Durée de transit à confirmer par l'équipe commerciale."),
+          value: null
+        },
+        responsable_depot: humanField("Le responsable du dépôt doit être désigné en interne."),
+        representation_locale_existante: humanField(
+          "La représentation locale actuelle doit être confirmée en interne."
+        )
       }
     }
   };

@@ -1,4 +1,6 @@
 import { getFciContractRegistry } from "./contract-registry.ts";
+import { resolveFciProvider } from "./provider-policy.ts";
+import type { FciModuleCode } from "./types.ts";
 
 export type FciN8nIntegrationConfig = {
   webhookUrl: string;
@@ -75,7 +77,16 @@ export function getFciCallbackToken() {
   return requireOneOfEnv("FCI_CALLBACK_BEARER_TOKEN", "PLATFORM_CALLBACK_TOKEN");
 }
 
-export function getFciN8nIntegrationConfig(): FciN8nIntegrationConfig {
+export function getFciN8nIntegrationConfig(
+  moduleCode?: FciModuleCode,
+  codeInterne?: string
+): FciN8nIntegrationConfig {
+  const provider = moduleCode
+    ? resolveFciProvider(moduleCode, codeInterne)
+    : {
+        provider: process.env.FCI_GENERATION_PROVIDER?.trim() || "gemini",
+        model: requireNonEmptyEnv("FCI_GENERATION_MODEL")
+      };
   return {
     webhookUrl: requireNonEmptyEnv("FCI_N8N_WEBHOOK_URL"),
     webhookToken: getFciWebhookToken(),
@@ -87,8 +98,8 @@ export function getFciN8nIntegrationConfig(): FciN8nIntegrationConfig {
       requireNonEmptyEnv("PLATFORM_PUBLIC_BASE_URL")
     ),
     contractVersion: getFciN8nContractVersion(),
-    provider: process.env.FCI_GENERATION_PROVIDER?.trim() || "gemini",
-    model: requireNonEmptyEnv("FCI_GENERATION_MODEL"),
+    provider: provider.provider,
+    model: provider.model,
     launchTimeoutMs: readPositiveIntegerEnv("FCI_N8N_LAUNCH_TIMEOUT_MS", 10_000)
   };
 }
