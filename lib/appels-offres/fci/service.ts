@@ -25,7 +25,7 @@ import type {
   FciModuleDataRecord,
   FciModuleRecord
 } from "./types.ts";
-import type { FciCommercialPayload, FciStrategyPayload } from "./ai-contracts.ts";
+import type { FciCommercialPayload, FciFinancePayload, FciStrategyPayload } from "./ai-contracts.ts";
 import { getFciAiRuntimeContract } from "./ai-runtime.ts";
 import { validateFciAiPayload } from "./ai-validation.ts";
 import { getFciN8nIntegrationConfig, buildFciCallbackUrl, type FciN8nIntegrationConfig } from "./n8n-config.ts";
@@ -96,6 +96,10 @@ import {
   readFciCommercialSourceContext,
   validateCommercialGrounding
 } from "./commercial-quality.ts";
+import {
+  applyFinanceGenerationGuardrails,
+  validateFinanceGrounding
+} from "./finance-quality.ts";
 import {
   applyStrategyGenerationGuardrails,
   readFciStrategicSourceContext
@@ -1967,21 +1971,34 @@ async function applyFciSuccessCallback(
         validatedPayload.data as FciCommercialPayload,
         await readFciCommercialSourceContext(context.appelOffres.code)
       )
-    : payload.module_code === "D"
-      ? applyStrategyGenerationGuardrails(validatedPayload.data as FciStrategyPayload)
-      : validatedPayload.data;
-  if (payload.module_code === "A") {
+    : payload.module_code === "B"
+      ? applyFinanceGenerationGuardrails(validatedPayload.data as FciFinancePayload)
+      : payload.module_code === "D"
+        ? applyStrategyGenerationGuardrails(validatedPayload.data as FciStrategyPayload)
+        : validatedPayload.data;
+  if (payload.module_code === "A" || payload.module_code === "B") {
     const source = await readSourceFicheSnapshot(context.appelOffres.code);
-    const groundingIssues = validateCommercialGrounding(
-      guardedPayload as FciCommercialPayload,
-      {
-        code_interne: context.appelOffres.code,
-        fiche_cdc: source?.fiche ?? {},
-        commercial_context: await readFciCommercialSourceContext(context.appelOffres.code)
-      }
-    );
+    const groundingIssues = payload.module_code === "A"
+      ? validateCommercialGrounding(
+          guardedPayload as FciCommercialPayload,
+          {
+            code_interne: context.appelOffres.code,
+            fiche_cdc: source?.fiche ?? {},
+            commercial_context: await readFciCommercialSourceContext(context.appelOffres.code)
+          }
+        )
+      : validateFinanceGrounding(
+          guardedPayload as FciFinancePayload,
+          {
+            code_interne: context.appelOffres.code,
+            fiche_cdc: source?.fiche ?? {}
+          }
+        );
     if (groundingIssues.length > 0) {
       const restoredStatus = getPreviousModuleStatusFromJob(context.job);
+      const errorMessage = payload.module_code === "A"
+        ? "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée."
+        : "Le payload FCI B contient des affirmations financières sans preuve dans la Fiche validée.";
       await applyFciGenerationFailureState({
         appelOffresId: context.appelOffres.id,
         code: context.appelOffres.code,
@@ -1990,7 +2007,7 @@ async function applyFciSuccessCallback(
         restoredStatus,
         eventType: "fci.generation.failed",
         errorCode: "AI_GROUNDING_VALIDATION_FAILED",
-        errorMessage: "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée.",
+        errorMessage,
         generatedAt: payload.generated_at,
         callbackPayloadHash,
         callbackEvent: payload.event,
@@ -1999,7 +2016,7 @@ async function applyFciSuccessCallback(
       return {
         httpStatus: 422,
         body: {
-          error: "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée.",
+          error: errorMessage,
           code: "AI_GROUNDING_VALIDATION_FAILED"
         }
       };
