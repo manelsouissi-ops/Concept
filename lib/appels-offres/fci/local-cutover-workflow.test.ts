@@ -40,12 +40,22 @@ test("FCI workflow routes C local without a Gemini fallback", () => {
   assert.equal(workflow.nodes.some((node) => node.name.includes("Fallback")), false);
 });
 
-test("shared workflow explicitly keeps D on Gemini", () => {
+test("FCI workflow routes D local without a Gemini fallback", () => {
+  const context = workflow.nodes.find((node) => node.name === "Build FCI Context");
+  assert.ok(context);
+  const code = String(context.parameters.jsCode);
+  assert.match(code, /module_code === 'D'/);
+  assert.match(code, /Modele local FCI D inattendu/);
+  assert.match(code, /FCI D externe non autorisee/);
+  assert.equal(workflow.nodes.some((node) => node.name.includes("Fallback")), false);
+});
+
+test("shared workflow still fail-closes any module code outside A/B/C/D to an explicit external provider", () => {
   const context = workflow.nodes.find((node) => node.name === "Build FCI Context");
   const code = String(context?.parameters.jsCode);
-  assert.match(code, /FCI D conserve son provider existant/);
+  assert.match(code, /Module FCI non couvert : provider externe requis/);
   assert.match(
     code,
-    /module_code !== 'A' && item\.json\.module_code !== 'B' && item\.json\.module_code !== 'C'/
+    /module_code !== 'A' && item\.json\.module_code !== 'B' && item\.json\.module_code !== 'C' && item\.json\.module_code !== 'D'/
   );
 });

@@ -90,19 +90,46 @@ test("FCI C external generation succeeds only when explicitly allowlisted and no
   })), { provider: "gemini", model: "gemini-existing" });
 });
 
-test("FCI A, B and C providers are resolved independently of each other", () => {
+test("FCI D defaults to local qwen3:14b", () => {
+  assert.deepEqual(resolveFciProvider("D", "AO-SAFE", env({})), {
+    provider: "local",
+    model: "qwen3:14b"
+  });
+});
+
+test("FCI D external generation is fail-closed and allowlisted", () => {
+  assert.throws(() => resolveFciProvider("D", "AO-SAFE", env({
+    FCI_D_GENERATION_PROVIDER: "gemini",
+    CONFIDENTIAL_MODE: "true",
+    EXTERNAL_AI_COMPARISON_ENABLED: "true",
+    EXTERNAL_AI_AUTHORIZED_CDC_IDS: "AO-SAFE"
+  })));
+  assert.throws(() => resolveFciProvider("D", "AO-SAFE", env({
+    FCI_D_GENERATION_PROVIDER: "gemini",
+    CONFIDENTIAL_MODE: "false",
+    EXTERNAL_AI_COMPARISON_ENABLED: "true",
+    EXTERNAL_AI_AUTHORIZED_CDC_IDS: ""
+  })));
+});
+
+test("FCI D external generation succeeds only when explicitly allowlisted and non-confidential", () => {
+  assert.deepEqual(resolveFciProvider("D", "AO-SAFE", env({
+    FCI_D_GENERATION_PROVIDER: "gemini",
+    CONFIDENTIAL_MODE: "false",
+    EXTERNAL_AI_COMPARISON_ENABLED: "true",
+    EXTERNAL_AI_AUTHORIZED_CDC_IDS: "AO-SAFE",
+    FCI_GENERATION_MODEL: "gemini-existing"
+  })), { provider: "gemini", model: "gemini-existing" });
+});
+
+test("FCI A, B, C and D providers are resolved independently of each other", () => {
   assert.deepEqual(resolveFciProvider("A", "AO-SAFE", env({
     FCI_A_GENERATION_PROVIDER: "local",
     FCI_B_GENERATION_PROVIDER: "gemini",
     FCI_C_GENERATION_PROVIDER: "gemini",
+    FCI_D_GENERATION_PROVIDER: "gemini",
     CONFIDENTIAL_MODE: "false",
     EXTERNAL_AI_COMPARISON_ENABLED: "true",
     EXTERNAL_AI_AUTHORIZED_CDC_IDS: "AO-SAFE"
   })), { provider: "local", model: "qwen3:14b" });
-});
-
-test("FCI D retains the existing Gemini provider and cannot be routed local", () => {
-  assert.deepEqual(resolveFciProvider("D", "AO-SAFE", env({
-    FCI_GENERATION_MODEL: "gemini-existing"
-  })), { provider: "gemini", model: "gemini-existing" });
 });

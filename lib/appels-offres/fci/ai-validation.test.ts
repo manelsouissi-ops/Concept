@@ -88,6 +88,60 @@ test("validateFciAiPayload does not silently repair an arbitrary unknown/misspel
   assert.equal(result.ok, false);
 });
 
+function minimalValidStrategyPayload() {
+  return {
+    contract_version: "1.0",
+    module_code: "D",
+    module_type: "strategy",
+    generated_at: new Date().toISOString(),
+    data: {
+      contexte_programme_valeur_strategique: {
+        inscription_dans_un_programme_pluriannuel: fciField("Oui"),
+        valeur_estimee_des_futurs_lots: fciField(null, { value: null }),
+        positionnement_geographique_vise: fciField("Cote d'Ivoire"),
+        valeur_comme_reference: fciField("Forte")
+      },
+      enjeux_reputationnels: {
+        risque_en_cas_de_sous_performance: fciField("Eleve"),
+        risque_en_cas_de_perte: fciField("Modere"),
+        valeur_de_test_ou_apprentissage: fciField("Oui")
+      },
+      decision_strategique_preliminaire: {
+        importance_strategique_globale: fciField(null, { value: null }),
+        marche_prioritaire_pour_la_direction: fciField(null, { value: null }),
+        commentaires_strategiques_de_la_direction_generale: fciField(null, { value: null })
+      },
+      synthese_direction: {
+        statut_revue_preliminaire: fciField("conditional_review", { source_type: "ai_inference", confidence: "medium" }),
+        opportunites_majeures: fciField(null, { value: null }),
+        menaces_majeures: fciField(null, { value: null }),
+        questions_pour_la_direction: fciField(null, { value: null }),
+        blocages_non_resolus: fciField(null, { value: null })
+      }
+    },
+    ai_notes: [],
+    validation_warnings: []
+  };
+}
+
+test("validateFciAiPayload's shared key normalization also tolerates a mis-cased source_references key on FCI D", () => {
+  const payload = minimalValidStrategyPayload();
+  const misCasedField = payload.data.enjeux_reputationnels
+    .risque_en_cas_de_sous_performance as Record<string, unknown>;
+  delete misCasedField.source_references;
+  misCasedField.source_References = [];
+
+  const result = validateFciAiPayload("D", payload);
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    const normalizedField = result.data.data.enjeux_reputationnels
+      .risque_en_cas_de_sous_performance as Record<string, unknown>;
+    assert.deepEqual(normalizedField.source_references, []);
+    assert.equal(normalizedField.source_References, undefined);
+  }
+});
+
 test("validateFciAiPayload does not alter unrelated business content", () => {
   const payload = minimalValidOperationsPayload();
   payload.data.capacite_absorption_globale = [

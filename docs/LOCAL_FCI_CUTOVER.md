@@ -1,4 +1,4 @@
-# Local FCI cutover (A, B and C)
+# Local FCI cutover (A, B, C and D)
 
 ## Live deployment status
 
@@ -22,7 +22,9 @@ LIVE VERIFIED = YES
 GEMINI → LOCAL MIGRATION = COMPLETE
 
 FCI D
-Gemini (unchanged)
+IMPLEMENTED = YES
+DEPLOYED = NO
+LIVE VERIFIED = NO
 ```
 
 Live verification dates: FCI A on 2026-08-26, FCI B on 2026-08-27, FCI C on
@@ -31,6 +33,15 @@ explicitly authorized benchmark fixtures, selected because it has an existing
 human-validated Fiche, unlike `AO-20260824-1322` which remained in
 `fiche_a_valider` at the time and was correctly not used for any module.
 No FCI content or confidential business value is reproduced here.
+
+FCI D's checked-in provider migration (this checkpoint) is **implementation
+and tests only** — no live deployment. The checked-in n8n workflow, provider
+policy, guardrails, and grounding are all in place, but the live n8n
+workflow has **not** been re-imported/published/restarted for D, and no real
+D generation has been triggered against a live tender. See "FCI D
+(Direction Générale)" below for the full business/technical account and
+"Deployment and future work" for exactly what remains before D can be
+live-verified.
 
 ### FCI A live evidence
 
@@ -220,33 +231,36 @@ Operations prompt.
 
 ## Scope and provider state
 
-FCI A, FCI B, and FCI C are migrated and live-verified (see above).
+FCI A, FCI B, and FCI C are migrated and live-verified (see above). FCI D's
+provider migration is implemented and tested (checked-in), not yet deployed
+or live-verified.
 
 | Module | Checked-in provider | Model | Live state |
 |---|---|---|---|
 | A | local Ollama | `qwen3:14b` | Live, verified |
 | B | local Ollama | `qwen3:14b` | Live, verified |
 | C | local Ollama | `qwen3:14b` | Live, verified |
-| D | Gemini (unchanged) | existing `FCI_GENERATION_MODEL` | Live, unchanged |
+| D | local Ollama (checked-in) | `qwen3:14b` | Checked-in only, live workflow still runs the pre-migration Gemini-only build |
 
 The application resolves A to `FCI_A_GENERATION_PROVIDER=local`, B to
-`FCI_B_GENERATION_PROVIDER=local`, and C to `FCI_C_GENERATION_PROVIDER=local`,
-all three by default, sharing the same `LOCAL_FCI_MODEL=qwen3:14b`. The three
-modules are resolved independently of each other (an operator can flip one
-without affecting the others) through the same `resolveFciProvider` policy
-function — no second, parallel provider system was created for Operations.
-The workflow sends local requests only to the loopback Ollama `/api/chat`
-endpoint for any of the three. There is no local-to-Gemini fallback for A, B,
-or C.
+`FCI_B_GENERATION_PROVIDER=local`, C to `FCI_C_GENERATION_PROVIDER=local`,
+and D to `FCI_D_GENERATION_PROVIDER=local`, all four by default, sharing the
+same `LOCAL_FCI_MODEL=qwen3:14b`. The four modules are resolved independently
+of each other (an operator can flip one without affecting the others)
+through the same `resolveFciProvider` policy function — no second, parallel
+provider system was created for D. The checked-in workflow sends local
+requests only to the loopback Ollama `/api/chat` endpoint for any of the
+four. There is no local-to-Gemini fallback for A, B, C, or D.
 
-An exceptional Gemini comparison for A, B, or C requires all of:
+An exceptional Gemini comparison for A, B, C, or D requires all of:
 `CONFIDENTIAL_MODE=false`, the matching `FCI_A_GENERATION_PROVIDER`,
-`FCI_B_GENERATION_PROVIDER`, or `FCI_C_GENERATION_PROVIDER` set to `gemini`,
-`EXTERNAL_AI_COMPARISON_ENABLED=true`, and the exact CDC code in
-`EXTERNAL_AI_AUTHORIZED_CDC_IDS`. The default allowlist is empty. The
-application and workflow both enforce this boundary for all three modules; D
-remains hard-locked to Gemini in the workflow (any other provider value for D
-is rejected before any HTTP call is made).
+`FCI_B_GENERATION_PROVIDER`, `FCI_C_GENERATION_PROVIDER`, or
+`FCI_D_GENERATION_PROVIDER` set to `gemini`, `EXTERNAL_AI_COMPARISON_ENABLED=true`,
+and the exact CDC code in `EXTERNAL_AI_AUTHORIZED_CDC_IDS`. The default
+allowlist is empty. The checked-in application and workflow both enforce
+this boundary for all four modules identically — D is no longer a special
+case in the routing logic, only in its live-deployment status (see
+"Deployment and future work").
 
 ## Contract, grounding and human ownership
 
@@ -352,20 +366,107 @@ unchanged. No schema or rendering change was made to keep this true.
   preventing qwen3:14b from simulating the future Knowledge Base described
   above.
 
-All three of A, B, and C share the identical fail-closed shape: schema
+All four of A, B, C, and D share the identical fail-closed shape: schema
 validation, then the module's guardrail, then grounding validation, before
-persistence. D is unaffected — its existing `strategy-quality.ts` is
-untouched.
+persistence.
+
+### FCI D (Direction Générale — strategic contribution)
+
+**FCI D is not the final Go/No-Go decision.** It is a preliminary strategic
+synthesis (`module_type: "strategy"`) that the Direction Générale reviews and
+validates like any other FCI module; the final Go/No-Go decision is a
+separate, later action in `lib/appels-offres/go-no-go/` with its own
+readiness gate (`buildDecisionCenterReadiness` in `dg-decision-center.ts`,
+which requires **all four** of A, B, C, and D human-validated — not merely
+generated — before `ready` becomes true). This provider migration does not
+touch, call, or shortcut that separation: D's success/failure callback path
+never imports or invokes the Go/No-Go service, and a generated-but-unvalidated
+D (status `needs_review`) leaves `ready_for_gonogo` false exactly as before,
+confirmed by a dedicated regression test.
+
+The existing `fci-strategy.schema.json` and its provider-independent prompt
+(`ai/prompts/fci-strategy.md`) remain authoritative and unchanged — both
+already explicitly forbid a final GO/NO-GO decision ("Ne retournez jamais
+`GO`, `NO-GO` ou une formulation équivalente") and instruct the model to mark
+any real DG priority it cannot infer as `internal_required`. No schema,
+prompt, or UI/API field was renamed or restructured for this migration. The
+UI defines 17 human-visible fields across the shared header (5) and three
+D-specific sections (`d1_valeur_strategique`: 5, `d2_enjeux_reputationnels`:
+3, `d3_decision_preliminaire`: 4) — confirmed by counting `rendering.ts`'s
+module-D field definitions. As with C's REX sections, the raw AI schema's
+`synthese_direction` block (`statut_revue_preliminaire`, `opportunites_majeures`,
+`menaces_majeures`, `questions_pour_la_direction`, `blocages_non_resolus`) has
+no corresponding UI section today — this is a pre-existing, unmodified
+convention (`mapLegacyStrategyPayload`'s `unmapped: { synthese_direction }`),
+not something introduced or changed here.
+
+D's evidence is validated upstream contributions only:
+`readFciStrategicSourceContext` (pre-existing, unmodified) builds
+`{commercial, finance, operations}` strictly from modules whose
+`status === "validated"` — a `needs_review` A/B/C is treated as unavailable
+context, never read. D's own generation additionally requires A, B, and C to
+already be validated before it can even launch:
+`assertFciDPrerequisitesValidated` (`service.ts`, pre-existing, unmodified)
+still throws `FCI_D_PREREQUISITES_NOT_VALIDATED` (409) for any missing one,
+and this check runs before provider resolution — an ineligible D request
+never reaches the local model or Gemini. Three existing regression tests
+(one per missing module) plus the existing all-validated positive-path test
+were re-run unmodified and still pass with D's provider now local.
+
+`lib/appels-offres/fci/strategy-quality.ts` (pre-existing `applyStrategyGenerationGuardrails`
+extended, plus a new `validateStrategyGrounding`):
+
+- **Decision-leakage guardrail** (pre-existing, unchanged): a
+  GO/NO-GO/final-decision regex neutralizes any leaked verdict in any field
+  to `null` / `internal_required` regardless of model output.
+  `statut_revue_preliminaire` is a controlled 4-value enum (never GO/NO-GO)
+  and is deliberately left untouched.
+- **New DG-judgment guardrail**: `decision_strategique_preliminaire`'s three
+  fields (`importance_strategique_globale`, `marche_prioritaire_pour_la_direction`,
+  `commentaires_strategiques_de_la_direction_generale`) are now
+  **unconditionally** forced to `null` / `internal_required` /
+  `confidence=none` / `requires_human_input=true`, not merely scanned for
+  GO/NO-GO language. This closes a real gap found while implementing this
+  migration: the departmental UI already renders this entire section as
+  human-only (`d3_decision_preliminaire`, `sourceLabel: "human"`,
+  independently of provider) via `legacyFieldToFormField`, but nothing at the
+  persistence layer previously guaranteed it — the shipped sample fixture
+  itself contained an AI-inferred `"Importante"` verdict with a source
+  excerpt as proof. This guardrail makes the UI's existing guarantee
+  structural, mirroring how A/B/C already force their own current-state
+  columns regardless of model output.
+- **New `validateStrategyGrounding`**: rejects `ai_inference` values that
+  smuggle in a hard number unsupported by the combined evidence (validated
+  Fiche + validated A/B/C data), and `fiche_cdc` claims whose value/excerpt
+  is absent from that evidence — the same shape as A/B/C's grounding checks.
+  D's evidence corpus is much larger than A/B/C's (up to three full module
+  payloads plus the Fiche), so its numeric check uses a digit-boundary match
+  instead of a bare substring check to avoid two classes of false result a
+  plain substring check would produce over that much text: false negatives
+  from a lone digit coincidentally appearing anywhere in a large JSON blob,
+  and false positives from a real multi-digit token (e.g. `"20"`) matching
+  merely as a fragment of an unrelated larger number (e.g. `"2026"`).
+
+Cross-module contradictions (e.g. Commercial and Operations implying
+different conclusions) are not resolved by inventing a winner — the prompt's
+non-invention rules and the grounding check above mean an unsupported
+"resolution" is rejected the same way any other fabricated claim is; the
+prompt was not altered here since no defect was found in how it already
+handles this (unlike C's genuine prompt bugs, D's prompt required no
+correction).
 
 ## Failure and lifecycle
 
-Ollama, JSON, schema, grounding, callback, or canonical validation failure uses
-the existing explicit failed/retryable job path for A, B, and C. It never
-switches provider. Successful generation remains a proposal in `needs_review`;
-validation remains a human RBAC-protected action (Commercial for A, Finance
-for B, Operations for C — unchanged by this migration). None of A, B, or C
-contains a GO/NO-GO decision. Existing D gating still requires human-validated
-A, B, and C — a generated-but-unvalidated C does not satisfy it.
+Ollama, JSON, schema, grounding, callback, or canonical validation failure
+uses the existing explicit failed/retryable job path for A, B, C, and D. It
+never switches provider. Successful generation remains a proposal in
+`needs_review`; validation remains a human RBAC-protected action (Commercial
+for A, Finance for B, Operations for C, Direction Générale for D — unchanged
+by this migration, confirmed by existing RBAC regression tests re-run
+unmodified). None of A, B, C, or D contains a GO/NO-GO decision. Existing D
+gating still requires human-validated A, B, and C — a generated-but-unvalidated
+module never satisfies it — and the separate final Go/No-Go readiness gate
+still requires all four of A, B, C, and D human-validated.
 
 ## Benchmark evidence
 
@@ -397,21 +498,51 @@ above — using the same authorized `AO-20260818-1144` fixture already used
 for A's and B's live verification. `ai-validation.test.ts` (new) covers the
 key-casing normalization fix found during that live verification.
 
+### FCI D
+
+Unit- and service-level tests only, using the same pattern as B/C:
+`strategy-quality.test.ts` (existing decision-leakage guardrail tests,
+extended with the new DG-judgment guardrail test and five new grounding
+tests), `provider-policy.test.ts` (D local-default and fail-closed external
+comparison, replacing the old "D retains Gemini" assertion),
+`local-cutover-workflow.test.ts` (D local-routing assertions, replacing the
+old "D stays on Gemini" assertion), `ai-validation.test.ts` (confirms the
+shared key-casing normalizer behaves identically on a D-shaped payload), and
+two new `service.test.ts` scenarios exercising a full launch → callback →
+persist cycle and a grounding-failure cycle against a synthetic test tender,
+plus an assertion on both that `deriveTenderWorkflowState`'s
+`ready_for_gonogo` stays `false` throughout. The three pre-existing D
+prerequisite-gate tests and the pre-existing D RBAC tests were re-run
+unmodified and still pass. **No live generation was triggered and no real
+AO's FCI D state changed.** Live deployment and a real end-to-end
+verification (mirroring A's, B's, and C's) are the explicit next step, not
+part of this checkpoint.
+
 ## Deployment and future work
 
 FCI A's, FCI B's, and FCI C's checked-in workflow changes have all been
 imported, published, activated, and live verified on `srv-ia` (see "Live
-deployment status" above). The `Build FCI Context` node in
-`n8n/workflows/fci-module-generation.json` now recognizes
-`module_code === 'A'`/`'B'`/`'C'` for local routing and each module's own
-authorized-external-comparison gate; `D` alone remains hard-locked to
-Gemini.
+deployment status" above).
 
-FCI D migration and targeted historical RAG remain separate future phases;
-neither was started, touched, or scoped by this checkpoint. When targeted
-RAG is eventually built, the `rex_projet_reference`/`rex_ecarts_couts`/
-`rex_standards_client`/`rex_recommandations` UI sections documented above are
-the natural first integration point — they already exist in the UI, are
-already excluded from the AI contract, and are exactly where retrieved
+FCI D's checked-in workflow change (the `Build FCI Context` node in
+`n8n/workflows/fci-module-generation.json` now recognizes
+`module_code === 'D'` alongside `'A'`/`'B'`/`'C'` for local routing and its
+own authorized-external-comparison gate; the previous unconditional
+"anything that isn't A/B/C must stay on Gemini" catch-all now only applies to
+a hypothetical future module code) has **not** been imported, published, or
+activated in live n8n, and n8n has not been restarted. The live workflow
+today is still the pre-D-migration build (A/B/C local, D Gemini-only). Live
+deployment and verification of FCI D require a separate approved step,
+exactly like A's, B's, and C's did — including confirming that an authorized
+test AO genuinely has A, B, and C human-validated before attempting a real D
+generation (fabricating those validations for the sake of a live test would
+violate the same prerequisite this migration was careful to preserve).
+
+Targeted historical RAG remains a separate future phase; it was not started,
+touched, or scoped by this checkpoint. When targeted RAG is eventually
+built, the `rex_projet_reference`/`rex_ecarts_couts`/`rex_standards_client`/
+`rex_recommandations` UI sections documented above (module C) are the
+natural first integration point — they already exist in the UI, are already
+excluded from the AI contract, and are exactly where retrieved
 historical-project evidence would need to enter the schema for the first
 time.

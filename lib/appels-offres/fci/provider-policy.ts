@@ -13,10 +13,11 @@ function authorizedCodes(raw: string | undefined) {
 const LOCAL_ELIGIBLE_MODULES: Partial<Record<FciModuleCode, { envVar: string; label: string }>> = {
   A: { envVar: "FCI_A_GENERATION_PROVIDER", label: "FCI A" },
   B: { envVar: "FCI_B_GENERATION_PROVIDER", label: "FCI B" },
-  C: { envVar: "FCI_C_GENERATION_PROVIDER", label: "FCI C" }
+  C: { envVar: "FCI_C_GENERATION_PROVIDER", label: "FCI C" },
+  D: { envVar: "FCI_D_GENERATION_PROVIDER", label: "FCI D" }
 };
 
-/** FCI A, B and C are local by default. The legacy D provider remains unchanged. */
+/** FCI A, B, C and D are local by default. */
 export function resolveFciProvider(
   moduleCode: FciModuleCode,
   codeInterne: string | undefined,

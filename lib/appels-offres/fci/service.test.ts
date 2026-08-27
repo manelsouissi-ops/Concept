@@ -46,6 +46,7 @@ import {
   validateFciModule
 } from "./service.ts";
 import { getFciN8nIntegrationConfig } from "./n8n-config.ts";
+import { deriveTenderWorkflowState } from "../workflow/service.ts";
 import { createEmptyFciModulePayload } from "./rendering.ts";
 import {
   buildN8nCallbackSignature,
@@ -622,6 +623,24 @@ function buildFciModulePayloadFixture(input: {
     for (const row of capacities) {
       row.designation_du_moyen = {
         ...row.designation_du_moyen,
+        value: null,
+        source_type: "unavailable",
+        confidence: "none",
+        requires_human_input: false,
+        source_references: []
+      };
+    }
+  }
+
+  if (input.moduleCode === "D") {
+    // Same rationale as B/C above: the sample's two fiche_cdc-sourced claims
+    // are written against a realistic Fiche and will not be grounded in this
+    // synthetic test tender's minimal content.
+    const contexte = (payload.data as Record<string, unknown>)
+      .contexte_programme_valeur_strategique as Record<string, Record<string, unknown>>;
+    for (const key of ["inscription_dans_un_programme_pluriannuel", "positionnement_geographique_vise"]) {
+      contexte[key] = {
+        ...contexte[key],
         value: null,
         source_type: "unavailable",
         confidence: "none",
@@ -2627,6 +2646,10 @@ test("FCI D generation is permitted once A, B and C are all validated, and its A
         async () => {
           const launchResult = await prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER);
           assert.ok(launchResult);
+          // FCI D must resolve the same local-first policy as A/B/C: no
+          // environment override was set, so the default applies.
+          assert.equal(launchResult.job.provider, "local");
+          assert.equal(launchResult.job.model, "qwen3:14b");
         }
       );
     });
@@ -2637,6 +2660,261 @@ test("FCI D generation is permitted once A, B and C are all validated, and its A
     assert.equal(strategicContext?.commercial.available, true);
     assert.equal(strategicContext?.finance.available, true);
     assert.equal(strategicContext?.operations.available, true);
+
+    // FCI D merely being generated (needs_review) must not flip final
+    // Go/No-Go readiness true - readiness requires all four modules
+    // human-VALIDATED, and D has not even completed a generation yet here.
+    const workflowBeforeD = await deriveTenderWorkflowState(code);
+    assert.equal(workflowBeforeD.ready_for_gonogo, false);
+  });
+});
+
+test("FCI D resolves the local provider, enforces DG-judgment guardrails end to end, and lands on needs_review without enabling readiness", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await completeAndValidateModule(code, "A", COMMERCIAL_USER);
+    await completeAndValidateModule(code, "B", FINANCE_USER);
+    await completeAndValidateModule(code, "C", OPERATIONS_USER);
+
+    let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: "exec-fci-d-success-1",
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          launchResult = await prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER);
+        }
+      );
+
+      assert.ok(launchResult);
+      if (!launchResult) {
+        throw new Error("Expected FCI launch result.");
+      }
+      assert.equal(launchResult.job.provider, "local");
+      assert.equal(launchResult.job.model, "qwen3:14b");
+
+      const moduleBeforeCallback = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+      const workspace = await getFciWorkspace(code, DIRECTION_GENERALE_USER);
+      const payload = buildFciModulePayloadFixture({
+        moduleCode: "D",
+        sourceVersion: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+        sourceHash: moduleBeforeCallback.source_fiche.hash ?? "missing",
+        code
+      });
+
+      // Simulate a non-compliant local model response that tried to invent
+      // a DG judgment call; the guardrail must overwrite it regardless of
+      // what the callback claims, exactly like the fixture's own shipped
+      // "Importante" value would have to be overwritten too.
+      const decisionSectionInput = (payload.data as Record<string, unknown>)
+        .decision_strategique_preliminaire as Record<string, unknown>;
+      decisionSectionInput.marche_prioritaire_pour_la_direction = {
+        value: "Oui, marche prioritaire pour la direction.",
+        source_type: "ai_inference",
+        confidence: "high",
+        requires_human_input: false,
+        justification: "Suppose prioritaire par le modele",
+        source_references: []
+      };
+
+      const successEnvelope: FciN8nSuccessCallback = {
+        event: "fci.generation.completed",
+        contract_version: "1.0",
+        generation_job_id: launchResult.job.id,
+        fci_set_id: workspace.fci_set.id,
+        fci_module_id: moduleBeforeCallback.module.id,
+        appel_offre_id: workspace.appel_offres.id,
+        code_interne: code,
+        module_code: "D",
+        correlation_id: launchResult.job.correlation_id ?? "missing",
+        execution_id: "exec-fci-d-success-1",
+        status: "completed",
+        provider: launchResult.job.provider,
+        model: launchResult.job.model,
+        prompt_version: "1.1",
+        schema_version: "1.1",
+        source_fiche: {
+          version: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+          hash: moduleBeforeCallback.source_fiche.hash ?? "missing"
+        },
+        generated_at: new Date().toISOString(),
+        generation_parameters: {},
+        payload
+      };
+
+      const response = await applyFciN8nCallback(successEnvelope);
+      assert.equal(response.httpStatus, 200);
+
+      const moduleAfterCallback = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+      assert.equal(moduleAfterCallback.module.status, "needs_review");
+      assert.equal(moduleAfterCallback.module.validated_at, null);
+      assert.equal(moduleAfterCallback.latest_data?.version, 1);
+
+      // The AI contract shape is rendered into the departmental UI form
+      // before persistence (d3_decision_preliminaire renames/reshapes the
+      // raw decision_strategique_preliminaire fields - see
+      // mapLegacyStrategyPayload/legacyFieldToFormField in rendering.ts), so
+      // this checks the actual stored shape rather than the AI envelope.
+      const persistedEnvelope = moduleAfterCallback.latest_data?.data as
+        | { data?: { d3_decision_preliminaire?: Record<string, Record<string, unknown>> } }
+        | undefined;
+      const decisionSection = persistedEnvelope?.data?.d3_decision_preliminaire;
+      assert.ok(decisionSection);
+      for (const key of [
+        "importance_strategique_globale",
+        "marche_prioritaire_direction",
+        "commentaires_strategiques"
+      ]) {
+        assert.equal(decisionSection[key]?.value, null);
+        assert.equal(decisionSection[key]?.source, "human");
+        assert.equal(decisionSection[key]?.review_status, "human_required");
+      }
+
+      // D generated but not yet human-validated must not enable final
+      // Go/No-Go readiness, even though A, B and C are all validated.
+      const workflowAfterD = await deriveTenderWorkflowState(code);
+      assert.equal(workflowAfterD.ready_for_gonogo, false);
+    });
+  });
+});
+
+test("FCI D generation callback with an unsupported strategic claim fails closed and never falls back to Gemini", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  await loadPersistedActors();
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+    await completeAndValidateModule(code, "A", COMMERCIAL_USER);
+    await completeAndValidateModule(code, "B", FINANCE_USER);
+    await completeAndValidateModule(code, "C", OPERATIONS_USER);
+
+    let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: "exec-fci-d-grounding-1",
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          launchResult = await prepareFciGeneration(code, "D", DIRECTION_GENERALE_USER);
+        }
+      );
+
+      assert.ok(launchResult);
+      if (!launchResult) {
+        throw new Error("Expected FCI launch result.");
+      }
+      assert.equal(launchResult.job.provider, "local");
+
+      const moduleBeforeCallback = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+      const workspace = await getFciWorkspace(code, DIRECTION_GENERALE_USER);
+      const payload = buildFciModulePayloadFixture({
+        moduleCode: "D",
+        sourceVersion: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+        sourceHash: moduleBeforeCallback.source_fiche.hash ?? "missing",
+        code
+      });
+
+      // A fabricated statistic with no support in the validated Fiche or
+      // validated A/B/C context: exactly the class of "sounds reasonable
+      // but invented" strategic fact the prompt's non-invention rules and
+      // this grounding check must reject, not persist.
+      const contexteSectionInput = (payload.data as Record<string, unknown>)
+        .contexte_programme_valeur_strategique as Record<string, unknown>;
+      contexteSectionInput.valeur_estimee_des_futurs_lots = {
+        value: "Environ 8 futurs lots pour 20 millions d'euros.",
+        source_type: "ai_inference",
+        confidence: "medium",
+        requires_human_input: false,
+        justification: "Estimation prudente",
+        source_references: []
+      };
+
+      const failingEnvelope: FciN8nSuccessCallback = {
+        event: "fci.generation.completed",
+        contract_version: "1.0",
+        generation_job_id: launchResult.job.id,
+        fci_set_id: workspace.fci_set.id,
+        fci_module_id: moduleBeforeCallback.module.id,
+        appel_offre_id: workspace.appel_offres.id,
+        code_interne: code,
+        module_code: "D",
+        correlation_id: launchResult.job.correlation_id ?? "missing",
+        execution_id: "exec-fci-d-grounding-1",
+        status: "completed",
+        provider: launchResult.job.provider,
+        model: launchResult.job.model,
+        prompt_version: "1.1",
+        schema_version: "1.1",
+        source_fiche: {
+          version: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+          hash: moduleBeforeCallback.source_fiche.hash ?? "missing"
+        },
+        generated_at: new Date().toISOString(),
+        generation_parameters: {},
+        payload
+      };
+
+      const response = await applyFciN8nCallback(failingEnvelope);
+      assert.equal(response.httpStatus, 422);
+      assert.equal((response.body as { code?: string }).code, "AI_GROUNDING_VALIDATION_FAILED");
+
+      const moduleAfterFailure = await getFciModule(code, "D", DIRECTION_GENERALE_USER);
+      // Fail closed: no data persisted, no silent Gemini retry, previous
+      // (not-started) state restored rather than a fabricated success.
+      assert.equal(moduleAfterFailure.latest_data, null);
+      assert.equal(moduleAfterFailure.generation_job?.status, "failed");
+      assert.equal(moduleAfterFailure.generation_job?.provider, "local");
+
+      // A failed D generation must never touch final Go/No-Go readiness.
+      const workflowAfterFailure = await deriveTenderWorkflowState(code);
+      assert.equal(workflowAfterFailure.ready_for_gonogo, false);
+    });
   });
 });
 

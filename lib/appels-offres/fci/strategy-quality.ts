@@ -96,11 +96,31 @@ function guardField<TValue extends FciAiFieldValue>(
   };
 }
 
+function humanField(justification: string): FciAiField<string | null> {
+  return {
+    value: null,
+    source_type: "internal_required",
+    confidence: "none",
+    requires_human_input: true,
+    justification,
+    source_references: []
+  };
+}
+
 /**
  * Deterministic safety net applied after schema validation and before
  * persistence: strips any GO/NO-GO/final-decision language the model might
  * emit despite the prompt's explicit prohibition, mirroring the guardrail
  * pattern already used for module A (applyCommercialGenerationGuardrails).
+ *
+ * `decision_strategique_preliminaire`'s three fields are additionally
+ * force-replaced unconditionally, not just scanned for GO/NO-GO language:
+ * "DG's actual strategic priority", "priority market for management", and
+ * "DG's own strategic comments" are real DG judgment calls the departmental
+ * UI already renders as human-only (`d3_decision_preliminaire`, `sourceLabel:
+ * "human"` independently of provider - see rendering.ts). This guardrail
+ * makes that the same guarantee at the persistence layer, mirroring how A/B/C
+ * force their own current-internal-state columns regardless of model output.
  */
 export function applyStrategyGenerationGuardrails(
   payload: FciStrategyPayload
@@ -134,14 +154,14 @@ export function applyStrategyGenerationGuardrails(
         )
       },
       decision_strategique_preliminaire: {
-        importance_strategique_globale: guardField(
-          data.decision_strategique_preliminaire.importance_strategique_globale
+        importance_strategique_globale: humanField(
+          "L'importance strategique globale releve du jugement de la Direction Generale."
         ),
-        marche_prioritaire_pour_la_direction: guardField(
-          data.decision_strategique_preliminaire.marche_prioritaire_pour_la_direction
+        marche_prioritaire_pour_la_direction: humanField(
+          "La priorisation de marche releve du jugement de la Direction Generale."
         ),
-        commentaires_strategiques_de_la_direction_generale: guardField(
-          data.decision_strategique_preliminaire.commentaires_strategiques_de_la_direction_generale
+        commentaires_strategiques_de_la_direction_generale: humanField(
+          "Les commentaires strategiques de la Direction Generale doivent etre saisis par elle-meme."
         )
       },
       synthese_direction: {
@@ -153,4 +173,104 @@ export function applyStrategyGenerationGuardrails(
       }
     }
   };
+}
+
+export type FciStrategyGroundingIssue = {
+  path: string;
+  reason: "unsupported_ai_inference" | "missing_source_excerpt";
+};
+
+export type FciStrategyGroundingEvidence = {
+  fiche_cdc: unknown;
+  commercial: FciJsonObject | null;
+  finance: FciJsonObject | null;
+  operations: FciJsonObject | null;
+};
+
+function collectFields(value: unknown, path = "data"): Array<[string, FciAiField<FciAiFieldValue>]> {
+  if (!value || typeof value !== "object") return [];
+  if ("source_type" in value && "source_references" in value && "value" in value) {
+    return [[path, value as FciAiField<FciAiFieldValue>]];
+  }
+  return Object.entries(value).flatMap(([key, child]) =>
+    collectFields(child, Array.isArray(value) ? `${path}[${key}]` : `${path}.${key}`)
+  );
+}
+
+// Unlike the equivalent A/B/C helpers (whose evidence is a single Fiche),
+// D's evidence is the JSON-serialized concatenation of up to three full
+// validated module payloads. Over that much larger corpus, a bare substring
+// check is unreliable both ways: lone single digits are near-certain to
+// appear somewhere by coincidence (dates, ids, versions), and even a real
+// multi-digit token like "20" would falsely "match" merely because it is a
+// substring of an unrelated "2026". Require at least two digits and a
+// digit-boundary check so a token only counts as grounded when it appears
+// in the evidence as its own number, not as a fragment of a bigger one.
+function numericTokens(value: unknown): string[] {
+  if (value === null || value === undefined) return [];
+  const matches = String(value).match(/\d[\d\s.,]*\d/g);
+  return matches ?? [];
+}
+
+function hasUngroundedNumber(value: unknown, evidence: string): boolean {
+  return numericTokens(value).some((token) => {
+    const escaped = token.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const boundaryPattern = new RegExp(`(?<!\\d)${escaped}(?!\\d)`);
+    return !boundaryPattern.test(evidence);
+  });
+}
+
+function excerptsAreGrounded(references: { excerpt: string | null }[], evidence: string): boolean {
+  const excerpts = references
+    .map((reference) => reference.excerpt?.trim())
+    .filter((excerpt): excerpt is string => Boolean(excerpt));
+  return excerpts.length > 0 && excerpts.every((excerpt) => evidence.includes(excerpt.toLocaleLowerCase("fr-FR")));
+}
+
+/**
+ * Rejects strategic claims that cannot be tied back to validated upstream
+ * evidence: the validated Fiche, plus whichever of validated A/B/C were
+ * actually available at launch (readFciStrategicSourceContext already
+ * guarantees only VALIDATED contributions ever reach this evidence set -
+ * this validator does not re-check validation status, only groundedness).
+ * `ai_inference` is legitimate here - the strategy prompt explicitly permits
+ * qualitative opportunity/threat/reference-value signals and a
+ * `statut_revue_preliminaire` classification - so it is rejected only when
+ * it smuggles in a hard number the combined evidence does not support,
+ * exactly the class of "sounds reasonable but is invented" fact the prompt's
+ * non-invention rules forbid. `fiche_cdc` claims keep the same
+ * excerpt/value grounding check A/B/C use.
+ */
+export function validateStrategyGrounding(
+  payload: FciStrategyPayload,
+  sourceEvidence: FciStrategyGroundingEvidence
+): FciStrategyGroundingIssue[] {
+  const evidence = JSON.stringify(sourceEvidence).toLocaleLowerCase("fr-FR");
+  const issues: FciStrategyGroundingIssue[] = [];
+
+  for (const [path, field] of collectFields(payload.data)) {
+    if (field.value == null) continue;
+    const text = String(field.value);
+
+    if (field.source_type === "ai_inference") {
+      if (hasUngroundedNumber(field.value, evidence)) {
+        issues.push({ path, reason: "unsupported_ai_inference" });
+      }
+      continue;
+    }
+
+    if (field.source_type !== "fiche_cdc") continue;
+    const normalizedValue = text.trim().toLocaleLowerCase("fr-FR");
+    const valueIsPresent = normalizedValue.length > 0 && evidence.includes(normalizedValue);
+    const excerptsArePresent = excerptsAreGrounded(field.source_references, evidence);
+    if (!valueIsPresent && !excerptsArePresent) {
+      issues.push({ path, reason: "missing_source_excerpt" });
+      continue;
+    }
+    if (hasUngroundedNumber(field.value, evidence)) {
+      issues.push({ path, reason: "unsupported_ai_inference" });
+    }
+  }
+
+  return issues;
 }

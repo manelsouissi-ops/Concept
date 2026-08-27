@@ -106,7 +106,8 @@ import {
 } from "./operations-quality.ts";
 import {
   applyStrategyGenerationGuardrails,
-  readFciStrategicSourceContext
+  readFciStrategicSourceContext,
+  validateStrategyGrounding
 } from "./strategy-quality.ts";
 
 export type FciServiceErrorCode =
@@ -1982,7 +1983,12 @@ async function applyFciSuccessCallback(
         : payload.module_code === "D"
           ? applyStrategyGenerationGuardrails(validatedPayload.data as FciStrategyPayload)
           : validatedPayload.data;
-  if (payload.module_code === "A" || payload.module_code === "B" || payload.module_code === "C") {
+  if (
+    payload.module_code === "A"
+    || payload.module_code === "B"
+    || payload.module_code === "C"
+    || payload.module_code === "D"
+  ) {
     const source = await readSourceFicheSnapshot(context.appelOffres.code);
     const groundingIssues = payload.module_code === "A"
       ? validateCommercialGrounding(
@@ -2001,20 +2007,32 @@ async function applyFciSuccessCallback(
               fiche_cdc: source?.fiche ?? {}
             }
           )
-        : validateOperationsGrounding(
-            guardedPayload as FciOperationsPayload,
-            {
-              code_interne: context.appelOffres.code,
-              fiche_cdc: source?.fiche ?? {}
-            }
-          );
+        : payload.module_code === "C"
+          ? validateOperationsGrounding(
+              guardedPayload as FciOperationsPayload,
+              {
+                code_interne: context.appelOffres.code,
+                fiche_cdc: source?.fiche ?? {}
+              }
+            )
+          : validateStrategyGrounding(
+              guardedPayload as FciStrategyPayload,
+              {
+                fiche_cdc: source?.fiche ?? {},
+                ...readFciStrategicSourceContext(
+                  (await requireInitializedDetail(context.appelOffres.code)).detail
+                )
+              }
+            );
     if (groundingIssues.length > 0) {
       const restoredStatus = getPreviousModuleStatusFromJob(context.job);
       const errorMessage = payload.module_code === "A"
         ? "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée."
         : payload.module_code === "B"
           ? "Le payload FCI B contient des affirmations financières sans preuve dans la Fiche validée."
-          : "Le payload FCI C contient des affirmations opérationnelles sans preuve dans la Fiche validée.";
+          : payload.module_code === "C"
+            ? "Le payload FCI C contient des affirmations opérationnelles sans preuve dans la Fiche validée."
+            : "Le payload FCI D contient des affirmations stratégiques sans preuve dans les contributions validées.";
       await applyFciGenerationFailureState({
         appelOffresId: context.appelOffres.id,
         code: context.appelOffres.code,
