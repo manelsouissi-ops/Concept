@@ -25,7 +25,7 @@ import type {
   FciModuleDataRecord,
   FciModuleRecord
 } from "./types.ts";
-import type { FciCommercialPayload, FciFinancePayload, FciStrategyPayload } from "./ai-contracts.ts";
+import type { FciCommercialPayload, FciFinancePayload, FciOperationsPayload, FciStrategyPayload } from "./ai-contracts.ts";
 import { getFciAiRuntimeContract } from "./ai-runtime.ts";
 import { validateFciAiPayload } from "./ai-validation.ts";
 import { getFciN8nIntegrationConfig, buildFciCallbackUrl, type FciN8nIntegrationConfig } from "./n8n-config.ts";
@@ -100,6 +100,10 @@ import {
   applyFinanceGenerationGuardrails,
   validateFinanceGrounding
 } from "./finance-quality.ts";
+import {
+  applyOperationsGenerationGuardrails,
+  validateOperationsGrounding
+} from "./operations-quality.ts";
 import {
   applyStrategyGenerationGuardrails,
   readFciStrategicSourceContext
@@ -1973,10 +1977,12 @@ async function applyFciSuccessCallback(
       )
     : payload.module_code === "B"
       ? applyFinanceGenerationGuardrails(validatedPayload.data as FciFinancePayload)
-      : payload.module_code === "D"
-        ? applyStrategyGenerationGuardrails(validatedPayload.data as FciStrategyPayload)
-        : validatedPayload.data;
-  if (payload.module_code === "A" || payload.module_code === "B") {
+      : payload.module_code === "C"
+        ? applyOperationsGenerationGuardrails(validatedPayload.data as FciOperationsPayload)
+        : payload.module_code === "D"
+          ? applyStrategyGenerationGuardrails(validatedPayload.data as FciStrategyPayload)
+          : validatedPayload.data;
+  if (payload.module_code === "A" || payload.module_code === "B" || payload.module_code === "C") {
     const source = await readSourceFicheSnapshot(context.appelOffres.code);
     const groundingIssues = payload.module_code === "A"
       ? validateCommercialGrounding(
@@ -1987,18 +1993,28 @@ async function applyFciSuccessCallback(
             commercial_context: await readFciCommercialSourceContext(context.appelOffres.code)
           }
         )
-      : validateFinanceGrounding(
-          guardedPayload as FciFinancePayload,
-          {
-            code_interne: context.appelOffres.code,
-            fiche_cdc: source?.fiche ?? {}
-          }
-        );
+      : payload.module_code === "B"
+        ? validateFinanceGrounding(
+            guardedPayload as FciFinancePayload,
+            {
+              code_interne: context.appelOffres.code,
+              fiche_cdc: source?.fiche ?? {}
+            }
+          )
+        : validateOperationsGrounding(
+            guardedPayload as FciOperationsPayload,
+            {
+              code_interne: context.appelOffres.code,
+              fiche_cdc: source?.fiche ?? {}
+            }
+          );
     if (groundingIssues.length > 0) {
       const restoredStatus = getPreviousModuleStatusFromJob(context.job);
       const errorMessage = payload.module_code === "A"
         ? "Le payload FCI A contient des affirmations sans preuve dans la Fiche validée."
-        : "Le payload FCI B contient des affirmations financières sans preuve dans la Fiche validée.";
+        : payload.module_code === "B"
+          ? "Le payload FCI B contient des affirmations financières sans preuve dans la Fiche validée."
+          : "Le payload FCI C contient des affirmations opérationnelles sans preuve dans la Fiche validée.";
       await applyFciGenerationFailureState({
         appelOffresId: context.appelOffres.id,
         code: context.appelOffres.code,

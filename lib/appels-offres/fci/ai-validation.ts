@@ -77,6 +77,42 @@ function isSupportedModuleCode(value: string): value is FciAiSupportedModuleCode
   return value === "A" || value === "B" || value === "C" || value === "D";
 }
 
+// The local qwen3:14b provider occasionally emits one of these six fixed
+// structural wrapper keys with the wrong letter casing (observed in the wild:
+// "source_References" instead of "source_references") while every sibling
+// field in the same generation is spelled correctly. This is a key-casing
+// slip on reserved contract keys, never on business content, so repairing it
+// before schema validation does not invent, hide, or reinterpret any AI
+// output - it only tolerates a typo AJV would otherwise reject outright.
+const FIELD_WRAPPER_KEYS = [
+  "value",
+  "source_type",
+  "confidence",
+  "requires_human_input",
+  "justification",
+  "source_references"
+] as const;
+
+const FIELD_WRAPPER_KEY_BY_LOWERCASE = new Map<string, string>(
+  FIELD_WRAPPER_KEYS.map((key) => [key.toLowerCase(), key])
+);
+
+function normalizeFieldWrapperKeyCasing(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map(normalizeFieldWrapperKeyCasing);
+  }
+  if (node && typeof node === "object") {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      const canonicalKey = FIELD_WRAPPER_KEY_BY_LOWERCASE.get(key.toLowerCase());
+      const outKey = canonicalKey && canonicalKey !== key ? canonicalKey : key;
+      normalized[outKey] = normalizeFieldWrapperKeyCasing(value);
+    }
+    return normalized;
+  }
+  return node;
+}
+
 export function validateFciAiPayload(
   moduleCode: "A",
   payload: unknown
@@ -115,7 +151,8 @@ export function validateFciAiPayload(
   }
 
   const validator = validators[moduleCode];
-  const isValid = validator(payload);
+  const normalizedPayload = normalizeFieldWrapperKeyCasing(payload);
+  const isValid = validator(normalizedPayload);
 
   if (!isValid) {
     return {
@@ -126,6 +163,6 @@ export function validateFciAiPayload(
 
   return {
     ok: true,
-    data: payload as FciAiPayloadByCode[typeof moduleCode]
+    data: normalizedPayload as FciAiPayloadByCode[typeof moduleCode]
   };
 }

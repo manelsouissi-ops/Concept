@@ -592,6 +592,45 @@ function buildFciModulePayloadFixture(input: {
     }
   }
 
+  if (input.moduleCode === "C") {
+    // Same rationale as module B above: neutralize the sample's fiche_cdc/
+    // ai_inference claims that are written against a realistic Fiche and
+    // will not be grounded in this synthetic test tender's minimal content.
+    const keyExperts = (payload.data as Record<string, unknown>)
+      .disponibilite_des_experts_cles as Array<Record<string, Record<string, unknown>>>;
+    for (const row of keyExperts) {
+      row.poste_ou_expert = {
+        ...row.poste_ou_expert,
+        value: null,
+        source_type: "unavailable",
+        confidence: "none",
+        requires_human_input: false,
+        source_references: []
+      };
+      row.volume_travail_reel_previsionnel = {
+        ...row.volume_travail_reel_previsionnel,
+        value: null,
+        source_type: "unavailable",
+        confidence: "none",
+        requires_human_input: false,
+        source_references: []
+      };
+    }
+
+    const capacities = (payload.data as Record<string, unknown>)
+      .capacite_absorption_globale as Array<Record<string, Record<string, unknown>>>;
+    for (const row of capacities) {
+      row.designation_du_moyen = {
+        ...row.designation_du_moyen,
+        value: null,
+        source_type: "unavailable",
+        confidence: "none",
+        requires_human_input: false,
+        source_references: []
+      };
+    }
+  }
+
   return payload;
 }
 
@@ -1655,6 +1694,245 @@ test("FCI B generation callback with an ungrounded financial claim fails closed 
       assert.equal((response.body as { code?: string }).code, "AI_GROUNDING_VALIDATION_FAILED");
 
       const moduleAfterFailure = await getFciModule(code, "B", FINANCE_USER);
+      // Fail closed: no data persisted, no silent Gemini retry, previous
+      // (not-started) state restored rather than a fabricated success.
+      assert.equal(moduleAfterFailure.latest_data, null);
+      assert.equal(moduleAfterFailure.generation_job?.status, "failed");
+      assert.equal(moduleAfterFailure.generation_job?.provider, "local");
+    });
+  });
+});
+
+test("FCI C resolves the local provider, enforces operational guardrails end to end, and lands on needs_review", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+
+    let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: "exec-fci-c-success-1",
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          launchResult = await prepareFciGeneration(code, "C", OPERATIONS_USER);
+        }
+      );
+
+      assert.ok(launchResult);
+      if (!launchResult) {
+        throw new Error("Expected FCI launch result.");
+      }
+      // FCI C must resolve the same local-first policy as FCI A and B: no
+      // environment override was set, so the default applies.
+      assert.equal(launchResult.job.provider, "local");
+      assert.equal(launchResult.job.model, "qwen3:14b");
+
+      const moduleBeforeCallback = await getFciModule(code, "C", OPERATIONS_USER);
+      const workspace = await getFciWorkspace(code, OPERATIONS_USER);
+      const payload = buildFciModulePayloadFixture({
+        moduleCode: "C",
+        sourceVersion: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+        sourceHash: moduleBeforeCallback.source_fiche.hash ?? "missing",
+        code
+      });
+
+      // Simulate a non-compliant local model response that tried to invent
+      // a confirmed current-resource fact; the guardrail must overwrite it
+      // regardless of what the callback claims.
+      const capacityRows = (payload.data as Record<string, unknown>)
+        .capacite_absorption_globale as Array<Record<string, Record<string, unknown>>>;
+      if (capacityRows[0]) {
+        capacityRows[0].disponible_au_demarrage = {
+          value: "Oui, confirmé",
+          source_type: "ai_inference",
+          confidence: "high",
+          requires_human_input: false,
+          justification: "Suppose disponible par le modele",
+          source_references: []
+        };
+      }
+
+      const successEnvelope: FciN8nSuccessCallback = {
+        event: "fci.generation.completed",
+        contract_version: "1.0",
+        generation_job_id: launchResult.job.id,
+        fci_set_id: workspace.fci_set.id,
+        fci_module_id: moduleBeforeCallback.module.id,
+        appel_offre_id: workspace.appel_offres.id,
+        code_interne: code,
+        module_code: "C",
+        correlation_id: launchResult.job.correlation_id ?? "missing",
+        execution_id: "exec-fci-c-success-1",
+        status: "completed",
+        provider: launchResult.job.provider,
+        model: launchResult.job.model,
+        prompt_version: "1.1",
+        schema_version: "1.1",
+        source_fiche: {
+          version: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+          hash: moduleBeforeCallback.source_fiche.hash ?? "missing"
+        },
+        generated_at: new Date().toISOString(),
+        generation_parameters: {},
+        payload
+      };
+
+      const signedCallback = buildSignedCallbackEnvelope(successEnvelope);
+      verifyN8nCallbackAuthentication({
+        authorizationHeader: signedCallback.authorizationHeader,
+        expectedToken: "test-fci-callback-token",
+        timestampHeader: signedCallback.timestampHeader,
+        signatureHeader: signedCallback.signatureHeader,
+        rawBody: signedCallback.rawBody,
+        secret: "test-fci-callback-secret",
+        maxAgeMs: 300_000
+      });
+      const response = await applyFciN8nCallback(successEnvelope);
+      assert.equal(response.httpStatus, 200);
+
+      const moduleAfterCallback = await getFciModule(code, "C", OPERATIONS_USER);
+      assert.equal(moduleAfterCallback.module.status, "needs_review");
+      assert.equal(moduleAfterCallback.module.validated_at, null);
+      assert.equal(moduleAfterCallback.latest_data?.version, 1);
+
+      // The AI contract shape is rendered into the departmental UI form
+      // before persistence (c3_moyens_capacite rows use different field
+      // names than capacite_absorption_globale), so this checks the actual
+      // stored shape rather than the AI envelope.
+      const persistedEnvelope = moduleAfterCallback.latest_data?.data as
+        | { data?: { c3_moyens_capacite?: Array<Record<string, Record<string, unknown>>> } }
+        | undefined;
+      const persistedCapacityRow = persistedEnvelope?.data?.c3_moyens_capacite?.[0];
+      assert.ok(persistedCapacityRow);
+      assert.equal(persistedCapacityRow.disponible_demarrage?.value, null);
+      assert.equal(persistedCapacityRow.disponible_demarrage?.source, "human");
+      assert.equal(persistedCapacityRow.disponible_demarrage?.review_status, "human_required");
+    });
+  });
+});
+
+test("FCI C generation callback with an unsupported historical claim fails closed and never falls back to Gemini", async (t) => {
+  if (!hasDatabase()) {
+    t.skip("DATABASE_URL is not configured.");
+    return;
+  }
+
+  const code = await createTestAppelOffres({});
+
+  await withKnowledgeBaseEnabled(false, async () => {
+    await initializeAssignedFciWorkspace(code);
+
+    let launchResult: Awaited<ReturnType<typeof prepareFciGeneration>> | null = null;
+
+    await withFciEnv({}, async () => {
+      await withMockFetch(
+        (async (_input, init) => {
+          const requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+          return new Response(
+            JSON.stringify({
+              contract_version: "1.0",
+              accepted: true,
+              generation_job_id: requestBody.generation_job_id,
+              correlation_id: requestBody.correlation_id,
+              execution_id: "exec-fci-c-grounding-1",
+              received_at: new Date().toISOString(),
+              processing_status: "RUNNING"
+            }),
+            {
+              status: 202,
+              headers: { "Content-Type": "application/json" }
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          launchResult = await prepareFciGeneration(code, "C", OPERATIONS_USER);
+        }
+      );
+
+      assert.ok(launchResult);
+      if (!launchResult) {
+        throw new Error("Expected FCI launch result.");
+      }
+      assert.equal(launchResult.job.provider, "local");
+
+      const moduleBeforeCallback = await getFciModule(code, "C", OPERATIONS_USER);
+      const workspace = await getFciWorkspace(code, OPERATIONS_USER);
+      const payload = buildFciModulePayloadFixture({
+        moduleCode: "C",
+        sourceVersion: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+        sourceHash: moduleBeforeCallback.source_fiche.hash ?? "missing",
+        code
+      });
+
+      // A fabricated precedent claim with no support in the validated Fiche
+      // or permitted context: exactly what future targeted RAG would need
+      // to support with real evidence. Today it must be rejected, not kept.
+      const roleRows = (payload.data as Record<string, unknown>)
+        .repartition_des_composantes_techniques as Array<Record<string, Record<string, unknown>>>;
+      if (roleRows[0]) {
+        roleRows[0].commentaire_ou_risque = {
+          value: "CONCEPT a déjà réalisé une mission très similaire avec ce client par le passé.",
+          source_type: "ai_inference",
+          confidence: "medium",
+          requires_human_input: false,
+          justification: "Signal de risque",
+          source_references: []
+        };
+      }
+
+      const failingEnvelope: FciN8nSuccessCallback = {
+        event: "fci.generation.completed",
+        contract_version: "1.0",
+        generation_job_id: launchResult.job.id,
+        fci_set_id: workspace.fci_set.id,
+        fci_module_id: moduleBeforeCallback.module.id,
+        appel_offre_id: workspace.appel_offres.id,
+        code_interne: code,
+        module_code: "C",
+        correlation_id: launchResult.job.correlation_id ?? "missing",
+        execution_id: "exec-fci-c-grounding-1",
+        status: "completed",
+        provider: launchResult.job.provider,
+        model: launchResult.job.model,
+        prompt_version: "1.1",
+        schema_version: "1.1",
+        source_fiche: {
+          version: moduleBeforeCallback.source_fiche.version ?? "validated:missing",
+          hash: moduleBeforeCallback.source_fiche.hash ?? "missing"
+        },
+        generated_at: new Date().toISOString(),
+        generation_parameters: {},
+        payload
+      };
+
+      const response = await applyFciN8nCallback(failingEnvelope);
+      assert.equal(response.httpStatus, 422);
+      assert.equal((response.body as { code?: string }).code, "AI_GROUNDING_VALIDATION_FAILED");
+
+      const moduleAfterFailure = await getFciModule(code, "C", OPERATIONS_USER);
       // Fail closed: no data persisted, no silent Gemini retry, previous
       // (not-started) state restored rather than a fabricated success.
       assert.equal(moduleAfterFailure.latest_data, null);

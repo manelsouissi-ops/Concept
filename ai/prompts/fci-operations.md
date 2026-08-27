@@ -109,35 +109,86 @@ Autorisé :
 
 # Module-Specific Field Instructions
 
-Respectez les sections du template réel :
+Respectez les sections du template réel. Chaque section n'accepte QUE les
+colonnes listées pour elle ci-dessous — ne réutilisez jamais le nom d'une
+colonne dans une autre section, et n'ajoutez aucune colonne supplémentaire.
 
-1. `disponibilite_des_experts_cles`
-2. `disponibilite_des_experts_non_cles`
-3. `capacite_absorption_globale`
-4. `repartition_des_composantes_techniques`
-5. `risques_coordination_mitigation`
-6. `synthese_operations`
+1. `disponibilite_des_experts_cles` (tableau) : `poste_ou_expert`,
+   `volume_travail_demande_par_le_cdc`, `volume_travail_reel_previsionnel`,
+   `suppleant`, `volume_travail_previsionnel_suppleant`,
+   `probabilite_disponibilite_experts`, `action_requise`
+2. `disponibilite_des_experts_non_cles` (tableau) : `poste_ou_expert`,
+   `volume_travail_reel_previsionnel`, `probabilite_disponibilite_experts`,
+   `action_requise`
+3. `capacite_absorption_globale` (tableau) : exactement les six clés
+   `designation_du_moyen`, `quantite_requise`, `quantite_disponible`,
+   `membre_du_groupement_qui_lapporte`, `disponible_au_demarrage`, `ecart`
+   — les six sont obligatoires sur chaque element. `ecart` est
+   recalcule automatiquement par la plateforme (quantite requise moins
+   quantite disponible) apres validation : ne jamais y inventer de valeur
+   ou de nombre, le traiter comme les autres champs internes non
+   disponibles. Forme valide d'un element du tableau :
 
-Colonnes à respecter :
+   ```json
+   {
+     "designation_du_moyen": { "value": "...", "source_type": "...", "confidence": "...", "requires_human_input": false, "justification": "...", "source_references": [] },
+     "quantite_requise": { "value": "...", "source_type": "...", "confidence": "...", "requires_human_input": false, "justification": "...", "source_references": [] },
+     "quantite_disponible": { "value": null, "source_type": "internal_required", "confidence": "none", "requires_human_input": true, "justification": "...", "source_references": [] },
+     "membre_du_groupement_qui_lapporte": { "value": null, "source_type": "internal_required", "confidence": "none", "requires_human_input": true, "justification": "...", "source_references": [] },
+     "disponible_au_demarrage": { "value": null, "source_type": "internal_required", "confidence": "none", "requires_human_input": true, "justification": "...", "source_references": [] },
+     "ecart": { "value": null, "source_type": "internal_required", "confidence": "none", "requires_human_input": true, "justification": "Calcule automatiquement par la plateforme.", "source_references": [] }
+   }
+   ```
 
-- `poste_ou_expert`
-- `volume_travail_demande_par_le_cdc`
-- `volume_travail_reel_previsionnel`
-- `suppleant`
-- `volume_travail_previsionnel_suppleant`
-- `probabilite_disponibilite_experts`
-- `action_requise`
-- `designation_du_moyen`
-- `quantite_requise`
-- `quantite_disponible`
-- `membre_du_groupement_qui_lapporte`
-- `disponible_au_demarrage`
-- `ecart`
-- `composante_ou_tache`
-- `membre_responsable`
-- `experts_affectes`
-- `effort_estime_client_vs_concept`
-- `commentaire_ou_risque`
+   Interdit : omettre la cle `ecart`, ou lui donner une valeur numerique inventee.
+4. `repartition_des_composantes_techniques` (tableau) : exactement les cinq
+   clés `composante_ou_tache`, `membre_responsable`, `experts_affectes`,
+   `effort_estime_client_vs_concept`, `commentaire_ou_risque`. Ne réutilisez
+   pas `membre_du_groupement_qui_lapporte` ici : le membre responsable d'une
+   composante est `membre_responsable`. Comme partout ailleurs dans ce
+   document, chaque élément du tableau est un objet complet avec les six
+   clés `value`, `source_type`, `confidence`, `requires_human_input`,
+   `justification`, `source_references` pour chacune des cinq clés
+   ci-dessus — jamais le format brut `{key, label, value, source}` utilisé
+   dans `fiche_cdc.extraction` en entrée, qui ne s'applique qu'à l'entrée et
+   jamais à votre sortie. Forme valide d'un élément du tableau :
+
+   ```json
+   {
+     "composante_ou_tache": { "value": "...", "source_type": "...", "confidence": "...", "requires_human_input": false, "justification": "...", "source_references": [] },
+     "membre_responsable": { "value": null, "source_type": "internal_required", "confidence": "none", "requires_human_input": true, "justification": "...", "source_references": [] },
+     "experts_affectes": { "value": null, "source_type": "internal_required", "confidence": "none", "requires_human_input": true, "justification": "...", "source_references": [] },
+     "effort_estime_client_vs_concept": { "value": "...", "source_type": "...", "confidence": "...", "requires_human_input": false, "justification": "...", "source_references": [] },
+     "commentaire_ou_risque": { "value": "...", "source_type": "...", "confidence": "...", "requires_human_input": false, "justification": "...", "source_references": [] }
+   }
+   ```
+
+   Interdit : `{ "composante_ou_tache": "...", "membre_responsable": "...", ... }` (chaines brutes) ; `{ "designation": "...", "description": "...", "source": "..." }` (format d'entrée recopié) ; `{ "composante": "...", "description": "..." }` (clés raccourcies ou inventées). N'utilisez jamais les clés `composante`, `designation`, `description` ou `source` dans ce tableau : les cinq seules clés autorisées, orthographiées exactement comme ci-dessus, sont `composante_ou_tache`, `membre_responsable`, `experts_affectes`, `effort_estime_client_vs_concept`, `commentaire_ou_risque`.
+5. `risques_coordination_mitigation` (objet) : `partenaires_non_encore_eprouves`,
+   `frequence_reunions_coordination`, `risque_penalites_internes_groupement`,
+   `controle_qualite_livrables_partenaires`, `risques_vis_a_vis_partenaires`,
+   `risques_vis_a_vis_consultants_externes`. Chacun de ces SIX champs, sans
+   aucune exception, est un objet complet avec exactement les six memes cles
+   que partout ailleurs dans ce document : `value`, `source_type`,
+   `confidence`, `requires_human_input`, `justification`, `source_references`.
+   Relisez la cle `source_references` sur CHACUN des six champs avant de
+   repondre : toujours en minuscules, toujours en caracteres latins, jamais
+   `source_References`, `Source_references`, ni aucune autre variante de
+   casse ou d'alphabet, et jamais une cle raccourcie. Forme valide d'un de
+   ces six champs (le meme gabarit s'applique identiquement aux cinq autres) :
+
+   ```json
+   "risques_vis_a_vis_partenaires": {
+     "value": "Moyen",
+     "source_type": "ai_inference",
+     "confidence": "medium",
+     "requires_human_input": false,
+     "justification": "...",
+     "source_references": []
+   }
+   ```
+6. `synthese_operations` (objet) : `niveau_complexite_operationnelle`,
+   `points_blocage_operations`, `informations_internes_requises`
 
 ## Special Rule For Array-Valued Field Objects
 
