@@ -111,6 +111,11 @@ export function getAdminNavigationSections(
           label: "Vue d'ensemble",
           href: "/administration",
           iconKey: "dashboard"
+        },
+        {
+          label: "Archive Cartography",
+          href: "/administration/knowledge",
+          iconKey: "database"
         }
       ]
     },

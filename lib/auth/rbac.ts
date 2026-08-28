@@ -29,7 +29,8 @@ export const RBAC_PERMISSIONS = [
   "fci.validate",
   "fci.generate",
   "fci.regenerate",
-  "fci.final_decision"
+  "fci.final_decision",
+  "archive.view"
 ] as const;
 
 export type Permission = (typeof RBAC_PERMISSIONS)[number];
@@ -39,7 +40,8 @@ export type AppArea =
   | "dashboard"
   | "appels_offres"
   | "profile"
-  | "settings";
+  | "settings"
+  | "archive";
 
 export type CurrentUser = {
   id: string;
@@ -92,7 +94,8 @@ const AREA_PERMISSION: Record<AppArea, Permission> = {
   dashboard: "dashboard.view",
   appels_offres: "tender.view",
   profile: "profile.view",
-  settings: "settings.view"
+  settings: "settings.view",
+  archive: "archive.view"
 };
 
 const FCI_EDITOR_ROLE_BY_MODULE: Partial<Record<FciModuleCode, UserRole>> = {
@@ -109,7 +112,8 @@ export const rolePermissions: Record<UserRole, readonly Permission[]> = {
     "admin.settings.view",
     "profile.view",
     "profile.edit_self",
-    "settings.view"
+    "settings.view",
+    "archive.view"
   ],
   COMMERCIAL: [
     "profile.view",

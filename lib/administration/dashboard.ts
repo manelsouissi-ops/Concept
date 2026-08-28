@@ -143,7 +143,7 @@ function getDatabaseUrl() {
   return readOptionalEnv("DATABASE_URL");
 }
 
-function getAdministrationDashboardPool() {
+export function getAdministrationDashboardPool() {
   const databaseUrl = getDatabaseUrl();
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is not set.");
