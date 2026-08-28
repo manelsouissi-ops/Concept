@@ -19,6 +19,7 @@ marker-v2-test/
 .venv-docling/
 .venv/
 .venv-kb/
+.venv-archive-cartography/
 venv/
 env/
 
