@@ -4,13 +4,28 @@ import { useEffect, useState } from "react";
 import { StatusBadge } from "@/components/status-badge.tsx";
 import { EmptyState } from "@/components/empty-state.tsx";
 import { formatBytes, formatDate } from "@/lib/utils/format.ts";
+import type { BadgeTone } from "@/lib/appels-offres/presentation.ts";
+import {
+  CLASSIFICATION_STATES,
+  KNOWLEDGE_CATEGORIES,
+  TECHNICAL_BUCKETS,
+  type ClassificationState,
+  type KnowledgeCategory,
+  type TechnicalBucket
+} from "@/lib/archive-cartography/classification.ts";
 import type {
   ArchiveFileRecord,
   ArchiveFileSortField,
   ArchiveFileSortOrder,
   ScanRun
 } from "./types.ts";
-import { loadArchiveFiles, loadFileDetails, loadSourceRootOptions, loadProcessingStatusOptions } from "./actions.ts";
+import {
+  loadArchiveFiles,
+  loadFileDetails,
+  loadSourceRootOptions,
+  loadProcessingStatusOptions,
+  reviewArchiveFileClassification
+} from "./actions.ts";
 
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -19,6 +34,44 @@ const DISCOVERY_STATUS_LABEL: Record<ArchiveFileRecord["discovery_status"], stri
   discovered: "Decouvert",
   hashed: "Hache",
   failed: "Echec"
+};
+
+const TECHNICAL_BUCKET_LABEL: Record<TechnicalBucket, string> = {
+  BUSINESS_DOCUMENT: "Document metier",
+  TECHNICAL_FILE: "Fichier technique",
+  IMAGE: "Image",
+  ARCHIVE: "Archive compressee",
+  SOFTWARE_SYSTEM: "Systeme/logiciel",
+  UNKNOWN: "Inconnu"
+};
+
+const KNOWLEDGE_CATEGORY_LABEL: Record<KnowledgeCategory, string> = {
+  CDC: "CDC",
+  OFFER: "Offre",
+  PROJECT: "Projet",
+  METHODOLOGY: "Methodologie",
+  CV_CONSULTANT: "CV consultant",
+  COMMERCIAL: "Commercial",
+  FINANCIAL: "Financier",
+  ADMINISTRATIVE: "Administratif",
+  OTHER: "Autre",
+  UNKNOWN: "Inconnu"
+};
+
+const CLASSIFICATION_STATE_LABEL: Record<ClassificationState, string> = {
+  UNCLASSIFIED: "Non classifie",
+  AUTO_FILTERED: "Filtre automatiquement",
+  AI_PROPOSED: "Propose par l'IA",
+  NEEDS_REVIEW: "A revoir",
+  VALIDATED: "Valide"
+};
+
+const CLASSIFICATION_STATE_TONE: Record<ClassificationState, BadgeTone> = {
+  UNCLASSIFIED: "neutral",
+  AUTO_FILTERED: "neutral",
+  AI_PROPOSED: "ai",
+  NEEDS_REVIEW: "warning",
+  VALIDATED: "success"
 };
 
 const SORTABLE_COLUMNS: { field: ArchiveFileSortField; label: string }[] = [
@@ -35,6 +88,9 @@ type Filters = {
   processing_status: string;
   discovery_status: "all" | "discovered" | "hashed" | "failed";
   source_root_id: string;
+  technical_bucket: "all" | TechnicalBucket;
+  knowledge_category: "all" | KnowledgeCategory;
+  classification_state: "all" | ClassificationState;
 };
 
 const DEFAULT_FILTERS: Filters = {
@@ -43,6 +99,9 @@ const DEFAULT_FILTERS: Filters = {
   duplicate: "all",
   processing_status: "all",
   discovery_status: "all",
+  technical_bucket: "all",
+  knowledge_category: "all",
+  classification_state: "all",
   source_root_id: "all"
 };
 
@@ -71,6 +130,11 @@ export default function ArchiveInventoryTable({
   const [detailLoading, setDetailLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [showScanHistory, setShowScanHistory] = useState(false);
+
+  const [reviewCategory, setReviewCategory] = useState<KnowledgeCategory>("UNKNOWN");
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +179,9 @@ export default function ArchiveInventoryTable({
           processing_status: filters.processing_status === "all" ? undefined : filters.processing_status,
           discovery_status: filters.discovery_status,
           source_root_id: filters.source_root_id === "all" ? undefined : Number(filters.source_root_id),
+          technical_bucket: filters.technical_bucket === "all" ? undefined : filters.technical_bucket,
+          knowledge_category: filters.knowledge_category === "all" ? undefined : filters.knowledge_category,
+          classification_state: filters.classification_state === "all" ? undefined : filters.classification_state,
           page,
           limit: PAGE_SIZE,
           sortField,
@@ -163,13 +230,47 @@ export default function ArchiveInventoryTable({
     setShowDetail(true);
     setDetailLoading(true);
     setSelectedFile(null);
+    setReviewError(null);
+    setReviewReason("");
     try {
       const detail = await loadFileDetails(file.id);
-      setSelectedFile(detail ?? file);
+      const resolved = detail ?? file;
+      setSelectedFile(resolved);
+      setReviewCategory(resolved.knowledge_category ?? "UNKNOWN");
     } catch {
       setSelectedFile(file);
+      setReviewCategory(file.knowledge_category ?? "UNKNOWN");
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function submitReview(nextState: "VALIDATED" | "NEEDS_REVIEW") {
+    if (!selectedFile) {
+      return;
+    }
+    setReviewSubmitting(true);
+    setReviewError(null);
+    try {
+      await reviewArchiveFileClassification({
+        archiveFileId: selectedFile.id,
+        knowledgeCategory: reviewCategory,
+        classificationState: nextState,
+        reason: reviewReason || undefined
+      });
+      const refreshed = await loadFileDetails(selectedFile.id);
+      if (refreshed) {
+        setSelectedFile(refreshed);
+      }
+      setFiles((previous) =>
+        previous.map((item) =>
+          item.id === selectedFile.id && refreshed ? refreshed : item
+        )
+      );
+    } catch {
+      setReviewError("La revision n'a pas pu etre enregistree.");
+    } finally {
+      setReviewSubmitting(false);
     }
   }
 
@@ -180,7 +281,10 @@ export default function ArchiveInventoryTable({
     filters.duplicate !== "all" ||
     filters.processing_status !== "all" ||
     filters.discovery_status !== "all" ||
-    filters.source_root_id !== "all";
+    filters.source_root_id !== "all" ||
+    filters.technical_bucket !== "all" ||
+    filters.knowledge_category !== "all" ||
+    filters.classification_state !== "all";
 
   return (
     <div className="stack">
@@ -271,6 +375,54 @@ export default function ArchiveInventoryTable({
             </select>
           </label>
 
+          <label className="toolbar-field">
+            <span>Type technique</span>
+            <select
+              className="select"
+              value={filters.technical_bucket}
+              onChange={(event) => updateFilter("technical_bucket", event.target.value as Filters["technical_bucket"])}
+            >
+              <option value="all">Tous</option>
+              {TECHNICAL_BUCKETS.map((bucket) => (
+                <option key={bucket} value={bucket}>
+                  {TECHNICAL_BUCKET_LABEL[bucket]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="toolbar-field">
+            <span>Categorie</span>
+            <select
+              className="select"
+              value={filters.knowledge_category}
+              onChange={(event) => updateFilter("knowledge_category", event.target.value as Filters["knowledge_category"])}
+            >
+              <option value="all">Toutes</option>
+              {KNOWLEDGE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {KNOWLEDGE_CATEGORY_LABEL[category]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="toolbar-field">
+            <span>Statut de classification</span>
+            <select
+              className="select"
+              value={filters.classification_state}
+              onChange={(event) => updateFilter("classification_state", event.target.value as Filters["classification_state"])}
+            >
+              <option value="all">Tous</option>
+              {CLASSIFICATION_STATES.map((state) => (
+                <option key={state} value={state}>
+                  {CLASSIFICATION_STATE_LABEL[state]}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <button
             type="button"
             className="button button-ghost"
@@ -316,12 +468,16 @@ export default function ArchiveInventoryTable({
                   <th>Dossier</th>
                   <th>Type</th>
                   <th>Statut</th>
+                  <th>Type technique</th>
+                  <th>Categorie</th>
+                  <th>Classification</th>
+                  <th>Confiance</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7}>Chargement...</td>
+                    <td colSpan={11}>Chargement...</td>
                   </tr>
                 ) : (
                   files.map((file) => (
@@ -353,6 +509,23 @@ export default function ArchiveInventoryTable({
                           }
                           label={DISCOVERY_STATUS_LABEL[file.discovery_status]}
                         />
+                      </td>
+                      <td className="table-secondary-cell">
+                        {file.technical_bucket ? TECHNICAL_BUCKET_LABEL[file.technical_bucket] : "-"}
+                      </td>
+                      <td className="table-secondary-cell">
+                        {file.knowledge_category ? KNOWLEDGE_CATEGORY_LABEL[file.knowledge_category] : "-"}
+                      </td>
+                      <td>
+                        <StatusBadge
+                          tone={CLASSIFICATION_STATE_TONE[file.classification_state]}
+                          label={CLASSIFICATION_STATE_LABEL[file.classification_state]}
+                        />
+                      </td>
+                      <td className="table-secondary-cell">
+                        {file.classification_confidence != null
+                          ? `${Math.round(file.classification_confidence * 100)}%`
+                          : "-"}
                       </td>
                     </tr>
                   ))
@@ -480,6 +653,84 @@ export default function ArchiveInventoryTable({
                 <p><strong>Statut de traitement :</strong> {selectedFile.processing_status}</p>
                 <p><strong>Premiere detection :</strong> {formatDate(selectedFile.first_seen_at)}</p>
                 <p><strong>Derniere detection :</strong> {formatDate(selectedFile.last_seen_at)}</p>
+
+                <div className="section-header">
+                  <h4 className="section-title">Classification (Phase 2)</h4>
+                </div>
+                <p>
+                  <strong>Type technique :</strong>{" "}
+                  {selectedFile.technical_bucket ? TECHNICAL_BUCKET_LABEL[selectedFile.technical_bucket] : "Non evalue"}
+                </p>
+                <p>
+                  <strong>Categorie proposee :</strong>{" "}
+                  {selectedFile.knowledge_category ? KNOWLEDGE_CATEGORY_LABEL[selectedFile.knowledge_category] : "Aucune"}
+                </p>
+                <p>
+                  <strong>Statut :</strong>{" "}
+                  <StatusBadge
+                    tone={CLASSIFICATION_STATE_TONE[selectedFile.classification_state]}
+                    label={CLASSIFICATION_STATE_LABEL[selectedFile.classification_state]}
+                  />
+                </p>
+                <p>
+                  <strong>Methode :</strong> {selectedFile.classification_method ?? "-"}
+                  {selectedFile.classification_confidence != null
+                    ? ` (confiance ${Math.round(selectedFile.classification_confidence * 100)}%)`
+                    : ""}
+                </p>
+                {selectedFile.classification_reason ? (
+                  <p><strong>Motif :</strong> {selectedFile.classification_reason}</p>
+                ) : null}
+                {selectedFile.reviewed_at ? (
+                  <p><strong>Revise le :</strong> {formatDate(selectedFile.reviewed_at)}</p>
+                ) : null}
+
+                <div className="section-header">
+                  <h4 className="section-title">Revision humaine</h4>
+                </div>
+                <label className="toolbar-field">
+                  <span>Categorie</span>
+                  <select
+                    className="select"
+                    value={reviewCategory}
+                    onChange={(event) => setReviewCategory(event.target.value as KnowledgeCategory)}
+                    disabled={reviewSubmitting}
+                  >
+                    {KNOWLEDGE_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {KNOWLEDGE_CATEGORY_LABEL[category]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="toolbar-field">
+                  <span>Motif (optionnel)</span>
+                  <input
+                    className="input"
+                    value={reviewReason}
+                    onChange={(event) => setReviewReason(event.target.value)}
+                    disabled={reviewSubmitting}
+                  />
+                </label>
+                {reviewError ? <div className="callout warning">{reviewError}</div> : null}
+                <div className="fci-dialog-actions">
+                  <button
+                    type="button"
+                    className="button button-ghost"
+                    disabled={reviewSubmitting}
+                    onClick={() => void submitReview("NEEDS_REVIEW")}
+                  >
+                    Marquer a revoir
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    disabled={reviewSubmitting}
+                    onClick={() => void submitReview("VALIDATED")}
+                  >
+                    Valider
+                  </button>
+                </div>
               </div>
             )}
 

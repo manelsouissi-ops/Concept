@@ -1,3 +1,10 @@
+import type {
+  ClassificationMethod,
+  ClassificationState,
+  KnowledgeCategory,
+  TechnicalBucket
+} from "@/lib/archive-cartography/classification.ts";
+
 export type ArchiveFileRecord = {
   id: number;
   source_root_id: number;
@@ -20,6 +27,20 @@ export type ArchiveFileRecord = {
    * "has a sha256" alone.
    */
   duplicate_count: number;
+
+  /**
+   * Phase 2 classification fields. All null/UNCLASSIFIED for a file that has
+   * no row yet in knowledge_base.archive_file_classifications - that is the
+   * default, expected state for the entire Phase 1 inventory today.
+   */
+  technical_bucket: TechnicalBucket | null;
+  knowledge_category: KnowledgeCategory | null;
+  classification_state: ClassificationState;
+  classification_method: ClassificationMethod | null;
+  classification_confidence: number | null;
+  classification_reason: string | null;
+  classified_at: string | null;
+  reviewed_at: string | null;
 };
 
 export type ArchiveFileFilters = {
@@ -29,6 +50,16 @@ export type ArchiveFileFilters = {
   processing_status?: string;
   discovery_status?: 'all' | 'discovered' | 'hashed' | 'failed';
   source_root_id?: number;
+  technical_bucket?: TechnicalBucket;
+  knowledge_category?: KnowledgeCategory;
+  classification_state?: ClassificationState;
+};
+
+export type ArchiveFileReviewInput = {
+  archiveFileId: number;
+  knowledgeCategory: KnowledgeCategory;
+  classificationState: Extract<ClassificationState, 'VALIDATED' | 'NEEDS_REVIEW'>;
+  reason?: string;
 };
 
 export type ArchiveFileSortField = 'filename' | 'size_bytes' | 'modified_at' | 'duplicate_count';

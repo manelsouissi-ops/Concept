@@ -2,10 +2,17 @@
 
 import { getAdministrationDashboardPool } from "@/lib/administration/dashboard.ts";
 import { requireAreaAccessForPage } from "@/lib/auth/server.ts";
+import {
+  buildClassificationReviewEvent,
+  isClassificationState,
+  isKnowledgeCategory,
+  isTechnicalBucket
+} from "@/lib/archive-cartography/classification.ts";
 import type {
   ArchiveFilePage,
   ArchiveFileQuery,
   ArchiveFileRecord,
+  ArchiveFileReviewInput,
   ArchiveFileSortField,
   ArchiveFileSortOrder,
   ArchiveSummary,
@@ -69,9 +76,32 @@ function mapFileRow(row: Record<string, unknown>): ArchiveFileRecord {
     first_seen_at: new Date(row.first_seen_at as string).toISOString(),
     last_seen_at: new Date(row.last_seen_at as string).toISOString(),
     updated_at: new Date(row.updated_at as string).toISOString(),
-    duplicate_count: Number(row.duplicate_count ?? 0)
+    duplicate_count: Number(row.duplicate_count ?? 0),
+    technical_bucket: row.technical_bucket == null ? null : (row.technical_bucket as ArchiveFileRecord["technical_bucket"]),
+    knowledge_category: row.knowledge_category == null ? null : (row.knowledge_category as ArchiveFileRecord["knowledge_category"]),
+    classification_state: (row.classification_state as ArchiveFileRecord["classification_state"]) ?? "UNCLASSIFIED",
+    classification_method: row.classification_method == null ? null : (row.classification_method as ArchiveFileRecord["classification_method"]),
+    classification_confidence: row.classification_confidence == null ? null : Number(row.classification_confidence),
+    classification_reason: row.classification_reason == null ? null : String(row.classification_reason),
+    classified_at: row.classified_at == null ? null : new Date(row.classified_at as string).toISOString(),
+    reviewed_at: row.reviewed_at == null ? null : new Date(row.reviewed_at as string).toISOString()
   };
 }
+
+const CLASSIFICATION_COLUMNS = `
+  c.technical_bucket,
+  c.knowledge_category,
+  coalesce(c.classification_state, 'UNCLASSIFIED') as classification_state,
+  c.classification_method,
+  c.classification_confidence,
+  c.classification_reason,
+  c.classified_at,
+  c.reviewed_at
+`;
+
+const CLASSIFICATION_JOIN = `
+  left join knowledge_base.archive_file_classifications c on c.archive_file_id = f.id
+`;
 
 export async function loadArchiveSummary(): Promise<ArchiveSummary> {
   await requireAreaAccessForPage("archive");
@@ -155,6 +185,24 @@ export async function loadArchiveFiles(query: ArchiveFileQuery = {}): Promise<Ar
     whereConditions.push(`f.source_root_id = $${params.length}`);
   }
 
+  // Enum-typed columns: checked against the shared allowlists (defense in
+  // depth alongside TypeScript's own union types) before ever reaching a
+  // parameterized placeholder - never string-built into the query directly.
+  if (query.technical_bucket && isTechnicalBucket(query.technical_bucket)) {
+    params.push(query.technical_bucket);
+    whereConditions.push(`c.technical_bucket = $${params.length}`);
+  }
+
+  if (query.knowledge_category && isKnowledgeCategory(query.knowledge_category)) {
+    params.push(query.knowledge_category);
+    whereConditions.push(`c.knowledge_category = $${params.length}`);
+  }
+
+  if (query.classification_state && isClassificationState(query.classification_state)) {
+    params.push(query.classification_state);
+    whereConditions.push(`coalesce(c.classification_state, 'UNCLASSIFIED') = $${params.length}`);
+  }
+
   const whereClause = whereConditions.length > 0 ? `where ${whereConditions.join(" and ")}` : "";
 
   const cte = `
@@ -171,6 +219,7 @@ export async function loadArchiveFiles(query: ArchiveFileQuery = {}): Promise<Ar
      select count(*) as total
      from knowledge_base.archive_files f
      left join dup on f.sha256 = dup.sha256
+     ${CLASSIFICATION_JOIN}
      ${whereClause}`,
     params
   );
@@ -185,9 +234,11 @@ export async function loadArchiveFiles(query: ArchiveFileQuery = {}): Promise<Ar
        f.id, f.source_root_id, f.relative_path, f.filename, f.extension, f.parent_folder,
        f.size_bytes, f.modified_at, f.sha256, f.discovery_status, f.processing_status,
        f.first_seen_at, f.last_seen_at, f.updated_at,
-       coalesce(dup.hash_count, 0) as duplicate_count
+       coalesce(dup.hash_count, 0) as duplicate_count,
+       ${CLASSIFICATION_COLUMNS}
      from knowledge_base.archive_files f
      left join dup on f.sha256 = dup.sha256
+     ${CLASSIFICATION_JOIN}
      ${whereClause}
      order by ${sortColumn} ${sortOrder}, f.id asc
      limit $${limitParamIndex} offset $${offsetParamIndex}`,
@@ -218,9 +269,11 @@ export async function loadFileDetails(fileId: number): Promise<ArchiveFileRecord
        f.id, f.source_root_id, f.relative_path, f.filename, f.extension, f.parent_folder,
        f.size_bytes, f.modified_at, f.sha256, f.discovery_status, f.processing_status,
        f.first_seen_at, f.last_seen_at, f.updated_at,
-       coalesce(dup.hash_count, 0) as duplicate_count
+       coalesce(dup.hash_count, 0) as duplicate_count,
+       ${CLASSIFICATION_COLUMNS}
      from knowledge_base.archive_files f
      left join dup on f.sha256 = dup.sha256
+     ${CLASSIFICATION_JOIN}
      where f.id = $1`,
     [fileId]
   );
@@ -307,4 +360,148 @@ export async function loadProcessingStatusOptions(): Promise<{ value: string; la
     value: row.processing_status,
     label: row.processing_status === "not_classified" ? "Non classifie" : row.processing_status
   }));
+}
+
+/**
+ * Human review (Step 6): an ADMIN validating or correcting a classification.
+ * Writes ONLY to knowledge_base.archive_file_classifications (current state)
+ * and knowledge_base.archive_file_classification_events (append-only
+ * history) - never to knowledge_base.archive_files (the Phase 1 inventory
+ * record) and never to anything on disk. RBAC is re-checked here
+ * independently of the page-level check, matching every other exported
+ * function in this file.
+ *
+ * Both writes happen in one transaction: the current row is read (locked
+ * with SELECT ... FOR UPDATE) before being upserted, so the event always
+ * records the value that was actually overwritten, and either both writes
+ * land or neither does.
+ */
+export async function reviewArchiveFileClassification(input: ArchiveFileReviewInput): Promise<void> {
+  const currentUser = await requireAreaAccessForPage("archive");
+
+  if (!Number.isInteger(input.archiveFileId) || input.archiveFileId <= 0) {
+    throw new Error("Invalid archive file id.");
+  }
+  if (!isKnowledgeCategory(input.knowledgeCategory)) {
+    throw new Error("Invalid knowledge category.");
+  }
+  if (input.classificationState !== "VALIDATED" && input.classificationState !== "NEEDS_REVIEW") {
+    throw new Error("Invalid classification state for a human review action.");
+  }
+
+  const pool = getAdministrationDashboardPool();
+  const reviewerUserId = Number(currentUser.id);
+  const reviewedByUserId = Number.isInteger(reviewerUserId) && reviewerUserId > 0 ? reviewerUserId : null;
+
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+
+    const fileExists = await client.query(`select 1 from knowledge_base.archive_files where id = $1`, [
+      input.archiveFileId
+    ]);
+    if (fileExists.rowCount === 0) {
+      throw new Error("Archive file not found.");
+    }
+
+    const currentRow = await client.query<{
+      knowledge_category: string | null;
+      classification_state: string | null;
+    }>(
+      `
+        select knowledge_category, classification_state
+        from knowledge_base.archive_file_classifications
+        where archive_file_id = $1
+        for update
+      `,
+      [input.archiveFileId]
+    );
+
+    const previousKnowledgeCategory = currentRow.rows[0]?.knowledge_category ?? null;
+    const event = buildClassificationReviewEvent({
+      archiveFileId: input.archiveFileId,
+      previousKnowledgeCategory:
+        previousKnowledgeCategory && isKnowledgeCategory(previousKnowledgeCategory)
+          ? previousKnowledgeCategory
+          : null,
+      previousClassificationState:
+        currentRow.rows[0]?.classification_state && isClassificationState(currentRow.rows[0].classification_state)
+          ? currentRow.rows[0].classification_state
+          : null,
+      newKnowledgeCategory: input.knowledgeCategory,
+      newClassificationState: input.classificationState,
+      reason: input.reason,
+      reviewedByUserId
+    });
+
+    await client.query(
+      `
+        insert into knowledge_base.archive_file_classifications (
+          archive_file_id,
+          knowledge_category,
+          classification_state,
+          classification_method,
+          classification_reason,
+          reviewed_at,
+          reviewed_by_user_id,
+          updated_at
+        )
+        values ($1, $2, $3, $4, $5, now(), $6, now())
+        on conflict (archive_file_id) do update set
+          knowledge_category = excluded.knowledge_category,
+          classification_state = excluded.classification_state,
+          classification_method = excluded.classification_method,
+          classification_reason = excluded.classification_reason,
+          reviewed_at = excluded.reviewed_at,
+          reviewed_by_user_id = excluded.reviewed_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [
+        event.archiveFileId,
+        event.newKnowledgeCategory,
+        event.newClassificationState,
+        event.classificationMethod,
+        event.reason,
+        event.reviewedByUserId
+      ]
+    );
+
+    // Exactly one append-only event per review, in the same transaction as
+    // the current-state write above - see
+    // scripts/sql/20260829_archive_cartography_classification_events.sql.
+    // No filenames or paths are logged here, only the numeric file id,
+    // enum values, optional free-text reason, and reviewer id.
+    await client.query(
+      `
+        insert into knowledge_base.archive_file_classification_events (
+          archive_file_id,
+          previous_knowledge_category,
+          new_knowledge_category,
+          previous_classification_state,
+          new_classification_state,
+          classification_method,
+          reason,
+          reviewed_by_user_id
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        event.archiveFileId,
+        event.previousKnowledgeCategory,
+        event.newKnowledgeCategory,
+        event.previousClassificationState,
+        event.newClassificationState,
+        event.classificationMethod,
+        event.reason,
+        event.reviewedByUserId
+      ]
+    );
+
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
