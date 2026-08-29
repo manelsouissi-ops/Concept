@@ -171,3 +171,63 @@ export function buildClassificationReviewEvent(input: {
     reviewedByUserId: input.reviewedByUserId
   };
 }
+
+export type TechnicalClassificationSnapshot = {
+  technicalBucket: TechnicalBucket | null;
+  classificationState: ClassificationState;
+  classificationMethod: ClassificationMethod | null;
+  classifiedAt: string | null;
+} | null;
+
+export type TechnicalBackfillDecision = {
+  technicalBucket: TechnicalBucket;
+  classificationState: ClassificationState;
+  classificationMethod: ClassificationMethod | null;
+  /** Whether the write should set classified_at (only true the first time a file is confidently bucketed). */
+  classifiedAtShouldBeSet: boolean;
+  /** Whether anything actually needs writing - false means the existing row already reflects this decision. */
+  changed: boolean;
+};
+
+/**
+ * Pure decision function for the deterministic technical-bucket backfill
+ * (RULE method, extension-only - see
+ * scripts/archive_cartography/backfill_technical_buckets.ts). Contains no
+ * database or filesystem access so it can be unit-tested with synthetic
+ * snapshots alone.
+ *
+ * Never advances classification_state past AUTO_FILTERED, and never
+ * advances it at all once a file has moved beyond UNCLASSIFIED
+ * (AI_PROPOSED/NEEDS_REVIEW/VALIDATED, or an AUTO_FILTERED already set by an
+ * earlier backfill run) - this is what keeps human review and local-AI
+ * proposals intact across reruns. A technical_bucket of UNKNOWN never
+ * advances classification_state at all, regardless of its current value.
+ */
+export function decideTechnicalBackfillWrite(
+  extension: string | null | undefined,
+  existing: TechnicalClassificationSnapshot
+): TechnicalBackfillDecision {
+  const technicalBucket = classifyTechnicalBucket(extension);
+  const currentState = existing?.classificationState ?? "UNCLASSIFIED";
+  const shouldAdvanceState = technicalBucket !== "UNKNOWN" && currentState === "UNCLASSIFIED";
+
+  const classificationState: ClassificationState = shouldAdvanceState ? "AUTO_FILTERED" : currentState;
+  const classificationMethod: ClassificationMethod | null = shouldAdvanceState
+    ? "RULE"
+    : (existing?.classificationMethod ?? null);
+  const classifiedAtShouldBeSet = shouldAdvanceState && !existing?.classifiedAt;
+
+  const changed =
+    existing == null ||
+    existing.technicalBucket !== technicalBucket ||
+    existing.classificationState !== classificationState ||
+    existing.classificationMethod !== classificationMethod;
+
+  return {
+    technicalBucket,
+    classificationState,
+    classificationMethod,
+    classifiedAtShouldBeSet,
+    changed
+  };
+}

@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyTechnicalBucket, buildClassificationReviewEvent } from "./classification.ts";
+import {
+  classifyTechnicalBucket,
+  buildClassificationReviewEvent,
+  decideTechnicalBackfillWrite
+} from "./classification.ts";
 
 // All filenames/extensions below are synthetic examples for testing only -
 // none reference real CONCEPT archive content.
@@ -150,4 +154,95 @@ test("an empty/whitespace-only reason is normalized to null", () => {
   });
 
   assert.equal(event.reason, null);
+});
+
+// --- Technical bucket backfill decision (synthetic snapshots only) ---
+
+test("first-time confident bucket advances UNCLASSIFIED to AUTO_FILTERED/RULE", () => {
+  const decision = decideTechnicalBackfillWrite("pdf", null);
+  assert.equal(decision.technicalBucket, "BUSINESS_DOCUMENT");
+  assert.equal(decision.classificationState, "AUTO_FILTERED");
+  assert.equal(decision.classificationMethod, "RULE");
+  assert.equal(decision.classifiedAtShouldBeSet, true);
+  assert.equal(decision.changed, true);
+});
+
+test("DLL, DWG, JPG, ZIP all advance UNCLASSIFIED the same way", () => {
+  for (const [extension, expectedBucket] of [
+    ["dll", "SOFTWARE_SYSTEM"],
+    ["dwg", "TECHNICAL_FILE"],
+    ["jpg", "IMAGE"],
+    ["zip", "ARCHIVE"]
+  ] as const) {
+    const decision = decideTechnicalBackfillWrite(extension, null);
+    assert.equal(decision.technicalBucket, expectedBucket, extension);
+    assert.equal(decision.classificationState, "AUTO_FILTERED", extension);
+    assert.equal(decision.classificationMethod, "RULE", extension);
+  }
+});
+
+test("an unknown extension never advances classification_state past UNCLASSIFIED", () => {
+  const decision = decideTechnicalBackfillWrite("xyzabc", null);
+  assert.equal(decision.technicalBucket, "UNKNOWN");
+  assert.equal(decision.classificationState, "UNCLASSIFIED");
+  assert.equal(decision.classificationMethod, null);
+  assert.notEqual(decision.classificationState, "VALIDATED");
+});
+
+test("an existing HUMAN-validated classification is preserved when technical_bucket is recomputed", () => {
+  const decision = decideTechnicalBackfillWrite("pdf", {
+    technicalBucket: "BUSINESS_DOCUMENT",
+    classificationState: "VALIDATED",
+    classificationMethod: "HUMAN",
+    classifiedAt: "2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(decision.classificationState, "VALIDATED");
+  assert.equal(decision.classificationMethod, "HUMAN");
+  assert.equal(decision.changed, false);
+});
+
+test("an existing NEEDS_REVIEW state set by a human is not reset by a technical rerun", () => {
+  const decision = decideTechnicalBackfillWrite("zip", {
+    technicalBucket: "ARCHIVE",
+    classificationState: "NEEDS_REVIEW",
+    classificationMethod: "HUMAN",
+    classifiedAt: "2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(decision.classificationState, "NEEDS_REVIEW");
+  assert.equal(decision.classificationMethod, "HUMAN");
+});
+
+test("an existing AI_PROPOSED knowledge classification is preserved", () => {
+  const decision = decideTechnicalBackfillWrite("docx", {
+    technicalBucket: "BUSINESS_DOCUMENT",
+    classificationState: "AI_PROPOSED",
+    classificationMethod: "LOCAL_AI",
+    classifiedAt: "2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(decision.classificationState, "AI_PROPOSED");
+  assert.equal(decision.classificationMethod, "LOCAL_AI");
+  assert.equal(decision.changed, false);
+});
+
+test("running the decision twice in a row is idempotent (second run is a no-op)", () => {
+  const first = decideTechnicalBackfillWrite("dwg", null);
+  const second = decideTechnicalBackfillWrite("dwg", {
+    technicalBucket: first.technicalBucket,
+    classificationState: first.classificationState,
+    classificationMethod: first.classificationMethod,
+    classifiedAt: first.classifiedAtShouldBeSet ? "2026-01-01T00:00:00.000Z" : null
+  });
+  assert.equal(second.changed, false);
+});
+
+test("an UNKNOWN bucket is idempotent across reruns too", () => {
+  const first = decideTechnicalBackfillWrite("xyzabc", null);
+  const second = decideTechnicalBackfillWrite("xyzabc", {
+    technicalBucket: first.technicalBucket,
+    classificationState: first.classificationState,
+    classificationMethod: first.classificationMethod,
+    classifiedAt: null
+  });
+  assert.equal(second.changed, false);
+  assert.equal(second.classificationState, "UNCLASSIFIED");
 });
