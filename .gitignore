@@ -39,6 +39,10 @@ tmp/
 *.db
 *.log
 
+# Local knowledge-base extraction artifacts
+/services/knowledge-base/output/
+/scripts/.cdc_*.json
+
 tsconfig.tsbuildinfo
 
 data/*
