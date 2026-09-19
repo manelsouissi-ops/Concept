@@ -47,6 +47,11 @@ tmp/
 /structure_dossiers.txt
 /inspection_result.txt
 
+# CDC 21-criteria pilot: local-only manifest (candidate identifiers and
+# local source paths may be confidential; the manifest itself is never
+# committed - see services/knowledge-base/cdc_pilot_extractor.py)
+/services/knowledge-base/pilot/
+
 tsconfig.tsbuildinfo
 
 data/*
