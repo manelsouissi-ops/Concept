@@ -42,6 +42,10 @@ tmp/
 # Local knowledge-base extraction artifacts
 /services/knowledge-base/output/
 /scripts/.cdc_*.json
+/scripts/.semantic_review_checkpoint*.json
+/scripts/.semantic_review_project_checkpoint*.json
+/structure_dossiers.txt
+/inspection_result.txt
 
 tsconfig.tsbuildinfo
 
