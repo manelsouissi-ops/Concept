@@ -6,14 +6,34 @@ import {
   canCreateTender,
   canEditFciModule,
   canGenerateFciModule,
+  getAreaAccessDeniedMessage,
   getFciModuleForRole,
   canMakeFinalDecision,
   canValidateFciModule,
   canViewFciModule,
   getDefaultAuthenticatedPath,
   getFciReadOnlyMessage,
-  getUserRoleLabel
+  getUserRoleLabel,
+  type AppArea
 } from "./rbac.ts";
+
+// Regression test for a real bug: getAreaAccessDeniedMessage's switch did not
+// have a case for the "archive" AppArea (added for the Knowledge Base admin
+// page), so TypeScript correctly inferred the return type as
+// `string | undefined` and, at runtime, a denied /administration/knowledge
+// request would have propagated an undefined message into the 403 response
+// body. Every AppArea must produce a defined, non-empty denial message, for
+// every role including the one that only hits the switch (not the ADMIN
+// fast-path) - this guards against the same class of bug recurring when a
+// new AppArea is added without updating this switch.
+const ALL_APP_AREAS: readonly AppArea[] = [
+  "administration",
+  "dashboard",
+  "appels_offres",
+  "profile",
+  "settings",
+  "archive"
+];
 
 test("only Commercial can create a tender while all business roles retain tender viewing", () => {
   assert.equal(canCreateTender("COMMERCIAL"), true);
@@ -126,4 +146,27 @@ test("read-only helper returns the business-only message for ADMIN and a French 
   assert.equal(getFciReadOnlyMessage("COMMERCIAL", "A"), null);
   assert.match(getFciReadOnlyMessage("COMMERCIAL", "B") ?? "", /Lecture seule/i);
   assert.equal(getUserRoleLabel("DIRECTION_GENERALE"), "Direction generale");
+});
+
+test("getAreaAccessDeniedMessage returns a defined, non-empty message for every area and role", () => {
+  const roles = ["ADMIN", "COMMERCIAL", "FINANCE", "OPERATIONS", "DIRECTION_GENERALE"] as const;
+
+  for (const area of ALL_APP_AREAS) {
+    for (const role of roles) {
+      const message = getAreaAccessDeniedMessage(area, role);
+      assert.equal(typeof message, "string", `area=${area} role=${role} must return a string`);
+      assert.ok(message.length > 0, `area=${area} role=${role} must return a non-empty message`);
+    }
+
+    // role omitted entirely (e.g. an unauthenticated caller) must still fail closed
+    // with a real message rather than undefined.
+    const messageWithoutRole = getAreaAccessDeniedMessage(area);
+    assert.equal(typeof messageWithoutRole, "string", `area=${area} with no role must return a string`);
+    assert.ok(messageWithoutRole.length > 0, `area=${area} with no role must return a non-empty message`);
+  }
+});
+
+test("getAreaAccessDeniedMessage covers the archive area specifically", () => {
+  assert.match(getAreaAccessDeniedMessage("archive", "COMMERCIAL"), /archives/i);
+  assert.match(getAreaAccessDeniedMessage("archive"), /archives/i);
 });

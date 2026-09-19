@@ -356,6 +356,8 @@ export function getAreaAccessDeniedMessage(area: AppArea, role?: UserRole) {
       return "Acces refuse : vous ne pouvez pas consulter ce profil.";
     case "settings":
       return "Acces refuse : vous ne pouvez pas consulter les parametres.";
+    case "archive":
+      return "Acces refuse : vous ne pouvez pas consulter la cartographie des archives.";
   }
 }
 
