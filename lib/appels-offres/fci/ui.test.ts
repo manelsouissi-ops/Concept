@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   formatFciClientErrorMessage,
+  formatFciDateTime,
   formatFciSourceLabel,
   getFciContributionStatusKey,
   getFciFormStatusPresentation,
@@ -174,9 +175,62 @@ test("getFciGenerationFailurePresentation maps a Gemini 503 to the exact busines
     presentation.message,
     "Le service d'IA est momentanément indisponible. Réessayez dans quelques instants."
   );
-  assert.equal(presentation.lastAttemptLabel, "Dernière tentative : 12/08/2026 à 08:47");
+  // 2026-08-12T08:47:18.660Z is 10:47 in Europe/Paris (CEST, UTC+2 in
+  // August) - CONCEPT's fixed user-facing timezone, not whatever OS
+  // timezone the machine running this test happens to be set to (this
+  // repo's dev/CI host is Africa/Tunis, UTC+1, which is why an
+  // unqualified toLocaleTimeString() used to produce "09:47" here instead
+  // of either the correct Paris time or the UTC time the test originally,
+  // incorrectly, expected).
+  assert.equal(presentation.lastAttemptLabel, "Dernière tentative : 12/08/2026 à 10:47");
   assert.doesNotMatch(presentation.title, /503|UNAVAILABLE|gemini/i);
   assert.doesNotMatch(presentation.message, /503|UNAVAILABLE|gemini/i);
+});
+
+test("getFciGenerationFailurePresentation's lastAttemptLabel is independent of the host machine's OS timezone", () => {
+  // A winter timestamp (CET, UTC+1) exercises the other side of Europe/Paris'
+  // DST boundary, so this isn't just re-testing the same summer offset.
+  const winter = getFciGenerationFailurePresentation({
+    errorCode: "GEMINI_REQUEST_FAILED",
+    errorMessage: "GEMINI_RATE_LIMITED",
+    lastAttemptAt: "2026-01-15T22:30:00.000Z"
+  });
+  assert.equal(winter.lastAttemptLabel, "Dernière tentative : 15/01/2026 à 23:30");
+
+  for (const tz of ["UTC", "America/New_York", "Asia/Tokyo", "Pacific/Kiritimati"]) {
+    const original = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      const presentation = getFciGenerationFailurePresentation({
+        errorCode: "GEMINI_REQUEST_FAILED",
+        errorMessage: "GEMINI_RATE_LIMITED",
+        lastAttemptAt: "2026-08-12T08:47:18.660Z"
+      });
+      assert.equal(
+        presentation.lastAttemptLabel,
+        "Dernière tentative : 12/08/2026 à 10:47",
+        `expected Europe/Paris-fixed output regardless of process.env.TZ="${tz}"`
+      );
+    } finally {
+      process.env.TZ = original;
+    }
+  }
+});
+
+test("formatFciDateTime is independent of the host machine's OS timezone", () => {
+  for (const tz of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+    const original = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      const formatted = formatFciDateTime("2026-08-12T08:47:18.660Z");
+      assert.match(formatted, /10:47/, `expected Europe/Paris time regardless of process.env.TZ="${tz}"`);
+    } finally {
+      process.env.TZ = original;
+    }
+  }
+
+  assert.equal(formatFciDateTime(null), "Non disponible");
+  assert.equal(formatFciDateTime(undefined), "Non disponible");
 });
 
 test("getFciGenerationFailurePresentation never leaks a correlationId/executionId/raw JSON error", () => {
@@ -217,9 +271,11 @@ test("isFciTransientProviderFailure classifies status-specific and legacy error 
 });
 
 test("formatFciSourceLabel turns the internal version marker into a business-facing label", () => {
+  // Same Europe/Paris fixed-timezone rendering as getFciGenerationFailurePresentation
+  // above: 08:47 UTC is 10:47 in Paris during August's CEST.
   assert.equal(
     formatFciSourceLabel("validated:2026-08-12T08:47:18.660Z"),
-    "Fiche CDC validée le 12/08/2026 à 08:47"
+    "Fiche CDC validée le 12/08/2026 à 10:47"
   );
   assert.equal(formatFciSourceLabel(null), "Source indisponible");
   assert.doesNotMatch(formatFciSourceLabel("validated:2026-08-12T08:47:18.660Z"), /validated:/);

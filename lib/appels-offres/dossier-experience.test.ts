@@ -9,10 +9,26 @@ import {
 test("DG dossier navigation exposes the submitted evidence read-only", () => {
   const tabs = getAppelOffresWorkspaceTabs("DIRECTION_GENERALE");
 
+  // "Contributions FCI" (not the older "FCI A / B / C" shorthand this test
+  // used to expect) is the current, single-source label: it is what
+  // DECISION_CENTER_TABS itself defines below, and it matches every other
+  // live use of this tab across the app (tender-stage.ts,
+  // components/fci/fci-overview.tsx, components/fci/fci-blocked-state.tsx).
+  // "FCI A / B / C" survives only as loose shorthand in two markdown docs,
+  // never as an actual UI string - this was a stale test expectation, not
+  // a lost navigation item (Fiche CDC, the other tab this test checks, was
+  // never actually missing).
   assert.deepEqual(
     tabs.map((tab) => tab.label),
-    ["Synthèse", "Fiche CDC", "FCI A / B / C", "Décision", "Historique"]
+    ["Synthèse", "Fiche CDC", "Contributions FCI", "Décision", "Historique"]
   );
+});
+
+test("the Fiche CDC tab is present for every role, decision-center or not", () => {
+  for (const role of ["ADMIN", "COMMERCIAL", "FINANCE", "OPERATIONS", "DIRECTION_GENERALE"] as const) {
+    const labels = getAppelOffresWorkspaceTabs(role).map((tab) => tab.label);
+    assert.ok(labels.includes("Fiche CDC"), `role=${role} must keep a Fiche CDC tab`);
+  }
 });
 
 test("business roles keep the generic dossier workspace tabs", () => {

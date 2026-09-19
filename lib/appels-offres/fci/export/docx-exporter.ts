@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { buildFciExportFileName } from "./filenames.ts";
 import { buildFciDocxMapping } from "./mapping.ts";
+import { resolveFciDocxPythonExecution } from "./python-runtime.ts";
 import { getFciTemplatePath } from "./templates.ts";
 import type {
   FciDocxExportInstruction,
@@ -114,13 +115,18 @@ export async function runDocxExportInstruction(
 ) {
   const instructionPath = path.join(tempDir, `instruction-${randomUUID()}.json`);
   await fs.writeFile(instructionPath, JSON.stringify(instruction, null, 2), "utf8");
-  await runProcess("python", [getPythonDocxExporterScriptPath(), instructionPath], {
-    timeoutMs: 30_000,
-    env: {
-      ...process.env,
-      PYTHONIOENCODING: "utf-8"
+  const python = await resolveFciDocxPythonExecution();
+  await runProcess(
+    python.command,
+    [...python.argsPrefix, getPythonDocxExporterScriptPath(), instructionPath],
+    {
+      timeoutMs: 30_000,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: "utf-8"
+      }
     }
-  });
+  );
 }
 
 export async function generateFciDocxArtifact(source: FciExportSource): Promise<{

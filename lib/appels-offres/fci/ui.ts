@@ -11,15 +11,24 @@ import type {
   FciFormStatus
 } from "./rendering.ts";
 
+// CONCEPT's user-facing timezone is Europe/Paris regardless of where the
+// server process happens to run (see the "Europe/Paris" default in
+// lib/users/repository.ts / lib/auth/current-user.ts) - every FCI timestamp
+// shown to a user must be explicit about that, rather than falling back to
+// the host machine's own OS timezone (which is an accident of deployment,
+// not a business decision, and would silently shift every displayed time
+// by the difference between the server's zone and Europe/Paris).
+const FCI_DISPLAY_TIME_ZONE = "Europe/Paris";
+
 export function formatFciDateTime(value: string | null | undefined) {
   if (!value) {
     return "Non disponible";
   }
 
-  return new Date(value).toLocaleString("fr-FR");
+  return new Date(value).toLocaleString("fr-FR", { timeZone: FCI_DISPLAY_TIME_ZONE });
 }
 
-// "12/08/2026 à 08:47" - used for both the source-fiche label and the
+// "12/08/2026 à 10:47" - used for both the source-fiche label and the
 // "last attempt" line on a failed generation, so both read consistently.
 function formatFciFrenchTimestamp(value: string) {
   const date = new Date(value);
@@ -27,8 +36,12 @@ function formatFciFrenchTimestamp(value: string) {
     return null;
   }
 
-  const datePart = date.toLocaleDateString("fr-FR");
-  const timePart = date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const datePart = date.toLocaleDateString("fr-FR", { timeZone: FCI_DISPLAY_TIME_ZONE });
+  const timePart = date.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: FCI_DISPLAY_TIME_ZONE
+  });
   return `${datePart} à ${timePart}`;
 }
 

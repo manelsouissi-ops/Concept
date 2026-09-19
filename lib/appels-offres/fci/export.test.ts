@@ -21,7 +21,14 @@ import {
 } from "./export/docx-exporter.ts";
 import { generateFciExportArtifact, parseFciExportFormat, FciExportError } from "./export/index.ts";
 import { convertDocxToPdf, FciPdfConversionError } from "./export/pdf-converter.ts";
+import { resolveFciDocxPythonExecution } from "./export/python-runtime.ts";
 import { getFciTemplatePath } from "./export/templates.ts";
+
+// Resolved once at module load (mirrors the production docx-exporter's own
+// interpreter selection - see resolveFciDocxPythonExecution) so this test's
+// own docx-inspection helper never hardcodes "python" either. A missing
+// interpreter here is a hard test-setup failure, not a silent skip.
+const inspectionPython = await resolveFciDocxPythonExecution();
 
 function fillField<TValue>(field: FciFormField, value: TValue): FciFormField {
   return {
@@ -345,13 +352,17 @@ with zipfile.ZipFile(sys.argv[1]) as zf:
             out[name]=texts
 print(json.dumps(out, ensure_ascii=False))
 `;
-  const result = spawnSync("python", ["-c", script, docxPath], {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PYTHONIOENCODING: "utf-8"
+  const result = spawnSync(
+    inspectionPython.command,
+    [...inspectionPython.argsPrefix, "-c", script, docxPath],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: "utf-8"
+      }
     }
-  });
+  );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout) as {
     entries: string[];
