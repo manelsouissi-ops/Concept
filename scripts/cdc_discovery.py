@@ -920,6 +920,24 @@ TECHNICAL_SOURCE_VALIDATION_STATUSES: tuple[str, ...] = (
     "HUMAN_VALIDATED_DAO_WITH_TDR",
     "HUMAN_VALIDATED_DAO_WITH_CDC",
     "HUMAN_REJECTED_CDC",
+    # Added for the semantic-review (v3) project queue's human-review
+    # workflow design - the v3 semantic taxonomy (scripts/semantic_review.py
+    # SEMANTIC_ROLES) is wider than this table's original CDC/DAO-family-
+    # only taxonomy. A human confirming a v3 proposal's role of plain DAO,
+    # RFP, OFFER, or OTHER (or explicitly marking the document's role as
+    # genuinely uncertain, distinct from NEEDS_HUMAN_REVIEW - which means
+    # "not yet decided", not "decided that it's ambiguous") had no matching
+    # value here before. The DB CHECK constraint was widened to match (see
+    # scripts/sql/widen_historical_technical_source_candidates_validation_
+    # status.sql - an additive, idempotent migration) and this was
+    # live-verified against the real database on 2026-09-09. mark_validation_
+    # status() still fails closed (DB CHECK violation) if one of these five
+    # is used against a database where that migration has not been run.
+    "HUMAN_VALIDATED_DAO",
+    "HUMAN_VALIDATED_RFP",
+    "HUMAN_VALIDATED_OFFER",
+    "HUMAN_VALIDATED_OTHER",
+    "HUMAN_UNCERTAIN",
 )
 
 # A human can set any of these via mark_validation_status(); MACHINE_CLASSIFIED
