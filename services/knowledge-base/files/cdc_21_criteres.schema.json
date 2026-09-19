@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://concept.local/schemas/cdc_21_criteres.schema.json",
+  "title": "Extraction locale des 21 caractéristiques d'un CDC historique",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["document_id", "source_hash", "language", "document_role", "identite", "criteres", "signaux_structurels", "verdict", "confiance"],
+  "$defs": {
+    "statut": { "type": "string", "enum": ["Explicite", "Implicite", "Absent", "Non déterminable"] },
+    "critere": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statut"],
+      "properties": { "statut": { "$ref": "#/$defs/statut" } }
+    }
+  },
+  "properties": {
+    "document_id": { "type": "string", "minLength": 1 },
+    "source_hash": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "minLength": 1 },
+    "document_role": { "type": "string", "enum": ["CDC", "DAO", "TDR", "DCE", "RFP", "autre", "indéterminé"] },
+    "identite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["titre_officiel", "annee_lancement", "pays", "bailleur", "code_interne_concept"],
+      "properties": {
+        "titre_officiel": { "type": ["string", "null"] },
+        "annee_lancement": { "type": ["integer", "null"] },
+        "pays": { "type": ["string", "null"] },
+        "bailleur": { "type": ["string", "null"] },
+        "code_interne_concept": {
+          "type": ["string", "null"],
+          "description": "JAMAIS inventé. null tant qu'il n'est pas fourni par la table de correspondance officielle."
+        }
+      }
+    },
+    "criteres": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "SS_AEP", "SS_PCI", "SS_BARRAGES_TRANSFERTS", "SS_ASSAINISSEMENT", "SS_DECHETS", "SS_ENERGIES_RENOUVELABLES",
+        "CP_RESEAUX_ENTERRES", "CP_CANAUX_CIEL_OUVERT", "CP_DIGUE", "CP_STATION_POMPAGE", "CP_STEP", "CP_STBV", "CP_CVET", "CP_CENTRE_TRANSFERT_CT",
+        "NP_FAISABILITE", "NP_APS", "NP_APD", "NP_DAO", "NP_EXE", "NP_EIES", "NP_SUPERVISION"
+      ],
+      "properties": {
+        "SS_AEP": { "$ref": "#/$defs/critere" },
+        "SS_PCI": { "$ref": "#/$defs/critere" },
+        "SS_BARRAGES_TRANSFERTS": { "$ref": "#/$defs/critere" },
+        "SS_ASSAINISSEMENT": { "$ref": "#/$defs/critere" },
+        "SS_DECHETS": { "$ref": "#/$defs/critere" },
+        "SS_ENERGIES_RENOUVELABLES": { "$ref": "#/$defs/critere" },
+        "CP_RESEAUX_ENTERRES": { "$ref": "#/$defs/critere" },
+        "CP_CANAUX_CIEL_OUVERT": { "$ref": "#/$defs/critere" },
+        "CP_DIGUE": { "$ref": "#/$defs/critere" },
+        "CP_STATION_POMPAGE": { "$ref": "#/$defs/critere" },
+        "CP_STEP": { "$ref": "#/$defs/critere" },
+        "CP_STBV": { "$ref": "#/$defs/critere" },
+        "CP_CVET": { "$ref": "#/$defs/critere" },
+        "CP_CENTRE_TRANSFERT_CT": { "$ref": "#/$defs/critere" },
+        "NP_FAISABILITE": { "$ref": "#/$defs/critere" },
+        "NP_APS": { "$ref": "#/$defs/critere" },
+        "NP_APD": { "$ref": "#/$defs/critere" },
+        "NP_DAO": { "$ref": "#/$defs/critere" },
+        "NP_EXE": { "$ref": "#/$defs/critere" },
+        "NP_EIES": { "$ref": "#/$defs/critere" },
+        "NP_SUPERVISION": { "$ref": "#/$defs/critere" }
+      }
+    },
+    "signaux_structurels": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Signaux booléens réutilisés de la seconde validation conservatrice (Jour 78).",
+      "required": ["role_cdc_explicite", "exigences_techniques", "exigences_perimetre", "livrables", "obligations_soumissionnaire", "criteres_evaluation", "exigences_administratives", "possible_dao", "possible_offre"],
+      "properties": {
+        "role_cdc_explicite": { "type": "boolean" },
+        "exigences_techniques": { "type": "boolean" },
+        "exigences_perimetre": { "type": "boolean" },
+        "livrables": { "type": "boolean" },
+        "obligations_soumissionnaire": { "type": "boolean" },
+        "criteres_evaluation": { "type": "boolean" },
+        "exigences_administratives": { "type": "boolean" },
+        "possible_dao": { "type": "boolean" },
+        "possible_offre": { "type": "boolean" }
+      }
+    },
+    "verdict": { "type": "string", "enum": ["CONFIRMED_CDC", "LIKELY_CDC", "NEEDS_HUMAN_REVIEW", "NOT_CDC"] },
+    "confiance": { "type": "number", "minimum": 0, "maximum": 1, "description": "Indicatif seulement ; ne remplace pas la validation humaine." }
+  }
+}

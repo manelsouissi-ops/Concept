@@ -2,8 +2,11 @@ BEGIN;
 
 -- Historical technical-source discovery (Phase 5). Additive only.
 --
--- NOT APPLIED by the full-corpus discovery development task that wrote this
--- file - proposed schema only, for review before it is ever run.
+-- APPLIED and live-verified against the real database (confirmed via
+-- information_schema/pg_constraint inspection during CDC-import preflight
+-- work). This file remains in the repo as the source-of-truth migration;
+-- CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS / CREATE OR
+-- REPLACE FUNCTION make it safe to rerun.
 --
 -- WHY A NEW TABLE INSTEAD OF EXTENDING historical_cdc_candidates
 -- (scripts/sql/create_historical_cdc_candidates_table.sql):
@@ -33,9 +36,10 @@ BEGIN;
 -- shape to an explicit MACHINE_CLASSIFIED/NEEDS_HUMAN_REVIEW/HUMAN_VALIDATED_*/
 -- HUMAN_REJECTED_CDC shape - "machine classification is not human
 -- validation" (see scripts/cdc_review.py) is meant to be unmistakable from
--- the value itself, not just from a comment. This migration has never
--- been applied to any real database, so this rename is a plain edit, not
--- a follow-up ALTER.
+-- the value itself, not just from a comment. This rename is baked directly
+-- into this CREATE TABLE (a plain edit to the migration file made before it
+-- was ever applied), not expressed as a follow-up ALTER against a live
+-- table.
 --
 -- Does NOT alter knowledge_base.archive_files, archive_scan_runs,
 -- archive_source_roots, archive_file_classifications,
