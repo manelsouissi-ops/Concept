@@ -113,7 +113,7 @@ export function getAdminNavigationSections(
           iconKey: "dashboard"
         },
         {
-          label: "Archive Cartography",
+          label: "CDC & Archives",
           href: "/administration/knowledge",
           iconKey: "database"
         }
