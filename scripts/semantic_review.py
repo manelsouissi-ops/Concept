@@ -232,6 +232,41 @@ DEFAULT_MAX_OUTPUT_TOKENS = 512
 DEFAULT_THINK = False
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Turns any 3xx response into a hard failure instead of silently
+    following it. assert_loopback_url only ever checks the ORIGINAL
+    request URL - without this, a compromised or misconfigured "loopback"
+    endpoint could 302 a request to an arbitrary non-loopback host and
+    urllib's default opener would follow it transparently, exfiltrating
+    the request (including document-derived prompt content) off the
+    local machine.
+
+    Deliberately NEVER installed as urllib's process-wide default opener
+    (no urllib.request.install_opener call anywhere in this module) -
+    that would silently change redirect behavior for any OTHER code
+    running in the same process that happens to import this module and
+    call the bare urllib.request.urlopen(...) for something unrelated.
+    Instead, every network call this module makes goes through an opener
+    it privately owns and constructs for itself - see
+    _build_no_redirect_opener() and SemanticOllamaAdapter.__init__'s
+    self._opener."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(
+            newurl, code, "local AI adapter: redirects are never permitted", headers, fp
+        )
+
+
+def _build_no_redirect_opener() -> "urllib.request.OpenerDirector":
+    """One fresh, private OpenerDirector with redirect-following disabled -
+    never the shared/global one. _NoRedirectHandler is a subclass of the
+    default HTTPRedirectHandler, so build_opener() replaces the default
+    redirect handling rather than adding a second, conflicting one (see
+    urllib.request.build_opener's own "if a handler is a subclass of a
+    default handler, the default is skipped" behavior)."""
+    return urllib.request.build_opener(_NoRedirectHandler)
+
+
 def assert_loopback_url(raw_url: str) -> None:
     """Fails closed (raises ValueError) on anything but a loopback http(s)
     URL. Called at adapter-construction time, never bypassable by a config
@@ -524,8 +559,9 @@ def fetch_model_identity(
     request = urllib.request.Request(
         base_url, data=request_body, headers={"Content-Type": "application/json"}, method="POST"
     )
+    opener = _build_no_redirect_opener()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             raw = response.read()
         payload = json.loads(raw)
         digest = payload.get("digest")
@@ -557,6 +593,12 @@ class SemanticOllamaAdapter:
         assert_loopback_url(url)
         self._url = url
         self._model = model
+        # A private opener this instance owns - never urllib's global
+        # default opener (see _NoRedirectHandler's docstring for why that
+        # would be an unwanted process-wide side effect). Every HTTP call
+        # this adapter makes goes through self._opener.open(...), never
+        # the bare urllib.request.urlopen(...).
+        self._opener = _build_no_redirect_opener()
         # Connect and total-generation timeouts are both bounded by the
         # single urlopen(timeout=...) call below (Python's stdlib does not
         # separate connect vs. read timeouts for urllib) - generation_timeout
@@ -621,7 +663,7 @@ class SemanticOllamaAdapter:
         )
         started = time.monotonic()
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            with self._opener.open(request, timeout=self._timeout) as response:
                 raw = response.read()
         except TimeoutError:
             return None, None, "TIMEOUT"
@@ -1114,6 +1156,14 @@ def persist_batch(repository: AiReviewRepository, records: Sequence[AiReviewReco
     return result
 
 
+def _print_summary(counters_or_counts: dict) -> None:
+    # Aggregate-only by construction: every value here is a count/bool/
+    # short string, never a filename, path, or document-derived value.
+    print("semantic_review aggregate report:")
+    for key, value in counters_or_counts.items():
+        print(f"  {key}: {value}")
+
+
 # =====================================================================
 # DB access
 # =====================================================================
@@ -1471,6 +1521,327 @@ def _run_batches(
         report.failed_documents += batch_result.failed_documents
         report.persistence_failures += batch_result.persistence_failures
         save_checkpoint(checkpoint_path, checkpoint)
+
+
+# =====================================================================
+# --targeted-semantic-review: a SEPARATE, narrowly-scoped, heavily-
+# guarded mode that reviews ONLY an explicit, private, manifest-listed
+# set of archive_file_ids - never the whole-corpus/per-role-limit/
+# per-project selection above. Mirrors scripts/cdc_discovery.py's
+# --targeted-recovery mode's exact safety contract (private manifest,
+# SHA-256 + row-count + database-name + deployment-ack + confirmation-
+# token guards, a dedicated CDC_SEMANTIC_REVIEW_DATABASE_URL env var -
+# never DATABASE_URL/TEST_DATABASE_URL). Reuses _gate_checkpoint/
+# _run_batches/PersistRunReport/print_persist_report unchanged - those
+# are already selection-source-agnostic (they operate on any
+# Sequence[SelectionCandidate]), so this mode only needs to add manifest
+# loading, guards, and manifest-scoped row fetching/eligibility around
+# them, never a second copy of the extraction/Ollama/persistence engine.
+# =====================================================================
+
+SEMANTIC_REVIEW_DATABASE_URL_ENV_VAR = "CDC_SEMANTIC_REVIEW_DATABASE_URL"
+SEMANTIC_REVIEW_CONFIRMATION_TOKEN = "CONFIRM-CDC-SEMANTIC-REVIEW-EXECUTE"
+SEMANTIC_REVIEW_MAX_MANIFEST_SIZE = 500
+SEMANTIC_REVIEW_MAX_BATCH_SIZE = 10
+# The only extraction_status a manifest row may have for THIS mode - a
+# semantic review needs text that already exists; it never triggers
+# extraction itself (that is targeted-recovery's job, a separate mode in
+# a separate module). A FAILED/NOT_ATTEMPTED row here is always rejected.
+SEMANTIC_REVIEW_ELIGIBLE_EXTRACTION_STATUSES: "tuple[str, ...]" = ("SUCCESS",)
+DEFAULT_TARGETED_SEMANTIC_REVIEW_CHECKPOINT_PATH = "scripts/.semantic_review_targeted_checkpoint.json"
+
+
+class SemanticReviewManifestError(ValueError):
+    """Raised for any manifest that would make this mode behave like an
+    unscoped query - fails closed rather than silently falling back to
+    "review everything"."""
+
+
+class SemanticReviewGuardError(ValueError):
+    """Raised by any --execute safeguard failing closed BEFORE a database
+    connection is opened, or before any row is touched."""
+
+
+def validate_semantic_review_manifest(manifest_archive_file_ids: Sequence[int]) -> None:
+    """Pure, no I/O - the same shape of gate as
+    cdc_discovery.validate_targeted_recovery_manifest."""
+    if not manifest_archive_file_ids:
+        raise SemanticReviewManifestError(
+            "a targeted semantic-review manifest must name at least one archive_file_id "
+            "explicitly; an empty or missing manifest is refused rather than treated as "
+            "'review everything'."
+        )
+    if len(manifest_archive_file_ids) > SEMANTIC_REVIEW_MAX_MANIFEST_SIZE:
+        raise SemanticReviewManifestError(
+            f"manifest lists {len(manifest_archive_file_ids)} archive_file_ids, exceeding the "
+            f"targeted semantic-review cap of {SEMANTIC_REVIEW_MAX_MANIFEST_SIZE}; split into "
+            "smaller manifests - this mode is for a small, deliberate review batch, never a "
+            "full-corpus run."
+        )
+    if any(
+        not isinstance(afid, int) or isinstance(afid, bool) or afid <= 0
+        for afid in manifest_archive_file_ids
+    ):
+        raise SemanticReviewManifestError("every manifest entry must be a positive integer archive_file_id.")
+    if len(set(manifest_archive_file_ids)) != len(manifest_archive_file_ids):
+        raise SemanticReviewManifestError("manifest archive_file_ids must be unique - duplicates are refused.")
+
+
+def load_semantic_review_manifest(manifest_path: Path) -> "list[int]":
+    """Reads a private, local JSON manifest: either a bare JSON array of
+    integers, or an object with an "archive_file_ids" array - the same
+    permissive shape convention used by every other manifest in this
+    codebase."""
+    try:
+        raw_text = manifest_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise SemanticReviewManifestError("manifest file could not be read.") from error
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as error:
+        raise SemanticReviewManifestError("manifest file is not valid JSON.") from error
+
+    if isinstance(data, list):
+        ids = data
+    elif isinstance(data, dict) and isinstance(data.get("archive_file_ids"), list):
+        ids = data["archive_file_ids"]
+    else:
+        raise SemanticReviewManifestError(
+            'manifest must be a JSON array of integers, or an object with an "archive_file_ids" array.'
+        )
+    validate_semantic_review_manifest(ids)
+    return list(ids)
+
+
+@dataclass
+class SemanticReviewExecutionRequest:
+    """Every value an operator must supply, explicitly, to run a real
+    --execute. No field has a default."""
+
+    manifest_path: Path
+    expected_manifest_sha256: str
+    expected_row_count: int
+    expected_database_name: str
+    deployment_ack: str
+    confirmation_token: str
+    batch_size: int
+
+
+def compute_semantic_review_manifest_sha256(manifest_path: Path) -> str:
+    return hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+
+
+def verify_semantic_review_execution_guards(
+    request: SemanticReviewExecutionRequest, manifest_ids: Sequence[int]
+) -> None:
+    """Pure, no database I/O. Every check here runs, and must pass, BEFORE
+    a database connection for --execute is ever opened."""
+    if request.confirmation_token != SEMANTIC_REVIEW_CONFIRMATION_TOKEN:
+        raise SemanticReviewGuardError(
+            "confirmation token does not match the fixed token required for --execute. "
+            "This is not a secret and grants no access on its own - it exists only to stop "
+            "an accidental or copy-pasted invocation from running for real."
+        )
+    if request.deployment_ack != request.expected_database_name:
+        raise SemanticReviewGuardError(
+            "--deployment-ack must exactly equal --expected-database-name. This forces the "
+            "operator to type the target environment's name, not merely pass a flag."
+        )
+    if request.batch_size <= 0 or request.batch_size > SEMANTIC_REVIEW_MAX_BATCH_SIZE:
+        raise SemanticReviewGuardError(
+            f"--batch-size must be between 1 and {SEMANTIC_REVIEW_MAX_BATCH_SIZE} for targeted "
+            "semantic review (a deliberately small ceiling)."
+        )
+    if request.expected_row_count <= 0:
+        raise SemanticReviewGuardError("--expected-row-count must be a positive integer.")
+    actual_sha256 = compute_semantic_review_manifest_sha256(request.manifest_path)
+    if actual_sha256 != request.expected_manifest_sha256:
+        raise SemanticReviewGuardError(
+            "manifest file SHA-256 does not match --expected-manifest-sha256 - the manifest "
+            "on disk has drifted from the one that was reviewed and authorized for this run."
+        )
+    if len(manifest_ids) != request.expected_row_count:
+        raise SemanticReviewGuardError(
+            f"manifest lists {len(manifest_ids)} archive_file_id(s); expected exactly "
+            f"{request.expected_row_count} (--expected-row-count)."
+        )
+
+
+def _fetch_semantic_review_candidate_rows(conn, manifest_ids: Sequence[int]) -> "list[dict]":
+    """The manifest is ALWAYS a mandatory, explicit WHERE archive_file_id =
+    ANY(...) filter, ANDed with validation_status = 'HUMAN_VALIDATED_CDC'
+    - a second, independent, database-side enforcement of "never review a
+    NON/INCERTAIN/unreviewed row" beyond however the manifest was built.
+    Returns plain dicts (not yet SelectionCandidate) so the caller can run
+    eligibility checks before committing to the SelectionCandidate shape."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select c.archive_file_id, c.id, c.detected_role, c.structural_ratio,
+                   f.sha256, c.validation_status, c.extraction_status
+            from knowledge_base.historical_technical_source_candidates c
+            join knowledge_base.archive_files f on f.id = c.archive_file_id
+            where c.archive_file_id = any(%s) and c.validation_status = 'HUMAN_VALIDATED_CDC'
+            order by c.archive_file_id asc
+            """,
+            (list(manifest_ids),),
+        )
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def verify_semantic_review_row_eligibility(rows: "list[dict]", manifest_ids: Sequence[int]) -> None:
+    """Fails closed on:
+      - unmatched manifest ids (fewer rows than manifest entries - covers
+        not found, HUMAN_REJECTED_CDC ["NON"], HUMAN_UNCERTAIN-equivalent
+        ["INCERTAIN"], and every unreviewed status, since the fetch query
+        already pins validation_status = 'HUMAN_VALIDATED_CDC');
+      - any fetched row whose extraction_status is not SUCCESS - the
+        specific check that keeps controlled extraction failures (and any
+        NOT_ATTEMPTED row) out of Ollama entirely.
+    Never includes an archive_file_id/filename/path in any raised
+    message - counts only."""
+    if len(rows) != len(manifest_ids):
+        raise SemanticReviewGuardError(
+            f"{len(manifest_ids) - len(rows)} manifest archive_file_id(s) did not resolve to an "
+            "eligible HUMAN_VALIDATED_CDC row (not found, or validation_status is not "
+            "HUMAN_VALIDATED_CDC, e.g. HUMAN_REJECTED_CDC/HUMAN_UNCERTAIN/not yet reviewed). "
+            "Refusing to proceed with a partial or ambiguous manifest."
+        )
+    ineligible = sum(
+        1 for row in rows if row["extraction_status"] not in SEMANTIC_REVIEW_ELIGIBLE_EXTRACTION_STATUSES
+    )
+    if ineligible:
+        raise SemanticReviewGuardError(
+            f"{ineligible} row(s) in the manifest do not currently have extraction_status "
+            f"in {SEMANTIC_REVIEW_ELIGIBLE_EXTRACTION_STATUSES} (a controlled extraction "
+            "failure or an unattempted row can never be sent to Ollama - it has no text to "
+            "review)."
+        )
+
+
+def build_targeted_semantic_review_scope_config(
+    manifest_ids: Sequence[int], model_name: str, model_digest: Optional[str], prompt_hash: str,
+) -> dict:
+    """A distinct "mode" value from build_scope_config/build_project_scope_config
+    - a targeted semantic-review checkpoint must never be treated as
+    resumable/compatible with either of those."""
+    return {
+        "mode": "targeted_semantic_review",
+        "selection_mode": "manifest_driven_review_queue",
+        "validation_status_filter": "HUMAN_VALIDATED_CDC",
+        "extraction_status_filter": list(SEMANTIC_REVIEW_ELIGIBLE_EXTRACTION_STATUSES),
+        "manifest_size": len(manifest_ids),
+        "manifest_hash": hashlib.sha256(json.dumps(sorted(manifest_ids)).encode("utf-8")).hexdigest()[:16],
+        "model_name": model_name,
+        "model_digest": model_digest,
+        "prompt_hash": prompt_hash,
+        "schema_version": SCHEMA_VERSION,
+        "semantic_classifier_version": SEMANTIC_CLASSIFIER_VERSION,
+        "local_only": True,
+    }
+
+
+def run_targeted_semantic_review_dry_run(manifest_path: Path) -> int:
+    """--targeted-semantic-review --dry-run: validates the manifest and
+    reports exactly which rows WOULD be reviewed (aggregate-only), never
+    resolving a file path, never calling Ollama, never touching a
+    checkpoint. Uses the SAME dedicated env var as --execute (never
+    DATABASE_URL) so a dry-run also proves the guarded connection path
+    works."""
+    manifest_ids = load_semantic_review_manifest(manifest_path)
+
+    database_url = os.getenv(SEMANTIC_REVIEW_DATABASE_URL_ENV_VAR, "").strip()
+    if not database_url:
+        print(f"{SEMANTIC_REVIEW_DATABASE_URL_ENV_VAR} is required for --dry-run.", file=sys.stderr)
+        return 1
+
+    conn = _connect(database_url)
+    try:
+        rows = _fetch_semantic_review_candidate_rows(conn, manifest_ids)
+    finally:
+        conn.close()
+
+    summary = {
+        "manifest_size": len(manifest_ids),
+        "candidates_selected": len(rows),
+        "eligible_extraction_statuses": list(SEMANTIC_REVIEW_ELIGIBLE_EXTRACTION_STATUSES),
+        "dry_run": True,
+        "execute": False,
+    }
+    _print_summary(summary)
+    return 0
+
+
+def run_targeted_semantic_review_execute(
+    request: SemanticReviewExecutionRequest, resume: bool = False, checkpoint_file: Optional[str] = None,
+) -> int:
+    """--targeted-semantic-review --execute: the only code path in this
+    module that can persist a real refreshed-AI review for the targeted
+    (manifest-driven) population. Every guard in
+    verify_semantic_review_execution_guards runs, and must pass, before
+    _connect() is ever called. Rows are then fetched and checked by
+    verify_semantic_review_row_eligibility before a single document is
+    opened or Ollama is ever contacted. Always uses DEFAULT_MODEL
+    (qwen3:14b) - this guarded mode never accepts a --model override.
+    Delegates the actual extraction/Ollama/persistence engine to the
+    already-existing, selection-source-agnostic _gate_checkpoint/
+    _run_batches (never a second copy of that logic)."""
+    manifest_ids = load_semantic_review_manifest(request.manifest_path)
+    verify_semantic_review_execution_guards(request, manifest_ids)
+
+    database_url = os.getenv(SEMANTIC_REVIEW_DATABASE_URL_ENV_VAR, "").strip()
+    if not database_url:
+        print(f"{SEMANTIC_REVIEW_DATABASE_URL_ENV_VAR} is required for --execute.", file=sys.stderr)
+        return 1
+
+    checkpoint_path = Path(checkpoint_file or DEFAULT_TARGETED_SEMANTIC_REVIEW_CHECKPOINT_PATH)
+
+    conn = _connect(database_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select current_database()")
+            actual_database_name = cur.fetchone()[0]
+        if actual_database_name != request.expected_database_name:
+            print(
+                f"connected database {actual_database_name!r} does not match "
+                f"--expected-database-name {request.expected_database_name!r}; refusing to proceed.",
+                file=sys.stderr,
+            )
+            return 1
+
+        rows = _fetch_semantic_review_candidate_rows(conn, manifest_ids)
+        verify_semantic_review_row_eligibility(rows, manifest_ids)
+
+        model_identity = fetch_model_identity(model=DEFAULT_MODEL)
+        prompt_hash = compute_prompt_hash()
+        scope_config = build_targeted_semantic_review_scope_config(
+            manifest_ids, model_identity.name, model_identity.digest, prompt_hash
+        )
+        scope_signature = compute_scope_signature(scope_config)
+
+        checkpoint, early_exit_code = _gate_checkpoint(checkpoint_path, scope_signature, scope_config, resume)
+        if early_exit_code is not None:
+            return early_exit_code
+
+        candidates = [
+            SelectionCandidate(
+                archive_file_id=row["archive_file_id"], candidate_id=str(row["id"]),
+                detected_role=row["detected_role"], structural_ratio=None, content_sha256=row["sha256"],
+            )
+            for row in rows
+        ]
+
+        report = PersistRunReport()
+        _run_batches(
+            conn, checkpoint_path, checkpoint, candidates, model_identity, prompt_hash,
+            DEFAULT_MODEL, DEFAULT_KEEP_ALIVE, request.batch_size, report,
+        )
+    finally:
+        conn.close()
+
+    print_persist_report(report)
+    return 1 if report.batches_failed else 0
 
 
 def run_persist(conn, args: argparse.Namespace) -> tuple[int, PersistRunReport]:
@@ -2239,10 +2610,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read-only aggregate progress report (projects/candidates reviewed). Takes no --dry-run/--persist.",
     )
+    selection_mode_group.add_argument(
+        "--targeted-semantic-review",
+        action="store_true",
+        help=(
+            "Review an explicit, private, manifest-listed set of HUMAN_VALIDATED_CDC candidates "
+            "only - never an unrestricted whole-corpus/project run. Requires --manifest-file and "
+            "exactly one of --dry-run/--execute. --dry-run validates the manifest and reports "
+            "aggregate selection counts only, never opening a document or contacting Ollama. "
+            "--execute is the only code path in this mode that can persist a real refreshed-AI "
+            "review, and requires --expected-manifest-sha256, --expected-row-count, "
+            "--expected-database-name, --deployment-ack, --confirm, and --batch-size, plus the "
+            f"dedicated {SEMANTIC_REVIEW_DATABASE_URL_ENV_VAR} environment variable (never "
+            "DATABASE_URL/TEST_DATABASE_URL). Always uses DEFAULT_MODEL (qwen3:14b) - --model is "
+            "not accepted with this mode. Only ever writes to "
+            "historical_technical_source_ai_reviews - never validation_status, reviewed_by, "
+            "reviewed_at, human_review_import_batch_id, review_priority, or any candidate-row "
+            "field. --resume continues a previously interrupted --execute run from its checkpoint."
+        ),
+    )
 
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--dry-run", action="store_true", help="Aggregate-only selection, zero side effects.")
     mode_group.add_argument("--persist", action="store_true", help="Run local extraction + Ollama + persist reviews.")
+    mode_group.add_argument(
+        "--execute", action="store_true",
+        help="(--targeted-semantic-review only) the only flag that can persist a real refreshed-AI review.",
+    )
 
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Ollama model name (default: {DEFAULT_MODEL}).")
     parser.add_argument(
@@ -2277,15 +2671,98 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--keep-alive", default=DEFAULT_KEEP_ALIVE,
         help=f"Ollama keep_alive value for --persist (default: {DEFAULT_KEEP_ALIVE}).",
     )
+    parser.add_argument(
+        "--manifest-file", type=str, default=None, metavar="PATH",
+        help="(--targeted-semantic-review only) path to a private, local JSON manifest.",
+    )
+    parser.add_argument(
+        "--expected-manifest-sha256", type=str, default=None, metavar="HEX",
+        help="(--targeted-semantic-review --execute only) required manifest file SHA-256.",
+    )
+    parser.add_argument(
+        "--expected-row-count", type=int, default=None, metavar="N",
+        help="(--targeted-semantic-review --execute only) required exact manifest row count.",
+    )
+    parser.add_argument(
+        "--expected-database-name", type=str, default=None, metavar="NAME",
+        help="(--targeted-semantic-review --execute only) required connected database name.",
+    )
+    parser.add_argument(
+        "--deployment-ack", type=str, default=None, metavar="NAME",
+        help="(--targeted-semantic-review --execute only) must equal --expected-database-name.",
+    )
+    parser.add_argument(
+        "--confirm", type=str, default=None, metavar="TOKEN",
+        help=f"(--targeted-semantic-review --execute only) must equal {SEMANTIC_REVIEW_CONFIRMATION_TOKEN!r}.",
+    )
     return parser
 
 
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if not args.targeted_semantic_review and (
+        args.manifest_file is not None
+        or args.execute
+        or args.expected_manifest_sha256 is not None
+        or args.expected_row_count is not None
+        or args.expected_database_name is not None
+        or args.deployment_ack is not None
+        or args.confirm is not None
+    ):
+        parser.error(
+            "--manifest-file/--execute/--expected-manifest-sha256/--expected-row-count/"
+            "--expected-database-name/--deployment-ack/--confirm only apply to "
+            "--targeted-semantic-review."
+        )
+
     if args.progress:
         if args.dry_run or args.persist:
             parser.error("--progress does not take --dry-run/--persist (it is always read-only)")
         if args.year is not None and not (MIN_YEAR <= args.year <= MAX_YEAR):
             parser.error(f"--year must be between {MIN_YEAR} and {MAX_YEAR}")
+        return
+
+    if args.targeted_semantic_review:
+        if args.persist or args.per_role_limit != 5 or args.year is not None or args.retry_failed_v3:
+            parser.error(
+                "--targeted-semantic-review cannot be combined with --persist/--per-role-limit/"
+                "--year/--retry-failed-v3 (use --dry-run or --execute instead of --persist)."
+            )
+        if args.model != DEFAULT_MODEL:
+            parser.error("--targeted-semantic-review always uses DEFAULT_MODEL; --model is not accepted.")
+        if args.manifest_file is None:
+            parser.error("--targeted-semantic-review requires --manifest-file.")
+        if args.dry_run and args.execute:
+            parser.error("--dry-run and --execute are mutually exclusive.")
+        if not args.dry_run and not args.execute:
+            parser.error("--targeted-semantic-review requires exactly one of --dry-run or --execute.")
+        if args.dry_run:
+            if (
+                args.expected_manifest_sha256 is not None or args.expected_row_count is not None
+                or args.expected_database_name is not None or args.deployment_ack is not None
+                or args.confirm is not None or args.resume
+            ):
+                parser.error(
+                    "--dry-run cannot be combined with --expected-manifest-sha256/"
+                    "--expected-row-count/--expected-database-name/--deployment-ack/--confirm/"
+                    "--resume (those apply only to --execute)."
+                )
+        if args.execute:
+            missing = [
+                name for name, value in (
+                    ("--expected-manifest-sha256", args.expected_manifest_sha256),
+                    ("--expected-row-count", args.expected_row_count),
+                    ("--expected-database-name", args.expected_database_name),
+                    ("--deployment-ack", args.deployment_ack),
+                    ("--confirm", args.confirm),
+                )
+                if value is None
+            ]
+            if missing:
+                parser.error(f"--execute requires {', '.join(missing)}.")
+            if args.batch_size <= 0 or args.batch_size > SEMANTIC_REVIEW_MAX_BATCH_SIZE:
+                parser.error(f"--batch-size must be between 1 and {SEMANTIC_REVIEW_MAX_BATCH_SIZE}.")
+        if args.checkpoint_file is None:
+            args.checkpoint_file = DEFAULT_TARGETED_SEMANTIC_REVIEW_CHECKPOINT_PATH
         return
 
     if not args.dry_run and not args.persist:
@@ -2323,6 +2800,30 @@ def main(argv: Optional[list] = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
     _validate_args(parser, args)
+
+    if args.targeted_semantic_review:
+        if args.dry_run:
+            try:
+                return run_targeted_semantic_review_dry_run(Path(args.manifest_file))
+            except SemanticReviewManifestError as error:
+                print(f"semantic_review: {error}", file=sys.stderr)
+                return 1
+        request = SemanticReviewExecutionRequest(
+            manifest_path=Path(args.manifest_file),
+            expected_manifest_sha256=args.expected_manifest_sha256,
+            expected_row_count=args.expected_row_count,
+            expected_database_name=args.expected_database_name,
+            deployment_ack=args.deployment_ack,
+            confirmation_token=args.confirm,
+            batch_size=args.batch_size,
+        )
+        try:
+            return run_targeted_semantic_review_execute(
+                request, resume=args.resume, checkpoint_file=args.checkpoint_file,
+            )
+        except (SemanticReviewGuardError, SemanticReviewManifestError) as error:
+            print(f"semantic_review: {error}", file=sys.stderr)
+            return 1
 
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
