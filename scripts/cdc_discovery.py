@@ -4027,6 +4027,109 @@ def verify_targeted_recovery_row_eligibility(rows: Sequence["ArchiveFileRow"], m
         )
 
 
+def verify_targeted_recovery_resume_eligibility(
+    rows: Sequence["ArchiveFileRow"],
+    manifest_ids: Sequence[int],
+    checkpoint: "Checkpoint",
+    batches: Sequence[Sequence["ArchiveFileRow"]],
+) -> None:
+    """The --resume counterpart to verify_targeted_recovery_row_eligibility.
+
+    A --resume run is, BY DEFINITION, expected to contain rows the fresh-run
+    check above would reject: the ones a prior, interrupted --execute
+    already committed as SUCCESS or a controlled FAILED outcome. This
+    function distinguishes those checkpoint-COMPLETED rows (where that is
+    fine - it's the whole point of resuming) from UNCOMPLETED rows (which
+    must still satisfy the exact same contract a fresh --execute requires:
+    currently NOT_ATTEMPTED or FAILED).
+
+    The completed/uncompleted split is derived ONLY from
+    checkpoint.completed_batches mapped through the deterministic batch
+    partition (`batches`, built from the same archive_file_id ASC order
+    _fetch_targeted_recovery_rows always uses) - NEVER by inspecting live
+    extraction_status to guess which rows "look done". A row can only ever
+    be treated as completed because the checkpoint's own batch bookkeeping
+    says so, never because it happens to already be SUCCESS.
+
+    Fails closed, with a specific TargetedRecoveryGuardError and no
+    archive_file_id/filename/path in any message, on:
+      - a manifest id count that doesn't match the resolved row count
+        (same unmatched-identifiers check as the fresh-run function);
+      - a completed-batch index outside this manifest's current batch
+        partition (checkpoint/manifest/batch-size drift);
+      - a checkpoint-completed row that is not currently SUCCESS or FAILED
+        (still NOT_ATTEMPTED despite its batch being marked complete - a
+        partial-batch or checkpoint/database drift signal);
+      - the number of checkpoint-completed rows not matching
+        checkpoint.aggregate's own recorded rows_persisted count (the one
+        aggregate field scoped exclusively to committed batches - unlike
+        extraction_successes/extraction_failures, which also accumulate
+        from any batch whose extraction succeeded but whose persistence
+        later failed, so are not safe to compare here);
+      - an uncompleted row that is not currently NOT_ATTEMPTED/FAILED -
+        most notably one that has unexpectedly become SUCCESS, the exact
+        completed/uncompleted membership-drift scenario this function
+        exists to catch.
+    Never rejects on an EMPTY uncompleted set - a checkpoint where every
+    batch is already completed is a valid, idempotent "nothing left to
+    do" state, not an error."""
+    if len(rows) != len(manifest_ids):
+        raise TargetedRecoveryGuardError(
+            f"{len(manifest_ids) - len(rows)} manifest archive_file_id(s) did not resolve to an "
+            "eligible HUMAN_VALIDATED_CDC row. Refusing to resume with a partial or ambiguous manifest."
+        )
+
+    total_batches = len(batches)
+    for batch_index in checkpoint.completed_batches:
+        if batch_index < 0 or batch_index >= total_batches:
+            raise TargetedRecoveryGuardError(
+                "the checkpoint lists a completed batch index outside this manifest's current batch "
+                "partition - the checkpoint does not match this manifest/batch-size; refusing to resume."
+            )
+
+    rows_by_id = {row.id: row for row in rows}
+    completed_indices = set(checkpoint.completed_batches)
+    completed_ids: set = set()
+    for batch_index in completed_indices:
+        completed_ids.update(row.id for row in batches[batch_index])
+    uncompleted_ids = {row.id for row in rows} - completed_ids
+
+    completed_success = sum(1 for i in completed_ids if rows_by_id[i].extraction_status == "SUCCESS")
+    completed_failed = sum(1 for i in completed_ids if rows_by_id[i].extraction_status == "FAILED")
+    completed_other = len(completed_ids) - completed_success - completed_failed
+    if completed_other:
+        raise TargetedRecoveryGuardError(
+            f"{completed_other} checkpoint-completed row(s) do not currently have a valid "
+            "extraction result (SUCCESS or FAILED) - the checkpoint and the database have drifted; "
+            "refusing to resume."
+        )
+
+    # rows_persisted is the one aggregate field that is ONLY ever
+    # incremented for a batch that actually committed (see the else:
+    # branch in run_targeted_recovery_execute's batch loop, which never
+    # touches rows_persisted) - unlike extraction_successes/
+    # extraction_failures, which accumulate from EVERY attempted batch's
+    # extraction phase regardless of whether that batch's persistence
+    # later failed, so comparing against those two would spuriously
+    # reject a legitimate resume following any prior persist failure.
+    expected_persisted = checkpoint.aggregate.get("rows_persisted")
+    if expected_persisted is not None and len(completed_ids) != expected_persisted:
+        raise TargetedRecoveryGuardError(
+            "the number of checkpoint-completed rows does not match the checkpoint's own "
+            "recorded rows_persisted count; refusing to resume."
+        )
+
+    ineligible_uncompleted = [
+        i for i in uncompleted_ids if rows_by_id[i].extraction_status not in TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES
+    ]
+    if ineligible_uncompleted:
+        raise TargetedRecoveryGuardError(
+            f"{len(ineligible_uncompleted)} uncompleted row(s) are no longer NOT_ATTEMPTED/FAILED "
+            "(e.g. unexpectedly SUCCESS) - completed/uncompleted membership has drifted from the "
+            "checkpoint; refusing to resume."
+        )
+
+
 @dataclass
 class TargetedRecoveryBatchCounters:
     """Aggregate-only counters for one targeted-recovery batch. No field
@@ -4145,13 +4248,18 @@ def run_targeted_recovery_execute(
     """--targeted-recovery --execute: the only code path in this module
     that can persist a real extraction-recovery result. Every guard in
     verify_targeted_recovery_execution_guards runs, and must pass, before
-    _connect() is ever called. The manifest is then fetched and every row
-    is checked by verify_targeted_recovery_row_eligibility before a single
-    document is opened. Extraction runs entirely outside any database
-    transaction; persistence is batched and checkpointed exactly like
-    run_process_persisted_candidates_mode, using update_extraction_result_only
-    so no field outside extraction_status/extraction_method/
-    extraction_failure_category is ever written."""
+    _connect() is ever called. The manifest is then fetched and, before a
+    single document is opened, every row is checked - by
+    verify_targeted_recovery_row_eligibility for a fresh run (every row
+    must currently be NOT_ATTEMPTED/FAILED), or by
+    verify_targeted_recovery_resume_eligibility for --resume (only
+    checkpoint-completed rows may already be SUCCESS/FAILED; every
+    uncompleted row must still satisfy the fresh-run contract). Extraction
+    runs entirely outside any database transaction; persistence is batched
+    and checkpointed exactly like run_process_persisted_candidates_mode,
+    using update_extraction_result_only so no field outside
+    extraction_status/extraction_method/extraction_failure_category is
+    ever written."""
     manifest_ids = load_targeted_recovery_manifest(request.manifest_path)
     verify_targeted_recovery_execution_guards(request, manifest_ids)
 
@@ -4175,8 +4283,14 @@ def run_targeted_recovery_execute(
             )
             return 1
 
+        # Row eligibility is deliberately checked AFTER the checkpoint is
+        # resolved below, not here - a --resume run needs the checkpoint
+        # (and the deterministic batch partition it is checked against) to
+        # know which rows are ALLOWED to already be SUCCESS/FAILED
+        # (checkpoint-completed) versus which must still satisfy the
+        # fresh-run contract (uncompleted). See
+        # verify_targeted_recovery_resume_eligibility's docstring.
         rows = _fetch_targeted_recovery_rows(conn, manifest_ids, extensions, extraction_statuses, failure_categories)
-        verify_targeted_recovery_row_eligibility(rows, manifest_ids)
 
         root_identity = _archive_source_root_identity(rows)
         scope_config = build_targeted_recovery_scope_config(
@@ -4187,8 +4301,52 @@ def run_targeted_recovery_execute(
         batches = [rows[i:i + request.batch_size] for i in range(0, len(rows), request.batch_size)]
 
         existing_checkpoint = load_checkpoint(checkpoint_path)
-        if existing_checkpoint is not None and existing_checkpoint.scope_signature == scope_signature:
-            if not resume:
+
+        if resume:
+            # --resume requires an existing checkpoint for this EXACT scope
+            # AND batch_size (batch_size is deliberately not part of
+            # scope_signature - see build_targeted_recovery_scope_config -
+            # so it is checked separately here; a different --batch-size
+            # would silently misalign completed_batches against a
+            # different batch partition otherwise).
+            if existing_checkpoint is None:
+                print(
+                    "cdc_discovery: --resume requires an existing targeted-recovery checkpoint at "
+                    f"{checkpoint_path}, but none was found. Run without --resume first, or point "
+                    "--checkpoint-file at the correct location.",
+                    file=sys.stderr,
+                )
+                return 1
+            if existing_checkpoint.scope_signature != scope_signature:
+                print(
+                    "cdc_discovery: --resume was passed but the existing targeted-recovery checkpoint "
+                    f"does not match the current scope. Refusing to overwrite it - remove {checkpoint_path} "
+                    f"explicitly to start fresh. Mismatch: {describe_scope_mismatch(existing_checkpoint.config, scope_config)}",
+                    file=sys.stderr,
+                )
+                return 1
+            if existing_checkpoint.batch_size != request.batch_size:
+                print(
+                    "cdc_discovery: --resume was passed but --batch-size does not match the existing "
+                    "checkpoint's batch_size; refusing to resume with a different batch partition.",
+                    file=sys.stderr,
+                )
+                return 1
+            if existing_checkpoint.total_batches != len(batches):
+                print(
+                    "cdc_discovery: --resume was passed but the existing checkpoint's total_batches "
+                    "does not match the current manifest's batch partition; refusing to resume.",
+                    file=sys.stderr,
+                )
+                return 1
+            checkpoint = existing_checkpoint
+            try:
+                verify_targeted_recovery_resume_eligibility(rows, manifest_ids, checkpoint, batches)
+            except TargetedRecoveryGuardError as error:
+                print(f"cdc_discovery: {error}", file=sys.stderr)
+                return 1
+        else:
+            if existing_checkpoint is not None and existing_checkpoint.scope_signature == scope_signature:
                 print(
                     "cdc_discovery: an incomplete targeted-recovery checkpoint already exists for "
                     "this exact scope (same manifest, filters, and --batch-size). Pass --resume to "
@@ -4196,16 +4354,7 @@ def run_targeted_recovery_execute(
                     file=sys.stderr,
                 )
                 return 1
-            checkpoint = existing_checkpoint
-        elif existing_checkpoint is not None and resume:
-            print(
-                "cdc_discovery: --resume was passed but the existing targeted-recovery checkpoint "
-                f"does not match the current scope. Refusing to overwrite it - remove {checkpoint_path} "
-                f"explicitly to start fresh. Mismatch: {describe_scope_mismatch(existing_checkpoint.config, scope_config)}",
-                file=sys.stderr,
-            )
-            return 1
-        else:
+            verify_targeted_recovery_row_eligibility(rows, manifest_ids)
             checkpoint = Checkpoint(
                 scope_signature=scope_signature, batch_size=request.batch_size, total_batches=len(batches),
                 config=scope_config,

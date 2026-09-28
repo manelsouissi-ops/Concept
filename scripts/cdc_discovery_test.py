@@ -3957,8 +3957,15 @@ class TestTargetedRecoveryExecuteIntegration(unittest.TestCase):
         self.assertEqual(checkpoint.failed_batches, [1])
 
         repo_rows_by_id[4] = ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")  # row 4 "reappears"
+        # A real resume re-SELECTs current database state - rows 1/2 (batch
+        # 0, already committed) now show SUCCESS; rows 3/4 (batch 1, never
+        # persisted) are still exactly as they started.
+        rows_after_batch_0 = [
+            _targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "SUCCESS"),
+            _targeted_recovery_row(3, "NOT_ATTEMPTED"), _targeted_recovery_row(4, "NOT_ATTEMPTED"),
+        ]
         exit_code_2, _output_2, _conn_2 = self._run(
-            [1, 2, 3, 4], batch_size=2, resume=True, rows=rows, repo_rows_by_id=repo_rows_by_id,
+            [1, 2, 3, 4], batch_size=2, resume=True, rows=rows_after_batch_0, repo_rows_by_id=repo_rows_by_id,
         )
         self.assertEqual(exit_code_2, 0)
         checkpoint = cdc.load_checkpoint(Path(self.checkpoint_file))
@@ -3973,7 +3980,12 @@ class TestTargetedRecoveryExecuteIntegration(unittest.TestCase):
 
     def test_idempotent_resume_of_an_already_fully_completed_run_is_a_no_op(self):
         self._run([1, 2], batch_size=2)  # completes fully
-        exit_code, _output, fake_conn = self._run([1, 2], batch_size=2, resume=True)
+        # A real resume re-SELECTs current state - both rows now show
+        # SUCCESS, exactly what a fully-completed checkpoint should see.
+        rows_after_completion = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "SUCCESS")]
+        exit_code, _output, fake_conn = self._run(
+            [1, 2], batch_size=2, resume=True, rows=rows_after_completion,
+        )
         self.assertEqual(exit_code, 0)
         fake_conn.transaction.assert_not_called()  # every batch already in completed_batches - nothing re-persisted
 
@@ -4014,6 +4026,222 @@ class TestTargetedRecoveryExecuteIntegration(unittest.TestCase):
             with self.assertRaises(cdc.TargetedRecoveryGuardError):
                 cdc.run_targeted_recovery_execute(request, checkpoint_file=self.checkpoint_file)
         fake_conn.transaction.assert_not_called()
+
+
+def _resume_checkpoint(completed_batches, total_batches, batch_size=2, rows_persisted=None, scope_signature="sig"):
+    """A synthetic Checkpoint for verify_targeted_recovery_resume_eligibility
+    tests - never touches disk."""
+    aggregate = {}
+    if rows_persisted is not None:
+        aggregate["rows_persisted"] = rows_persisted
+    return cdc.Checkpoint(
+        scope_signature=scope_signature, batch_size=batch_size, total_batches=total_batches,
+        completed_batches=list(completed_batches), failed_batches=[], aggregate=aggregate,
+    )
+
+
+class TestTargetedRecoveryResumeEligibility(unittest.TestCase):
+    """Pure, no-I/O tests for verify_targeted_recovery_resume_eligibility -
+    the fix for the bug where a legitimate --resume of a partially-
+    completed run was rejected because checkpoint-completed rows are
+    SUCCESS/FAILED by design, not NOT_ATTEMPTED/FAILED."""
+
+    def test_resume_accepts_checkpoint_completed_success_rows(self):
+        rows = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "NOT_ATTEMPTED")]
+        batches = [[rows[0]], [rows[1]]]
+        checkpoint = _resume_checkpoint(completed_batches=[0], total_batches=2, batch_size=1, rows_persisted=1)
+        cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)  # must not raise
+
+    def test_resume_accepts_checkpoint_completed_controlled_failed_rows_and_skips_them(self):
+        rows = [_targeted_recovery_row(1, "FAILED"), _targeted_recovery_row(2, "NOT_ATTEMPTED")]
+        batches = [[rows[0]], [rows[1]]]
+        checkpoint = _resume_checkpoint(completed_batches=[0], total_batches=2, batch_size=1, rows_persisted=1)
+        cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)  # must not raise
+
+    def test_uncompleted_success_row_is_rejected(self):
+        # The exact membership-drift case: row 2's batch is NOT marked
+        # completed, yet it is already SUCCESS - must never be silently
+        # accepted (that would mean re-processing is skipped for the
+        # wrong reason, or a row was processed outside checkpoint
+        # bookkeeping).
+        rows = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "SUCCESS")]
+        batches = [[rows[0]], [rows[1]]]
+        checkpoint = _resume_checkpoint(completed_batches=[0], total_batches=2, batch_size=1, rows_persisted=1)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)
+        self.assertIn("uncompleted", str(ctx.exception))
+
+    def test_completed_row_aggregate_mismatch_is_rejected(self):
+        rows = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "SUCCESS")]
+        batches = [[rows[0]], [rows[1]]]
+        # Checkpoint claims both batches completed but its own
+        # rows_persisted says only 1 - a drifted/corrupted checkpoint.
+        checkpoint = _resume_checkpoint(completed_batches=[0, 1], total_batches=2, batch_size=1, rows_persisted=1)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)
+        self.assertIn("rows_persisted", str(ctx.exception))
+
+    def test_completed_membership_order_drift_is_rejected(self):
+        # Checkpoint references a batch index that does not exist in the
+        # current (recomputed) batch partition.
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED")]
+        batches = [[rows[0]]]
+        checkpoint = _resume_checkpoint(completed_batches=[5], total_batches=1, batch_size=1)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_resume_eligibility(rows, [1], checkpoint, batches)
+        self.assertIn("batch partition", str(ctx.exception))
+
+    def test_partial_completed_batch_is_rejected(self):
+        # Batch 0 (rows 1 and 2) is marked completed, but row 2 is still
+        # NOT_ATTEMPTED - the batch was never actually fully persisted.
+        rows = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "NOT_ATTEMPTED")]
+        batches = [[rows[0], rows[1]]]
+        checkpoint = _resume_checkpoint(completed_batches=[0], total_batches=1, batch_size=2, rows_persisted=2)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)
+        self.assertIn("valid extraction result", str(ctx.exception))
+
+    def test_fully_completed_checkpoint_is_not_rejected(self):
+        # Every row completed, nothing uncompleted - a valid, idempotent
+        # "nothing left to do" state, never an error.
+        rows = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "FAILED")]
+        batches = [[rows[0]], [rows[1]]]
+        checkpoint = _resume_checkpoint(completed_batches=[0, 1], total_batches=2, batch_size=1, rows_persisted=2)
+        cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)  # must not raise
+
+    def test_unmatched_manifest_id_is_rejected_same_as_fresh_run(self):
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED")]
+        batches = [[rows[0]]]
+        checkpoint = _resume_checkpoint(completed_batches=[], total_batches=1, batch_size=1)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)
+
+    def test_never_rejects_on_empty_completed_set(self):
+        # A resume of a checkpoint with zero completed batches so far must
+        # behave exactly like the fresh-run eligibility check.
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "FAILED")]
+        batches = [[rows[0]], [rows[1]]]
+        checkpoint = _resume_checkpoint(completed_batches=[], total_batches=2, batch_size=1)
+        cdc.verify_targeted_recovery_resume_eligibility(rows, [1, 2], checkpoint, batches)  # must not raise
+
+
+class TestTargetedRecoveryResumeExecuteIntegration(unittest.TestCase):
+    """End-to-end (mocked DB) integration tests for the --resume fix in
+    run_targeted_recovery_execute: resume-without-checkpoint, batch-size/
+    boundary drift, and the exactly-once/no-re-extraction guarantee for
+    already-completed rows."""
+
+    ENV_VAR = "CDC_TARGETED_RECOVERY_DATABASE_URL"
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp(prefix="cdc-targeted-recovery-resume-test-")
+        self.addCleanup(shutil.rmtree, self.tmp_dir, ignore_errors=True)
+        self.checkpoint_file = str(Path(self.tmp_dir) / "checkpoint.json")
+
+    def _fake_conn(self, database_name="SYNTHETIC_DB"):
+        fake_conn = MagicMock()
+        fake_cursor = MagicMock()
+        fake_cursor.__enter__.return_value = fake_cursor
+        fake_cursor.__exit__.return_value = False
+        fake_cursor.fetchone.return_value = (database_name,)
+        fake_conn.cursor.return_value = fake_cursor
+        fake_conn.transaction.return_value.__exit__.return_value = False
+        return fake_conn
+
+    def _run(self, ids, rows, batch_size=2, resume=False, repo_rows_by_id=None, inspector=None):
+        request = _valid_execution_request(self.tmp_dir, ids, batch_size=batch_size)
+        fake_conn = self._fake_conn()
+        repo_rows_by_id = repo_rows_by_id or {i: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED") for i in ids}
+
+        def repo_factory(conn):
+            return FakeTargetedRecoveryRepository(conn, repo_rows_by_id)
+
+        inspector = inspector or FakeTechnicalSourceContentInspector(
+            {i: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text") for i in ids}
+        )
+        with patch.dict(os.environ, {self.ENV_VAR: FAKE_DATABASE_URL}), \
+             patch.object(cdc, "_connect", return_value=fake_conn), \
+             patch.object(cdc, "_fetch_targeted_recovery_rows", return_value=rows), \
+             patch.object(cdc, "PostgresTechnicalSourceCandidateRepository", side_effect=repo_factory), \
+             patch("cdc_content_inspector.LocalContentInspector", return_value=inspector):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                exit_code = cdc.run_targeted_recovery_execute(
+                    request, resume=resume, checkpoint_file=self.checkpoint_file,
+                )
+        return exit_code, buffer.getvalue(), fake_conn, inspector
+
+    def test_resume_without_an_existing_checkpoint_is_rejected(self):
+        rows = [_targeted_recovery_row(i, "NOT_ATTEMPTED") for i in (1, 2)]
+        exit_code, _output, fake_conn, _inspector = self._run([1, 2], rows, batch_size=2, resume=True)
+        self.assertEqual(exit_code, 1)
+        fake_conn.transaction.assert_not_called()
+
+    def test_resume_with_a_different_batch_size_is_rejected(self):
+        rows = [_targeted_recovery_row(i, "NOT_ATTEMPTED") for i in (1, 2, 3, 4)]
+        self._run([1, 2, 3, 4], rows, batch_size=2)  # leaves a batch_size=2 checkpoint behind (incomplete: no rows succeed by default here since batch_size=2 completes fully actually)
+        rows_after = [_targeted_recovery_row(i, "SUCCESS") for i in (1, 2, 3, 4)]
+        exit_code, _output, fake_conn, _inspector = self._run(
+            [1, 2, 3, 4], rows_after, batch_size=1, resume=True,
+        )
+        self.assertEqual(exit_code, 1)
+        fake_conn.transaction.assert_not_called()
+
+    def test_completed_rows_are_never_extracted_again_on_resume(self):
+        repo_rows_by_id = {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"), 2: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")}
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "NOT_ATTEMPTED")]
+        # Two single-row batches so batch 0 (row 1) can complete alone.
+        exit_code_1, _output_1, _conn_1, _insp_1 = self._run(
+            [1, 2], rows, batch_size=1, repo_rows_by_id=repo_rows_by_id,
+        )
+        self.assertEqual(exit_code_1, 0)
+
+        rows_after = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "SUCCESS")]
+        resume_inspector = FakeTechnicalSourceContentInspector(
+            {1: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text"),
+             2: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text")}
+        )
+        exit_code_2, _output_2, fake_conn_2, inspector_2 = self._run(
+            [1, 2], rows_after, batch_size=1, resume=True,
+            repo_rows_by_id=repo_rows_by_id, inspector=resume_inspector,
+        )
+        self.assertEqual(exit_code_2, 0)
+        # Both batches were already completed by the first run - a resume
+        # against a fully-completed checkpoint must extract nothing and
+        # persist nothing.
+        self.assertEqual(resume_inspector.calls, 0)
+        fake_conn_2.transaction.assert_not_called()
+
+    def test_interruption_then_resume_reaches_exactly_once_final_state(self):
+        repo_rows_by_id = {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"), 2: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")}
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "NOT_ATTEMPTED")]
+        # batch_size=1 -> two batches; only run batch 0 for real by giving
+        # the fresh run just row 1's worth of eligible work via a
+        # checkpoint file crafted to look "interrupted after batch 0" -
+        # simplest realistic simulation: run with both rows but a
+        # repository that only has row 1 available at lock time for THIS
+        # first pass, so batch 1 fails and is left incomplete.
+        repo_rows_by_id_missing_2 = {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")}
+        exit_code_1, _output_1, _conn_1, _insp_1 = self._run(
+            [1, 2], rows, batch_size=1, repo_rows_by_id=repo_rows_by_id_missing_2,
+        )
+        self.assertEqual(exit_code_1, 1)  # batch 1 (row 2) failed to persist
+        checkpoint = cdc.load_checkpoint(Path(self.checkpoint_file))
+        self.assertEqual(checkpoint.completed_batches, [0])
+        self.assertEqual(checkpoint.failed_batches, [1])
+
+        repo_rows_by_id_missing_2[2] = ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")  # row 2 "reappears"
+        rows_after = [_targeted_recovery_row(1, "SUCCESS"), _targeted_recovery_row(2, "NOT_ATTEMPTED")]
+        exit_code_2, _output_2, _conn_2, inspector_2 = self._run(
+            [1, 2], rows_after, batch_size=1, resume=True, repo_rows_by_id=repo_rows_by_id_missing_2,
+        )
+        self.assertEqual(exit_code_2, 0)
+        checkpoint = cdc.load_checkpoint(Path(self.checkpoint_file))
+        self.assertEqual(sorted(checkpoint.completed_batches), [0, 1])
+        self.assertEqual(checkpoint.failed_batches, [])
+        # Row 1 (already completed) was never re-extracted on resume -
+        # only row 2's batch was processed.
+        self.assertEqual(inspector_2.calls, 1)
 
 
 class TestTargetedRecoveryCliGating(unittest.TestCase):
