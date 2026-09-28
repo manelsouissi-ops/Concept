@@ -15,6 +15,7 @@ also fully discoverable and runnable by pytest, if/when it is installed:
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -3543,6 +3544,560 @@ class TestRetryFailedCliGating(unittest.TestCase):
                     "--retry-failed", "--dry-run", "--failure-category", "EMPTY_EXTRACTED_TEXT",
                     "--limit", "3", "--batch-size", "5", "--enable-content-inspection",
                 ])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+
+# =====================================================================
+# --targeted-recovery --execute: full orchestrator synthetic tests.
+# SYNTHETIC DATA ONLY - same convention as the rest of this file. No real
+# archive_file_id, filename, path, or PostgreSQL row is used anywhere
+# below. Every DB access is mocked/stubbed; no live connection is required
+# or attempted by any test in this section.
+# =====================================================================
+
+
+def _targeted_recovery_row(archive_file_id: int, extraction_status: str, extension: str = "doc") -> "cdc.ArchiveFileRow":
+    return cdc.ArchiveFileRow(
+        id=archive_file_id,
+        relative_path=f"SYNTHETIC/{archive_file_id}.{extension}",
+        filename=f"{archive_file_id}.{extension}",
+        extension=extension,
+        sha256="0" * 64,
+        source_root_label="SYNTHETIC_ROOT",
+        extraction_status=extraction_status,
+    )
+
+
+class FakeTargetedRecoveryRepository:
+    """DB-free double for TechnicalSourceCandidateRepository, used only by
+    persist_targeted_recovery_batch / run_targeted_recovery_execute tests.
+    rows_by_id maps archive_file_id -> (validation_status, extraction_status)
+    as they currently stand "in the database" at lock time. Records every
+    call for assertions; never touches a real database, never accepts a
+    real conn (constructed with a fake one in these tests)."""
+
+    def __init__(self, _conn, rows_by_id: dict | None = None):
+        self._rows_by_id = dict(rows_by_id or {})
+        self.locked_calls: list = []
+        self.update_calls: list = []
+
+    def lock_rows_for_extraction_update(self, archive_file_ids):
+        self.locked_calls.append(list(archive_file_ids))
+        return [
+            (archive_file_id, *self._rows_by_id[archive_file_id])
+            for archive_file_id in archive_file_ids
+            if archive_file_id in self._rows_by_id
+        ]
+
+    def update_extraction_result_only(self, archive_file_id, extraction_status, extraction_method, extraction_failure_category):
+        self.update_calls.append((archive_file_id, extraction_status, extraction_method, extraction_failure_category))
+        # Reflects the write back into the fake table, so a second batch
+        # (or a resumed run) sees the post-update state - matching real
+        # UPDATE ... behavior closely enough for idempotency tests below.
+        validation_status, _old_status = self._rows_by_id[archive_file_id]
+        self._rows_by_id[archive_file_id] = (validation_status, extraction_status)
+
+
+def _valid_execution_request(tmp_dir: str, ids: list[int], database_name: str = "SYNTHETIC_DB", batch_size: int = 2):
+    manifest_path = Path(tmp_dir) / "manifest.json"
+    manifest_path.write_text(json.dumps(ids), encoding="utf-8")
+    sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    return cdc.TargetedRecoveryExecutionRequest(
+        manifest_path=manifest_path,
+        expected_manifest_sha256=sha256,
+        expected_row_count=len(ids),
+        expected_database_name=database_name,
+        deployment_ack=database_name,
+        confirmation_token=cdc.TARGETED_RECOVERY_CONFIRMATION_TOKEN,
+        batch_size=batch_size,
+    )
+
+
+class TestTargetedRecoveryExecutionGuards(unittest.TestCase):
+    """Pure, no-I/O tests for verify_targeted_recovery_execution_guards -
+    every guard task 6 requires, exercised individually."""
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp(prefix="cdc-targeted-recovery-guards-test-")
+        self.addCleanup(shutil.rmtree, self.tmp_dir, ignore_errors=True)
+
+    def test_valid_request_raises_nothing(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3])
+        cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])  # must not raise
+
+    def test_wrong_confirmation_token_is_rejected(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3])
+        request.confirmation_token = "not-the-real-token"
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_deployment_ack_must_match_expected_database_name(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3])
+        request.deployment_ack = "WRONG_DB"
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_batch_size_zero_is_rejected(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3], batch_size=0)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_batch_size_over_the_cap_is_rejected(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3], batch_size=cdc.TARGETED_RECOVERY_MAX_BATCH_SIZE + 1)
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_batch_size_at_the_cap_is_accepted(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3], batch_size=cdc.TARGETED_RECOVERY_MAX_BATCH_SIZE)
+        cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])  # must not raise
+
+    def test_non_positive_expected_row_count_is_rejected(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3])
+        request.expected_row_count = 0
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_manifest_sha256_drift_is_rejected(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3])
+        request.expected_manifest_sha256 = "0" * 64  # deliberately wrong
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_manifest_row_count_drift_is_rejected(self):
+        # The manifest on disk lists 3 ids but --expected-row-count says 108
+        # (simulating a stale/incorrect operator-supplied expectation).
+        request = _valid_execution_request(self.tmp_dir, [1, 2, 3])
+        request.expected_row_count = 108
+        with self.assertRaises(cdc.TargetedRecoveryGuardError):
+            cdc.verify_targeted_recovery_execution_guards(request, [1, 2, 3])
+
+    def test_exact_expected_row_count_of_108_is_accepted(self):
+        ids = list(range(1, 109))
+        request = _valid_execution_request(self.tmp_dir, ids, batch_size=10)
+        cdc.verify_targeted_recovery_execution_guards(request, ids)  # must not raise
+
+
+class TestTargetedRecoveryRowEligibility(unittest.TestCase):
+    """Pure tests for verify_targeted_recovery_row_eligibility - the check
+    that rejects unmatched/duplicate-origin manifest entries and the
+    semantic-only (already-SUCCESS) population."""
+
+    def test_fully_eligible_rows_pass(self):
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "FAILED")]
+        cdc.verify_targeted_recovery_row_eligibility(rows, [1, 2])  # must not raise
+
+    def test_unmatched_manifest_id_is_rejected(self):
+        # Manifest names 3 ids; only 2 resolved to an eligible
+        # HUMAN_VALIDATED_CDC row (covers: not found, HUMAN_REJECTED_CDC
+        # ["NON"], HUMAN_UNCERTAIN ["INCERTAIN"], or never human-reviewed).
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "FAILED")]
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_row_eligibility(rows, [1, 2, 3])
+        self.assertNotIn("3", str(ctx.exception).replace("1 manifest", ""))  # no bare id leaked in the message
+
+    def test_already_success_row_is_rejected_as_semantic_only(self):
+        # This is the exact mechanism that keeps the 26 semantic-review-
+        # only rows out of extraction recovery.
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "SUCCESS")]
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_row_eligibility(rows, [1, 2])
+        self.assertIn("SUCCESS", str(ctx.exception))
+
+    def test_eligibility_error_never_includes_an_archive_file_id(self):
+        rows = [_targeted_recovery_row(999999, "SUCCESS")]
+        with self.assertRaises(cdc.TargetedRecoveryGuardError) as ctx:
+            cdc.verify_targeted_recovery_row_eligibility(rows, [999999])
+        self.assertNotIn("999999", str(ctx.exception))
+
+
+class TestTargetedRecoveryManifestDuplicatesAndSize(unittest.TestCase):
+    """Pure tests for validate_targeted_recovery_manifest, exercised
+    directly against the targeted-recovery population (Task 9: "duplicate
+    or unmatched identifiers")."""
+
+    def test_duplicate_identifiers_are_rejected(self):
+        with self.assertRaises(cdc.TargetedRecoveryManifestError):
+            cdc.validate_targeted_recovery_manifest([1, 2, 2, 3])
+
+    def test_108_unique_ids_is_accepted(self):
+        cdc.validate_targeted_recovery_manifest(list(range(1, 109)))  # must not raise
+
+    def test_load_manifest_rejects_duplicates_from_a_file(self):
+        tmp_dir = tempfile.mkdtemp(prefix="cdc-targeted-recovery-manifest-test-")
+        self.addCleanup(shutil.rmtree, tmp_dir, ignore_errors=True)
+        manifest_path = Path(tmp_dir) / "manifest.json"
+        manifest_path.write_text(json.dumps([10, 20, 10]), encoding="utf-8")
+        with self.assertRaises(cdc.TargetedRecoveryManifestError):
+            cdc.load_targeted_recovery_manifest(manifest_path)
+
+
+class TestTargetedRecoveryBatchExtraction(unittest.TestCase):
+    """run_targeted_recovery_batch_extraction never opens a database
+    connection or transaction (it has no conn/repository parameter at
+    all), and never re-derives detected_role/structural_score."""
+
+    def test_success_outcome_maps_to_success_status(self):
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED", extension="odt")]
+        inspector = FakeTechnicalSourceContentInspector({
+            1: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="odt_text"),
+        })
+        results, counters = cdc.run_targeted_recovery_batch_extraction(rows, inspector)
+        self.assertEqual(results, [(1, "SUCCESS", "odt_text", None)])
+        self.assertEqual(counters.extraction_successes, 1)
+        self.assertEqual(counters.extraction_failures, 0)
+
+    def test_failure_outcome_maps_reason_code_to_category(self):
+        rows = [_targeted_recovery_row(2, "FAILED", extension="doc")]
+        inspector = FakeTechnicalSourceContentInspector({
+            2: cdc.ContentInspectionOutcome(attempted=True, failed=True, reason_code="doc_embedded_images_only"),
+        })
+        results, counters = cdc.run_targeted_recovery_batch_extraction(rows, inspector)
+        self.assertEqual(results, [(2, "FAILED", None, "DOC_EMBEDDED_IMAGES_ONLY")])
+        self.assertEqual(counters.extraction_failures, 1)
+        self.assertEqual(counters.extraction_successes, 0)
+
+    def test_mixed_batch_counters_aggregate_correctly(self):
+        rows = [
+            _targeted_recovery_row(1, "NOT_ATTEMPTED"),
+            _targeted_recovery_row(2, "FAILED"),
+            _targeted_recovery_row(3, "NOT_ATTEMPTED"),
+        ]
+        inspector = FakeTechnicalSourceContentInspector({
+            1: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text"),
+            2: cdc.ContentInspectionOutcome(attempted=True, failed=True, reason_code="extracted_text_empty"),
+            3: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text"),
+        })
+        results, counters = cdc.run_targeted_recovery_batch_extraction(rows, inspector)
+        self.assertEqual(counters.rows_extracted, 3)
+        self.assertEqual(counters.extraction_successes, 2)
+        self.assertEqual(counters.extraction_failures, 1)
+        self.assertEqual(len(results), 3)
+
+    def test_no_database_object_is_ever_referenced(self):
+        # Structural guarantee, not just behavioral: this function's own
+        # signature has no conn/repository parameter, so it is physically
+        # incapable of opening a transaction.
+        import inspect
+        params = list(inspect.signature(cdc.run_targeted_recovery_batch_extraction).parameters)
+        self.assertEqual(params, ["rows", "content_inspector"])
+
+
+class TestPersistTargetedRecoveryBatch(unittest.TestCase):
+    """persist_targeted_recovery_batch: locking, prior-state verification,
+    narrow field updates, and rollback-on-mismatch."""
+
+    def _fake_conn(self):
+        fake_conn = MagicMock()
+        # Real psycopg conn.transaction() propagates an exception raised
+        # inside the `with` block (after rolling back) rather than
+        # suppressing it - MagicMock's auto-mocked __exit__ would
+        # otherwise swallow it (returning a truthy MagicMock), so this
+        # must be set explicitly. Same convention as this file's existing
+        # fake_cursor.__exit__.return_value = False usages.
+        fake_conn.transaction.return_value.__exit__.return_value = False
+        return fake_conn
+
+    def test_happy_path_updates_every_row_and_commits(self):
+        fake_conn = self._fake_conn()
+        repo = FakeTargetedRecoveryRepository(fake_conn, {
+            1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"),
+            2: ("HUMAN_VALIDATED_CDC", "FAILED"),
+        })
+        extraction_results = [(1, "SUCCESS", "doc_text", None), (2, "FAILED", None, "DOC_EMBEDDED_IMAGES_ONLY")]
+        ok = cdc.persist_targeted_recovery_batch(fake_conn, repo, extraction_results)
+        self.assertTrue(ok)
+        self.assertEqual(len(repo.update_calls), 2)
+        self.assertEqual(fake_conn.commit.call_count, 1)
+
+    def test_only_extraction_columns_are_ever_passed_to_the_repository(self):
+        fake_conn = self._fake_conn()
+        repo = FakeTargetedRecoveryRepository(fake_conn, {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")})
+        cdc.persist_targeted_recovery_batch(fake_conn, repo, [(1, "SUCCESS", "doc_text", None)])
+        archive_file_id, extraction_status, extraction_method, extraction_failure_category = repo.update_calls[0]
+        self.assertEqual((archive_file_id, extraction_status, extraction_method, extraction_failure_category), (1, "SUCCESS", "doc_text", None))
+        # Structural guarantee: update_extraction_result_only's own
+        # signature has no validation_status/reviewed_by/reviewed_at/
+        # review_priority/human_review_import_batch_id parameter at all.
+        import inspect
+        params = list(inspect.signature(cdc.PostgresTechnicalSourceCandidateRepository.update_extraction_result_only).parameters)
+        self.assertEqual(
+            params, ["self", "archive_file_id", "extraction_status", "extraction_method", "extraction_failure_category"]
+        )
+
+    def test_row_missing_at_lock_time_rolls_back_the_whole_batch(self):
+        fake_conn = self._fake_conn()
+        repo = FakeTargetedRecoveryRepository(fake_conn, {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")})  # row 2 absent
+        extraction_results = [(1, "SUCCESS", "doc_text", None), (2, "SUCCESS", "doc_text", None)]
+        ok = cdc.persist_targeted_recovery_batch(fake_conn, repo, extraction_results)
+        self.assertFalse(ok)
+        fake_conn.commit.assert_not_called()
+
+    def test_validation_status_drift_since_selection_rolls_back(self):
+        # Simulates a human rejecting the candidate between selection and
+        # execution - the batch must never proceed.
+        fake_conn = self._fake_conn()
+        repo = FakeTargetedRecoveryRepository(fake_conn, {1: ("HUMAN_REJECTED_CDC", "NOT_ATTEMPTED")})
+        ok = cdc.persist_targeted_recovery_batch(fake_conn, repo, [(1, "SUCCESS", "doc_text", None)])
+        self.assertFalse(ok)
+        fake_conn.commit.assert_not_called()
+
+    def test_extraction_status_drift_since_selection_rolls_back(self):
+        # Simulates another process already having recovered this row
+        # between selection and execution.
+        fake_conn = self._fake_conn()
+        repo = FakeTargetedRecoveryRepository(fake_conn, {1: ("HUMAN_VALIDATED_CDC", "SUCCESS")})
+        ok = cdc.persist_targeted_recovery_batch(fake_conn, repo, [(1, "SUCCESS", "doc_text", None)])
+        self.assertFalse(ok)
+        fake_conn.commit.assert_not_called()
+
+    def test_rows_are_locked_before_any_update_is_issued(self):
+        fake_conn = self._fake_conn()
+        repo = FakeTargetedRecoveryRepository(fake_conn, {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")})
+        cdc.persist_targeted_recovery_batch(fake_conn, repo, [(1, "SUCCESS", "doc_text", None)])
+        self.assertEqual(repo.locked_calls, [[1]])
+
+
+class TestTargetedRecoveryExecuteIntegration(unittest.TestCase):
+    """End-to-end (mocked DB) integration tests for
+    run_targeted_recovery_execute: dedicated env var, database-name
+    verification, checkpoint/resume, idempotent rerun, and aggregate-only
+    output with no row-level identifiers printed."""
+
+    ENV_VAR = "CDC_TARGETED_RECOVERY_DATABASE_URL"
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp(prefix="cdc-targeted-recovery-execute-test-")
+        self.addCleanup(shutil.rmtree, self.tmp_dir, ignore_errors=True)
+        self.checkpoint_file = str(Path(self.tmp_dir) / "checkpoint.json")
+
+    def _fake_conn(self, database_name="SYNTHETIC_DB"):
+        fake_conn = MagicMock()
+        fake_cursor = MagicMock()
+        fake_cursor.__enter__.return_value = fake_cursor
+        fake_cursor.__exit__.return_value = False
+        fake_cursor.fetchone.return_value = (database_name,)
+        fake_conn.cursor.return_value = fake_cursor
+        fake_conn.transaction.return_value.__exit__.return_value = False
+        return fake_conn
+
+    def _run(self, ids, database_name="SYNTHETIC_DB", batch_size=2, resume=False, rows=None, repo_rows_by_id=None):
+        request = _valid_execution_request(self.tmp_dir, ids, database_name=database_name, batch_size=batch_size)
+        fake_conn = self._fake_conn(database_name)
+        rows = rows if rows is not None else [_targeted_recovery_row(i, "NOT_ATTEMPTED") for i in ids]
+        repo_rows_by_id = repo_rows_by_id or {i: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED") for i in ids}
+
+        def repo_factory(conn):
+            return FakeTargetedRecoveryRepository(conn, repo_rows_by_id)
+
+        inspector = FakeTechnicalSourceContentInspector(
+            {i: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text") for i in ids}
+        )
+        with patch.dict(os.environ, {self.ENV_VAR: FAKE_DATABASE_URL}), \
+             patch.object(cdc, "_connect", return_value=fake_conn), \
+             patch.object(cdc, "_fetch_targeted_recovery_rows", return_value=rows), \
+             patch.object(cdc, "PostgresTechnicalSourceCandidateRepository", side_effect=repo_factory), \
+             patch("cdc_content_inspector.LocalContentInspector", return_value=inspector):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                exit_code = cdc.run_targeted_recovery_execute(
+                    request, resume=resume, checkpoint_file=self.checkpoint_file,
+                )
+        return exit_code, buffer.getvalue(), fake_conn
+
+    def test_missing_dedicated_env_var_is_refused_before_connecting(self):
+        request = _valid_execution_request(self.tmp_dir, [1, 2])
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(cdc, "_connect", MagicMock(side_effect=AssertionError("must not connect"))) as mock_connect, \
+             redirect_stderr(io.StringIO()):
+            exit_code = cdc.run_targeted_recovery_execute(request, checkpoint_file=self.checkpoint_file)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_wrong_connected_database_name_is_refused(self):
+        exit_code, _output, fake_conn = self._run([1, 2], database_name="SYNTHETIC_DB")
+        # Force the live connection to report a DIFFERENT database than
+        # was authorized - simulated by re-running with a mismatched
+        # expected name against the same fake connection's fixed report.
+        request = _valid_execution_request(self.tmp_dir, [1, 2], database_name="SYNTHETIC_DB")
+        wrong_conn = self._fake_conn(database_name="SOME_OTHER_DB")
+        with patch.dict(os.environ, {self.ENV_VAR: FAKE_DATABASE_URL}), \
+             patch.object(cdc, "_connect", return_value=wrong_conn), \
+             redirect_stderr(io.StringIO()):
+            exit_code = cdc.run_targeted_recovery_execute(request, checkpoint_file=self.checkpoint_file)
+        self.assertEqual(exit_code, 1)
+        wrong_conn.transaction.assert_not_called()  # never even reaches selection/persistence
+
+    def test_happy_path_persists_every_row_and_reports_success(self):
+        exit_code, output, fake_conn = self._run([1, 2, 3, 4], batch_size=2)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(fake_conn.commit.call_count, 2)  # 4 rows / batch_size=2 -> 2 batches
+        self.assertIn("extraction_successes: 4", output)
+
+    def test_aggregate_only_output_contains_no_row_level_identifiers(self):
+        _exit_code, output, _fake_conn = self._run([101, 202, 303], batch_size=3)
+        for forbidden in ("101", "202", "303", "SYNTHETIC/", ".doc"):
+            self.assertNotIn(forbidden, output)
+
+    def test_checkpoint_written_and_resume_continues_after_a_failure(self):
+        # Batch 2 of 2 fails (row 4 is missing from the "database" at
+        # persist time); batch 1 must still be recorded as completed, and
+        # --resume must retry only the failed batch, never batch 1 again.
+        repo_rows_by_id = {1: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"), 2: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"), 3: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")}
+        # Row 4 is present in the SELECT (so pre-flight eligibility
+        # passes) but absent from the repository's lock-time table,
+        # simulating a row that vanished between selection and persist.
+        rows = [_targeted_recovery_row(i, "NOT_ATTEMPTED") for i in (1, 2, 3, 4)]
+        exit_code_1, _output_1, _conn_1 = self._run(
+            [1, 2, 3, 4], batch_size=2, rows=rows, repo_rows_by_id=repo_rows_by_id,
+        )
+        self.assertEqual(exit_code_1, 1)  # one batch failed
+        checkpoint = cdc.load_checkpoint(Path(self.checkpoint_file))
+        self.assertEqual(checkpoint.completed_batches, [0])
+        self.assertEqual(checkpoint.failed_batches, [1])
+
+        repo_rows_by_id[4] = ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")  # row 4 "reappears"
+        exit_code_2, _output_2, _conn_2 = self._run(
+            [1, 2, 3, 4], batch_size=2, resume=True, rows=rows, repo_rows_by_id=repo_rows_by_id,
+        )
+        self.assertEqual(exit_code_2, 0)
+        checkpoint = cdc.load_checkpoint(Path(self.checkpoint_file))
+        self.assertEqual(sorted(checkpoint.completed_batches), [0, 1])
+        self.assertEqual(checkpoint.failed_batches, [])
+
+    def test_rerun_without_resume_refuses_to_touch_an_existing_checkpoint(self):
+        self._run([1, 2], batch_size=2)  # completes fully, leaves a checkpoint behind
+        exit_code, _output, fake_conn = self._run([1, 2], batch_size=2, resume=False)
+        self.assertEqual(exit_code, 1)  # refused - checkpoint already exists for this scope
+        fake_conn.transaction.assert_not_called()  # never re-processes anything
+
+    def test_idempotent_resume_of_an_already_fully_completed_run_is_a_no_op(self):
+        self._run([1, 2], batch_size=2)  # completes fully
+        exit_code, _output, fake_conn = self._run([1, 2], batch_size=2, resume=True)
+        self.assertEqual(exit_code, 0)
+        fake_conn.transaction.assert_not_called()  # every batch already in completed_batches - nothing re-persisted
+
+    def test_no_flag_combination_selects_more_than_the_manifest(self):
+        # Structural guarantee already enforced by _fetch_targeted_recovery_rows'
+        # WHERE clause (archive_file_id = ANY(%s), manifest always mandatory) -
+        # this test proves the orchestrator passes the manifest ids through
+        # unchanged and never substitutes a broader selection.
+        captured = {}
+
+        def capturing_fetch(conn, manifest_ids, extensions, extraction_statuses, failure_categories):
+            captured["manifest_ids"] = list(manifest_ids)
+            return [_targeted_recovery_row(i, "NOT_ATTEMPTED") for i in manifest_ids]
+
+        request = _valid_execution_request(self.tmp_dir, [5, 6, 7])
+        fake_conn = self._fake_conn()
+        with patch.dict(os.environ, {self.ENV_VAR: FAKE_DATABASE_URL}), \
+             patch.object(cdc, "_connect", return_value=fake_conn), \
+             patch.object(cdc, "_fetch_targeted_recovery_rows", side_effect=capturing_fetch), \
+             patch.object(cdc, "PostgresTechnicalSourceCandidateRepository", side_effect=lambda conn: FakeTargetedRecoveryRepository(conn, {5: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"), 6: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED"), 7: ("HUMAN_VALIDATED_CDC", "NOT_ATTEMPTED")})), \
+             patch("cdc_content_inspector.LocalContentInspector", return_value=FakeTechnicalSourceContentInspector({i: cdc.ContentInspectionOutcome(attempted=True, failed=False, extraction_method="doc_text") for i in (5, 6, 7)})), \
+             redirect_stdout(io.StringIO()):
+            cdc.run_targeted_recovery_execute(request, checkpoint_file=self.checkpoint_file)
+        self.assertEqual(captured["manifest_ids"], [5, 6, 7])
+
+    def test_semantic_only_row_in_manifest_aborts_before_any_extraction(self):
+        # run_targeted_recovery_execute itself raises fail-closed (main()
+        # is what turns this into exit_code 1 for a real CLI invocation -
+        # see the try/except around this call in main()); called directly
+        # here, the guard's exception is expected to propagate.
+        rows = [_targeted_recovery_row(1, "NOT_ATTEMPTED"), _targeted_recovery_row(2, "SUCCESS")]
+        request = _valid_execution_request(self.tmp_dir, [1, 2], batch_size=2)
+        fake_conn = self._fake_conn()
+        with patch.dict(os.environ, {self.ENV_VAR: FAKE_DATABASE_URL}), \
+             patch.object(cdc, "_connect", return_value=fake_conn), \
+             patch.object(cdc, "_fetch_targeted_recovery_rows", return_value=rows), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaises(cdc.TargetedRecoveryGuardError):
+                cdc.run_targeted_recovery_execute(request, checkpoint_file=self.checkpoint_file)
+        fake_conn.transaction.assert_not_called()
+
+
+class TestTargetedRecoveryCliGating(unittest.TestCase):
+    """Argparse-level guards for --targeted-recovery / --execute - proves
+    _connect is never even attempted for any malformed invocation, i.e.
+    there is no flag combination that reaches a database connection
+    without every guard already having passed."""
+
+    def _connect_should_never_be_called(self):
+        mock_connect = MagicMock(side_effect=AssertionError("DB connect must not be attempted"))
+        return patch.object(cdc, "_connect", mock_connect), mock_connect
+
+    def test_requires_manifest_file(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main(["--targeted-recovery", "--dry-run"])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_dry_run_and_execute_are_mutually_exclusive(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main(["--targeted-recovery", "--dry-run", "--execute", "--manifest-file", "/tmp/does-not-matter.json"])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_neither_dry_run_nor_execute_is_rejected(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main(["--targeted-recovery", "--manifest-file", "/tmp/does-not-matter.json"])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_execute_requires_every_safeguard_flag(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main(["--targeted-recovery", "--execute", "--manifest-file", "/tmp/does-not-matter.json"])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_execute_batch_size_must_be_positive(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main([
+                    "--targeted-recovery", "--execute", "--manifest-file", "/tmp/does-not-matter.json",
+                    "--expected-manifest-sha256", "a" * 64, "--expected-row-count", "108",
+                    "--expected-database-name", "GONOGO", "--deployment-ack", "GONOGO",
+                    "--confirm", cdc.TARGETED_RECOVERY_CONFIRMATION_TOKEN, "--batch-size", "0",
+                ])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_targeted_recovery_cannot_be_combined_with_persist(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main([
+                    "--targeted-recovery", "--dry-run", "--persist", "--manifest-file", "/tmp/does-not-matter.json",
+                ])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_execute_only_flags_rejected_outside_targeted_recovery(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main(["--pilot-limit", "5", "--dry-run", "--execute"])
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_no_bare_targeted_recovery_flag_alone_ever_connects(self):
+        # There is no flag combination that reaches --dry-run's or
+        # --execute's code path without --manifest-file AND exactly one of
+        # --dry-run/--execute already present - i.e. no "unrestricted"
+        # execution mode exists.
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as ctx:
+                cdc.main(["--targeted-recovery"])
         self.assertNotEqual(ctx.exception.code, 0)
         self.assertEqual(mock_connect.call_count, 0)
 

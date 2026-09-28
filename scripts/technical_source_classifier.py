@@ -479,6 +479,21 @@ EXTRACTION_FAILURE_CATEGORIES: tuple[str, ...] = (
     "EMPTY_EXTRACTED_TEXT",
     "ENCRYPTED_OR_PROTECTED",
     "SOURCE_FORMAT_MISMATCH",
+    # Added for the targeted-recovery task (review workflow): ODT/RTF/XLSX
+    # each get their own specific category rather than being folded into an
+    # unrelated existing one (matches the .DOC pipeline repair's own
+    # precedent of splitting a blanket bucket into precise categories).
+    "ODT_EXTRACTION_FAILURE",
+    "RTF_EXTRACTION_FAILURE",
+    "XLSX_EXTRACTION_FAILURE",
+    "XLSX_DIMENSIONS_EXCEEDED",
+    # A DOC->DOCX conversion that succeeded but produced no extractable
+    # text, where the converted DOCX is confirmed to contain embedded
+    # image parts - a more specific, actionable variant of
+    # EMPTY_EXTRACTED_TEXT (e.g. a scanned page embedded as a picture
+    # inside an otherwise-valid .doc, with no OCR available - see
+    # cdc_content_inspector.py's module docstring on OCR's status).
+    "DOC_EMBEDDED_IMAGES_ONLY",
 )
 
 # scripts/cdc_content_inspector.py's ExtractionError reason codes, mapped
@@ -513,6 +528,28 @@ _EXTRACTION_FAILURE_CATEGORY_BY_REASON: dict[str, str] = {
     "extracted_text_empty": "EMPTY_EXTRACTED_TEXT",
     "encrypted_or_protected": "ENCRYPTED_OR_PROTECTED",
     "source_format_mismatch": "SOURCE_FORMAT_MISMATCH",
+    # ODT (targeted recovery).
+    "odt_path_missing": "MISSING_SOURCE",
+    "odt_read_failed": "ODT_EXTRACTION_FAILURE",
+    "odt_xml_parse_failed": "ODT_EXTRACTION_FAILURE",
+    "odt_output_empty": "EMPTY_EXTRACTED_TEXT",
+    # RTF, now reachable as a standalone top-level extension.
+    "rtf_path_missing": "MISSING_SOURCE",
+    "rtf_read_failed": "RTF_EXTRACTION_FAILURE",
+    "rtf_output_empty": "EMPTY_EXTRACTED_TEXT",
+    # XLSX (targeted recovery, read-only).
+    "xlsx_path_missing": "MISSING_SOURCE",
+    "xlsx_read_failed": "XLSX_EXTRACTION_FAILURE",
+    "xlsx_malformed": "XLSX_EXTRACTION_FAILURE",
+    "xlsx_dimensions_exceeded": "XLSX_DIMENSIONS_EXCEEDED",
+    "xlsx_output_empty": "EMPTY_EXTRACTED_TEXT",
+    # DOC->DOCX conversion succeeded, extracted text was empty, AND the
+    # converted DOCX is confirmed to contain embedded image parts (see
+    # extract_doc_text's post-conversion media-part check) - a strictly
+    # more specific diagnosis than the generic "extracted_text_empty",
+    # raised instead of it (never both) whenever the image check positively
+    # matches.
+    "doc_embedded_images_only": "DOC_EMBEDDED_IMAGES_ONLY",
 }
 
 

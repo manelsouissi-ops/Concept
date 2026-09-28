@@ -40,6 +40,7 @@ SAFETY GUARANTEES
 """
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
@@ -213,6 +214,93 @@ def extract_pdf_text(
         return attempt_ocr_fallback(path, counters)
 
     return text[:char_limit]
+
+
+# =====================================================================
+# Size-aware PDF timeout policy + bounded timeout retry (targeted-recovery
+# Task 6). Evidence (controlled diagnostic, 2026-09-23): two real
+# EXTRACTION_IMPOSSIBLE/PDF_EXTRACTION_FAILURE samples (4.8MB/103 pages and
+# 32.8MB/58 pages) both hit the previous flat 60s timeout every time, and
+# both SUCCEEDED once given a 240s ceiling (in 99.8s and 62.9s respectively)
+# - a genuinely successful control file (227KB/49 pages) completed in 33.0s
+# well within the original 60s. This directly justifies: (1) small/normal
+# files keep the proven-sufficient 60s default unchanged; (2) files above a
+# size threshold well below both failing samples get a higher INITIAL
+# timeout so most of them never need a retry at all; (3) a timeout failure
+# (and ONLY a timeout failure - never a deterministic one) gets exactly one
+# retry at an escalated timeout, capped at the evidence-proven-sufficient
+# 240s hard maximum.
+# =====================================================================
+
+# Both real failing samples were 4.8MB and 32.8MB; the successful control
+# was 227KB - 2MB sits well clear of both boundaries observed in evidence.
+PDF_LARGE_FILE_SIZE_BYTES = 2_000_000
+PDF_LARGE_FILE_INITIAL_TIMEOUT_SECONDS = 150.0
+PDF_MAX_TIMEOUT_SECONDS = 240.0  # hard cap - never exceeded, evidence-proven sufficient for both real samples
+
+
+def resolve_pdf_timeout(file_size_bytes: int) -> float:
+    """Pure function, no I/O: normal-sized files keep the existing default;
+    larger files start at a higher (but still well-under-the-cap) timeout,
+    leaving headroom for the one allowed retry to reach the 240s ceiling
+    without exceeding it."""
+    if file_size_bytes > PDF_LARGE_FILE_SIZE_BYTES:
+        return PDF_LARGE_FILE_INITIAL_TIMEOUT_SECONDS
+    return DOCLING_TIMEOUT_SECONDS
+
+
+def extract_pdf_text_with_retry(
+    path: Path,
+    counters: DiscoveryCounters,
+    char_limit: int = EXTRACTION_CHAR_LIMIT,
+    converter: DoclingConverter = default_docling_converter,
+) -> str:
+    """The size-aware, bounded-retry entry point - LocalContentInspector.inspect()
+    calls this instead of calling extract_pdf_text directly for PDFs.
+    Exactly one retry, and ONLY when the first attempt's failure reason is
+    specifically "docling_timeout" - a deterministic failure (missing
+    file, missing Docling interpreter, malformed/no output) is never
+    retried, since retrying it would reliably reproduce the identical
+    outcome for no benefit.
+
+    Invariant (extended from extract_pdf_text's own, since a retry makes a
+    SECOND raw call to it): pdf_extraction_calls ==
+    pdf_extraction_successes + pdf_extraction_failures + pdf_timeout_retries
+    - each raw extract_pdf_text() call increments pdf_extraction_calls once
+    (unchanged behavior); a superseded (retried) first attempt is counted
+    via pdf_timeout_retries, never tallied as its own success/failure by
+    the caller - only the FINAL attempt's outcome is."""
+    try:
+        file_size_bytes = path.stat().st_size
+    except OSError:
+        file_size_bytes = 0
+    timeout = resolve_pdf_timeout(file_size_bytes)
+
+    # The DoclingConverter type alias itself is (Path, Path) -> None - a
+    # timeout keyword is an OPTIONAL extension default_docling_converter
+    # happens to support, never a guarantee every converter (including
+    # test doubles built against the plain two-argument contract) honors.
+    # Checked once via signature inspection (never a bare try/except
+    # TypeError, which could otherwise mask a real bug raised from inside
+    # the converter's own execution as if it were an argument mismatch).
+    try:
+        _accepts_timeout = "timeout" in inspect.signature(converter).parameters
+    except (TypeError, ValueError):
+        _accepts_timeout = False
+
+    def _converter_with_timeout(t: float) -> DoclingConverter:
+        if _accepts_timeout:
+            return lambda source, destination: converter(source, destination, timeout=t)
+        return converter
+
+    try:
+        return extract_pdf_text(path, counters, char_limit, _converter_with_timeout(timeout))
+    except ExtractionError as error:
+        if error.reason_code != "docling_timeout":
+            raise
+        counters.pdf_timeout_retries += 1
+        retry_timeout = min(timeout * 2, PDF_MAX_TIMEOUT_SECONDS)
+        return extract_pdf_text(path, counters, char_limit, _converter_with_timeout(retry_timeout))
 
 
 def tally_pdf_extraction_failure(counters: DiscoveryCounters, reason_code: str) -> None:
@@ -479,6 +567,154 @@ class _HTMLTextExtractor(_HTMLParser):
         return " ".join(self._chunks)
 
 
+def extract_rtf_text_standalone(path: Path, counters: DiscoveryCounters, char_limit: int = EXTRACTION_CHAR_LIMIT) -> str:
+    """Wraps extract_rtf_text (already existing, already stdlib-only/safe)
+    with the counter bookkeeping and path-existence/empty-output checks
+    needed to use it as a TOP-LEVEL extension route (a genuine .rtf file),
+    not only as the .doc-pipeline's format-sniffing fallback. No shell
+    interpolation anywhere - this function never invokes a subprocess."""
+    counters.rtf_extraction_calls += 1
+    if not path.exists():
+        raise ExtractionError("rtf_path_missing")
+    text = extract_rtf_text(path, char_limit)
+    if not text.strip():
+        raise ExtractionError("rtf_output_empty")
+    return text
+
+
+# =====================================================================
+# ODT (OpenDocument Text) extraction - same technique as DOCX: it is also
+# a zip archive, with its text body in content.xml under the OpenDocument
+# namespace. Stdlib zipfile + XML only, no new dependency. Macro storage
+# (Basic/*, if present) and external hyperlink targets are simply never
+# opened - this function reads exactly one archive member (content.xml)
+# and nothing else, so there is no code path capable of executing a macro
+# or following a link.
+# =====================================================================
+
+_ODT_TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+_ODT_PARAGRAPH_TAGS = (f"{{{_ODT_TEXT_NS}}}p", f"{{{_ODT_TEXT_NS}}}h")
+
+
+def _extract_text_fragments_from_odt_xml_bytes(xml_bytes: bytes) -> "list[str]":
+    root = ET.fromstring(xml_bytes)
+    fragments: list[str] = []
+    for tag in _ODT_PARAGRAPH_TAGS:
+        for node in root.iter(tag):
+            # itertext() walks all nested inline-formatting spans within
+            # one paragraph/heading, exactly like DOCX's per-run <w:t>
+            # collection does for a whole paragraph.
+            text = "".join(node.itertext())
+            if text:
+                fragments.append(text)
+    return fragments
+
+
+def extract_odt_text(path: Path, counters: DiscoveryCounters, char_limit: int = EXTRACTION_CHAR_LIMIT) -> str:
+    counters.odt_extraction_calls += 1
+    if not path.exists():
+        raise ExtractionError("odt_path_missing")
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            try:
+                with archive.open("content.xml") as handle:
+                    xml_bytes = handle.read()
+            except KeyError as error:
+                raise ExtractionError("odt_read_failed") from error
+    except (zipfile.BadZipFile, OSError) as error:
+        raise ExtractionError("odt_read_failed") from error
+
+    try:
+        fragments = _extract_text_fragments_from_odt_xml_bytes(xml_bytes)
+    except ET.ParseError as error:
+        raise ExtractionError("odt_xml_parse_failed") from error
+
+    text = " ".join(fragments)[:char_limit]
+    if not text.strip():
+        raise ExtractionError("odt_output_empty")
+    return text
+
+
+# =====================================================================
+# XLSX extraction (targeted recovery) - read-only, macro-free, no
+# external-link following. openpyxl.load_workbook() itself never executes
+# VBA (it can only optionally PRESERVE the vbaProject.bin blob for
+# round-tripping when keep_vba=True; keep_vba=False here means that blob
+# is dropped entirely) and never makes a network call of any kind - both
+# guarantees are structural, not merely a matter of not calling an
+# execute-macro API that happens to exist. Bounded on sheet count, rows/
+# columns per sheet, total cells, and total extracted-text length, so a
+# pathological workbook cannot exhaust memory or produce an unbounded
+# result. Sheet names are included only in the internal fragment list
+# returned to the caller (never logged separately).
+# =====================================================================
+
+XLSX_MAX_SHEETS = 20
+XLSX_MAX_ROWS_PER_SHEET = 2_000
+XLSX_MAX_COLS_PER_SHEET = 200
+XLSX_MAX_CELLS_TOTAL = 200_000
+
+
+def extract_xlsx_text(path: Path, counters: DiscoveryCounters, char_limit: int = EXTRACTION_CHAR_LIMIT) -> str:
+    counters.xlsx_extraction_calls += 1
+    if not path.exists():
+        counters.xlsx_extraction_failures += 1
+        raise ExtractionError("xlsx_path_missing")
+
+    import openpyxl  # lazy import - matches the established convention (e.g. cdc_candidate_extractor.write_excel)
+
+    try:
+        workbook = openpyxl.load_workbook(str(path), data_only=True, read_only=True, keep_vba=False)
+    except Exception as error:  # noqa: BLE001 - openpyxl raises several distinct exception types for a malformed file
+        counters.xlsx_extraction_failures += 1
+        raise ExtractionError("xlsx_malformed") from error
+
+    try:
+        sheet_names = workbook.sheetnames
+        if len(sheet_names) > XLSX_MAX_SHEETS:
+            raise ExtractionError("xlsx_dimensions_exceeded")
+
+        fragments: list[str] = []
+        has_any_cell_value = False
+        total_cells = 0
+        for sheet_name in sheet_names:
+            # Sheet names are included in the internal representation (per
+            # the task's own requirement) but deliberately do NOT count as
+            # "content" for the empty-output check below - a workbook
+            # whose every cell is blank must still fail closed to
+            # xlsx_output_empty regardless of how its sheets are named.
+            fragments.append(sheet_name)
+            sheet = workbook[sheet_name]
+            for row_idx, row in enumerate(sheet.iter_rows(), start=1):
+                if row_idx > XLSX_MAX_ROWS_PER_SHEET:
+                    break
+                for col_idx, cell in enumerate(row, start=1):
+                    if col_idx > XLSX_MAX_COLS_PER_SHEET:
+                        break
+                    total_cells += 1
+                    if total_cells > XLSX_MAX_CELLS_TOTAL:
+                        raise ExtractionError("xlsx_dimensions_exceeded")
+                    value = cell.value
+                    if value is not None:
+                        fragments.append(str(value))
+                        has_any_cell_value = True
+    except ExtractionError:
+        counters.xlsx_extraction_failures += 1
+        raise
+    finally:
+        workbook.close()
+
+    if not has_any_cell_value:
+        counters.xlsx_extraction_failures += 1
+        raise ExtractionError("xlsx_output_empty")
+
+    text = " ".join(fragments)[:char_limit]
+
+    counters.xlsx_extraction_successes += 1
+    return text
+
+
 def extract_html_text(path: Path, char_limit: int) -> str:
     """Stdlib-only HTML text extraction, for a ".doc"-named file that is
     actually HTML (e.g. Word's own "Web Page, Filtered" export)."""
@@ -653,11 +889,34 @@ def extract_doc_text(path: Path, counters: DiscoveryCounters, char_limit: int = 
             output_dir = Path(tmp_dir)
             converted = convert_doc_to_docx_via_libreoffice(path, output_dir)
             text = _read_docx_text(converted, char_limit)
+            if not text.strip() and _docx_contains_embedded_images(converted):
+                # Distinguishes "conversion succeeded, genuinely no text"
+                # from "conversion succeeded, but the source appears to be
+                # image-only content (e.g. a scanned page embedded as a
+                # picture)" - the latter needs OCR to ever recover text,
+                # the former does not. Checked INSIDE the TemporaryDirectory
+                # block since `converted` (and its extracted media) only
+                # exist for the lifetime of this temp directory.
+                raise ExtractionError("doc_embedded_images_only")
 
     if not text.strip():
         raise ExtractionError("extracted_text_empty")
 
     return text
+
+
+def _docx_contains_embedded_images(path: Path) -> bool:
+    """Bounded, local, offline check: does this DOCX package contain any
+    embedded image part (word/media/*)? Only lists archive member names -
+    never opens or reads an image's own bytes. Fails closed to False (never
+    raises) on any archive-reading problem, since this check only refines
+    an already-empty-text diagnosis and must never itself turn a real
+    failure into a different, misleading one."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return any(name.startswith("word/media/") for name in archive.namelist())
+    except (zipfile.BadZipFile, OSError):
+        return False
 
 
 # Maps an ExtractionError.reason_code to the specific DiscoveryCounters
@@ -1177,7 +1436,7 @@ class LocalContentInspector:
         normalized_extension = (extension or "").strip().lower()
         try:
             if normalized_extension == "pdf":
-                text = extract_pdf_text(file_path, counters, self._char_limit, self._pdf_converter)
+                text = extract_pdf_text_with_retry(file_path, counters, self._char_limit, self._pdf_converter)
                 extraction_method = "pdf_text"
             elif normalized_extension == "docx":
                 text = extract_docx_text(file_path, counters, self._char_limit)
@@ -1185,6 +1444,15 @@ class LocalContentInspector:
             elif normalized_extension == "doc":
                 text = extract_doc_text(file_path, counters, self._char_limit)
                 extraction_method = "doc_text"
+            elif normalized_extension == "odt":
+                text = extract_odt_text(file_path, counters, self._char_limit)
+                extraction_method = "odt_text"
+            elif normalized_extension == "rtf":
+                text = extract_rtf_text_standalone(file_path, counters, self._char_limit)
+                extraction_method = "rtf_text"
+            elif normalized_extension == "xlsx":
+                text = extract_xlsx_text(file_path, counters, self._char_limit)
+                extraction_method = "xlsx_text"
             else:
                 return ContentInspectionOutcome(
                     attempted=True, needs_human_review=True, reason_code="unsupported_extraction_format"
@@ -1195,15 +1463,20 @@ class LocalContentInspector:
             # failed_extractions) is centralized in
             # tally_pdf_extraction_failure/tally_doc_extraction_failure so
             # the *_extraction_calls == successes + failures invariant
-            # always holds in exactly one place. DOCX failures use the
-            # plain failed_extractions tally - they have no granular
-            # reason breakdown of their own.
+            # always holds in exactly one place. DOCX/ODT/RTF failures use
+            # the plain failed_extractions tally - they have no granular
+            # reason breakdown of their own. XLSX tallies its own
+            # successes/failures inside extract_xlsx_text itself (see its
+            # docstring), so it is deliberately excluded from this
+            # failed_extractions branch to avoid double-counting.
             if normalized_extension == "pdf":
                 tally_pdf_extraction_failure(counters, error.reason_code)
             elif normalized_extension == "doc":
                 tally_doc_extraction_failure(counters, error.reason_code)
-            else:
+            elif normalized_extension != "xlsx":
                 counters.failed_extractions += 1
+            if error.reason_code == "doc_embedded_images_only":
+                counters.doc_embedded_images_only += 1
             tally_content_extraction_failure_reason(counters)
             return ContentInspectionOutcome(
                 attempted=True,

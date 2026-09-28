@@ -335,6 +335,32 @@ class DiscoveryCounters:
     libreoffice_timeout: int = 0
     libreoffice_output_missing: int = 0
     libreoffice_output_empty: int = 0
+    # Task 7 (targeted recovery, review workflow): a DOC->DOCX conversion
+    # that succeeded but whose extracted text was empty is further
+    # distinguished from "source appears to contain embedded images only"
+    # (the converted DOCX contains word/media/* parts) - see
+    # extract_doc_text's detect_embedded_images_only detection.
+    doc_embedded_images_only: int = 0
+
+    # ODT extraction (targeted recovery) - same invariant pattern as
+    # docx_extraction_calls (ODT has no granular failure-reason counter of
+    # its own yet, same as DOCX; failures still increment failed_extractions).
+    odt_extraction_calls: int = 0
+
+    # RTF extraction, now reachable as a standalone top-level extension
+    # (not only as a .doc-in-disguise fallback) - see
+    # LocalContentInspector.inspect().
+    rtf_extraction_calls: int = 0
+
+    # XLSX extraction (targeted recovery, read-only, macro-free).
+    xlsx_extraction_calls: int = 0
+    xlsx_extraction_successes: int = 0
+    xlsx_extraction_failures: int = 0
+
+    # PDF timeout-retry bookkeeping (Task 6): incremented once per retry
+    # actually attempted, never per initial attempt - see
+    # extract_pdf_text_with_retry.
+    pdf_timeout_retries: int = 0
 
     # Aggregate classification reason counters (Task 5): WHY a
     # successfully-read document ended up with the role/status it did.
@@ -533,6 +559,14 @@ class ArchiveFileRow:
     # only ever used internally to open a file for local extraction. See
     # resolve_file_path() in scripts/cdc_content_inspector.py.
     source_root_path: Optional[str] = None
+    # The candidate row's CURRENT extraction_status, as of the moment this
+    # row was fetched (targeted recovery's pre-flight eligibility check
+    # needs this to reject the 26 already-SUCCESS semantic-review-only
+    # rows - see verify_targeted_recovery_row_eligibility). None for every
+    # fetch function that does not join historical_technical_source_candidates
+    # at all (e.g. _fetch_archive_file_rows), and for every other targeted-
+    # recovery caller that does not need it.
+    extraction_status: Optional[str] = None
 
 
 _OFFRES_YEAR_SEGMENT_PATTERN = re.compile(r"^OFFRES[\s._-]+((?:19|20)\d{2})$", re.IGNORECASE)
@@ -1636,6 +1670,39 @@ class TechnicalSourceCandidateRepository(Protocol):
         is a no-op change in effect, not an error)."""
         ...
 
+    def lock_rows_for_extraction_update(self, archive_file_ids: Sequence[int]) -> "List[tuple[int, str, str]]":
+        """SELECT ... FOR UPDATE the exact target rows (archive_file_id,
+        validation_status, extraction_status), inside the caller's open
+        transaction. Used ONLY by the targeted-recovery --execute
+        orchestrator immediately before verifying prior state and calling
+        update_extraction_result_only - never by any other mode. Must be
+        called inside an open transaction; the lock is released on that
+        transaction's commit/rollback."""
+        ...
+
+    def update_extraction_result_only(
+        self,
+        archive_file_id: int,
+        extraction_status: str,
+        extraction_method: Optional[str],
+        extraction_failure_category: Optional[str],
+    ) -> None:
+        """Used ONLY by the targeted-recovery --execute orchestrator.
+        Touches extraction_status/extraction_method/extraction_failure_category
+        and updated_at ONLY - never validation_status/reviewed_at/
+        reviewed_by/human_review_import_batch_id/review_priority/
+        detected_role/structural_score/structural_max/structural_ratio/
+        structural_band/confidence/technical_source_candidate/
+        classification_method/project_mapping_status/year/
+        project_reference/duplicate_of_archive_file_id/is_primary_candidate/
+        classifier_version. Re-deriving role/score/priority from newly-
+        recovered text is a deliberately SEPARATE, later semantic-review
+        concern (see run_targeted_recovery_execute's module docstring),
+        not something extraction recovery does implicitly. Raises if the
+        row is not found or its validation_status is not
+        HUMAN_VALIDATED_CDC (fail closed - never a silent no-op)."""
+        ...
+
 
 class PostgresTechnicalSourceCandidateRepository:
     """Real persistence, targeting knowledge_base.historical_technical_source_candidates
@@ -1742,6 +1809,55 @@ class PostgresTechnicalSourceCandidateRepository:
             )
             if cur.rowcount == 0:
                 raise ValueError(f"No candidate row found for archive_file_id={archive_file_id!r}")
+
+    def lock_rows_for_extraction_update(self, archive_file_ids: Sequence[int]) -> "List[tuple[int, str, str]]":
+        # Must be called inside an already-open transaction (the caller's
+        # `with conn.transaction():` block) - FOR UPDATE's lock is only
+        # meaningful, and is only ever released, as part of that
+        # transaction's own commit/rollback.
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                select archive_file_id, validation_status, extraction_status
+                from knowledge_base.historical_technical_source_candidates
+                where archive_file_id = any(%s)
+                for update
+                """,
+                (list(archive_file_ids),),
+            )
+            return [(r[0], r[1], r[2]) for r in cur.fetchall()]
+
+    def update_extraction_result_only(
+        self,
+        archive_file_id: int,
+        extraction_status: str,
+        extraction_method: Optional[str],
+        extraction_failure_category: Optional[str],
+    ) -> None:
+        # Deliberately narrow column list - see the Protocol docstring
+        # above for the full list of fields this must never touch.
+        # validation_status = 'HUMAN_VALIDATED_CDC' in the WHERE clause is
+        # a second, independent enforcement of the same guarantee the
+        # orchestrator's pre-flight eligibility check already made -
+        # belt-and-suspenders, not a substitute for it.
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                update knowledge_base.historical_technical_source_candidates
+                set extraction_status = %s,
+                    extraction_method = %s,
+                    extraction_failure_category = %s,
+                    updated_at = now()
+                where archive_file_id = %s and validation_status = 'HUMAN_VALIDATED_CDC'
+                """,
+                (extraction_status, extraction_method, extraction_failure_category, archive_file_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError(
+                    f"extraction-result update matched {cur.rowcount} rows for "
+                    "archive_file_id (expected exactly 1) - row missing or not "
+                    "HUMAN_VALIDATED_CDC; refusing to proceed."
+                )
 
 
 def persist_technical_source_candidates(
@@ -2049,6 +2165,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "checkpoint."
         ),
     )
+    mode.add_argument(
+        "--targeted-recovery",
+        action="store_true",
+        help=(
+            "Recover extraction for an explicit, private, manifest-listed set of "
+            "HUMAN_VALIDATED_CDC candidates only - never an unrestricted archive-wide run. "
+            "Requires --manifest-file and exactly one of --dry-run/--execute. --dry-run validates "
+            "the manifest and reports aggregate selection counts only, never opening a document. "
+            "--execute is the only code path in this module that can persist a real targeted-"
+            "recovery result, and requires --expected-manifest-sha256, --expected-row-count, "
+            "--expected-database-name, --deployment-ack, --confirm, and --batch-size, plus the "
+            f"dedicated {TARGETED_RECOVERY_DATABASE_URL_ENV_VAR} environment variable (never the "
+            "generic DATABASE_URL). Only writes extraction_status/extraction_method/"
+            "extraction_failure_category - never validation_status, reviewed_by, reviewed_at, "
+            "human_review_import_batch_id, review_priority, or any other machine-classification "
+            "field. --resume continues a previously interrupted --execute run from its checkpoint."
+        ),
+    )
 
     parser.add_argument(
         "--dry-run",
@@ -2185,11 +2319,126 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "and aggregate counts - never a filename, path, or project name."
         ),
     )
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help=(
+            "With --targeted-recovery: the only flag that can persist a real recovery result. "
+            "Mutually exclusive with --dry-run; requires every one of --expected-manifest-sha256/"
+            "--expected-row-count/--expected-database-name/--deployment-ack/--confirm/--batch-size."
+        ),
+    )
+    parser.add_argument(
+        "--manifest-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help=(
+            "With --targeted-recovery: path to a private, local JSON manifest (a bare array of "
+            "archive_file_ids, or an object with an \"archive_file_ids\" array). Required with "
+            "--targeted-recovery; not accepted by any other mode."
+        ),
+    )
+    parser.add_argument(
+        "--expected-manifest-sha256",
+        type=str,
+        default=None,
+        metavar="HEX",
+        help=(
+            "With --targeted-recovery --execute: the SHA-256 (hex) of the exact manifest file "
+            "bytes that were reviewed and authorized for this run. --execute refuses to proceed "
+            "if the manifest on disk does not hash to this value. Required with --execute."
+        ),
+    )
+    parser.add_argument(
+        "--expected-row-count",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "With --targeted-recovery --execute: the exact number of archive_file_ids the "
+            "manifest must contain. --execute refuses to proceed on any mismatch. Required with "
+            "--execute."
+        ),
+    )
+    parser.add_argument(
+        "--expected-database-name",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "With --targeted-recovery --execute: the database name --execute must actually "
+            "connect to (verified via current_database()) before touching any row. Required with "
+            "--execute."
+        ),
+    )
+    parser.add_argument(
+        "--deployment-ack",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=(
+            "With --targeted-recovery --execute: must be typed by the operator and must exactly "
+            "equal --expected-database-name - forces a deliberate acknowledgement of which "
+            "environment is about to be modified. Required with --execute."
+        ),
+    )
+    parser.add_argument(
+        "--confirm",
+        type=str,
+        default=None,
+        metavar="TOKEN",
+        help=(
+            f"With --targeted-recovery --execute: must exactly equal "
+            f"{TARGETED_RECOVERY_CONFIRMATION_TOKEN!r} (a fixed, non-secret token that exists only "
+            "to stop an accidental/copy-pasted invocation from running for real). Required with "
+            "--execute."
+        ),
+    )
+    parser.add_argument(
+        "--extraction-statuses",
+        type=str,
+        default=None,
+        metavar="STATUS1,STATUS2",
+        help=(
+            "With --targeted-recovery: restrict selection to a comma-separated extraction_status "
+            "allowlist, narrowing the manifest further (never widening it). Optional; not accepted "
+            "by any other mode."
+        ),
+    )
+    parser.add_argument(
+        "--failure-categories",
+        type=str,
+        default=None,
+        metavar="CAT1,CAT2",
+        help=(
+            "With --targeted-recovery: restrict selection to a comma-separated "
+            "extraction_failure_category allowlist, narrowing the manifest further. Optional; not "
+            "accepted by any other mode."
+        ),
+    )
 
     return parser
 
 
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if not args.targeted_recovery and (
+        args.manifest_file is not None
+        or args.execute
+        or args.expected_manifest_sha256 is not None
+        or args.expected_row_count is not None
+        or args.expected_database_name is not None
+        or args.deployment_ack is not None
+        or args.confirm is not None
+        or args.extraction_statuses is not None
+        or args.failure_categories is not None
+    ):
+        parser.error(
+            "--manifest-file/--execute/--expected-manifest-sha256/--expected-row-count/"
+            "--expected-database-name/--deployment-ack/--confirm/--extraction-statuses/"
+            "--failure-categories only apply to --targeted-recovery."
+        )
+
     if args.summary:
         if (
             args.dry_run
@@ -2286,6 +2535,66 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
             parser.error("--process-persisted-candidates requires --batch-size.")
         if args.batch_size <= 0:
             parser.error("--batch-size must be a positive integer.")
+        return
+
+    if args.targeted_recovery:
+        # Fail safely BEFORE any archive processing/DB connection starts -
+        # same "reject before archive processing" contract as every other
+        # mode's gating in this function.
+        if (
+            args.validate_single_confirmed
+            or args.open_single_confirmed
+            or args.enable_content_inspection
+            or args.persist_prefilter_only
+            or args.persist
+            or args.idempotent_run
+        ):
+            parser.error(
+                "--targeted-recovery cannot be combined with --validate-single-confirmed/"
+                "--open-single-confirmed/--enable-content-inspection/--persist-prefilter-only/"
+                "--persist/--idempotent-run (use --dry-run or --execute instead of --persist)."
+            )
+        if args.limit is not None:
+            parser.error("--limit only applies to --process-persisted-candidates/--retry-failed.")
+        if args.failure_category is not None:
+            parser.error("--failure-category only applies to --retry-failed (use --failure-categories).")
+        if args.manifest_file is None:
+            parser.error("--targeted-recovery requires --manifest-file.")
+        if args.dry_run and args.execute:
+            parser.error("--dry-run and --execute are mutually exclusive.")
+        if not args.dry_run and not args.execute:
+            parser.error("--targeted-recovery requires exactly one of --dry-run or --execute.")
+        if args.dry_run:
+            if (
+                args.expected_manifest_sha256 is not None
+                or args.expected_row_count is not None
+                or args.expected_database_name is not None
+                or args.deployment_ack is not None
+                or args.confirm is not None
+                or args.batch_size is not None
+                or args.resume
+            ):
+                parser.error(
+                    "--dry-run cannot be combined with --expected-manifest-sha256/"
+                    "--expected-row-count/--expected-database-name/--deployment-ack/--confirm/"
+                    "--batch-size/--resume (those apply only to --execute)."
+                )
+        if args.execute:
+            missing = [
+                name for name, value in (
+                    ("--expected-manifest-sha256", args.expected_manifest_sha256),
+                    ("--expected-row-count", args.expected_row_count),
+                    ("--expected-database-name", args.expected_database_name),
+                    ("--deployment-ack", args.deployment_ack),
+                    ("--confirm", args.confirm),
+                    ("--batch-size", args.batch_size),
+                )
+                if value is None
+            ]
+            if missing:
+                parser.error(f"--execute requires {', '.join(missing)}.")
+            if args.batch_size <= 0:
+                parser.error("--batch-size must be a positive integer.")
         return
 
     if args.retry_failed:
@@ -3378,6 +3687,567 @@ def run_retry_failed_candidates_mode(
     return 1 if checkpoint.failed_batches else 0
 
 
+# =====================================================================
+# --targeted-recovery: a SEPARATE, narrowly-scoped mode selecting ONLY
+# candidates named by an explicit, caller-supplied manifest of
+# archive_file_ids - never a blanket query. This is the safety-critical
+# guarantee the review-workflow targeted-recovery task requires: a
+# recovery run can never accidentally process the complete archive, no
+# matter what extension/status/category filters are also supplied,
+# because those filters can only ever NARROW the manifest set further -
+# they are never, by themselves, a sufficient selection criterion. Reuses
+# run_persisted_candidate_content_processing (the same Stage B engine
+# every other selection mode already uses) unchanged - only the row
+# selection differs from --process-persisted-candidates/--retry-failed.
+# =====================================================================
+
+DEFAULT_TARGETED_RECOVERY_CHECKPOINT_PATH = "scripts/.cdc_targeted_recovery_checkpoint.json"
+TARGETED_RECOVERY_MAX_MANIFEST_SIZE = 500  # a "targeted" recovery is never a full-corpus run in disguise
+
+
+class TargetedRecoveryManifestError(ValueError):
+    """Raised for any manifest that would make this mode behave like an
+    unscoped query - fails closed rather than silently falling back to
+    "select everything"."""
+
+
+def validate_targeted_recovery_manifest(manifest_archive_file_ids: Sequence[int]) -> None:
+    """Pure, no I/O. The single safety gate every caller of
+    _fetch_targeted_recovery_rows passes through first."""
+    if not manifest_archive_file_ids:
+        raise TargetedRecoveryManifestError(
+            "a targeted-recovery manifest must name at least one archive_file_id explicitly; "
+            "an empty or missing manifest is refused rather than treated as 'select everything'."
+        )
+    if len(manifest_archive_file_ids) > TARGETED_RECOVERY_MAX_MANIFEST_SIZE:
+        raise TargetedRecoveryManifestError(
+            f"manifest lists {len(manifest_archive_file_ids)} archive_file_ids, exceeding the "
+            f"targeted-recovery cap of {TARGETED_RECOVERY_MAX_MANIFEST_SIZE}; split into smaller "
+            "manifests - this mode is for a small, deliberate recovery batch, not a full-corpus run."
+        )
+    if any(not isinstance(afid, int) or isinstance(afid, bool) or afid <= 0 for afid in manifest_archive_file_ids):
+        raise TargetedRecoveryManifestError("every manifest entry must be a positive integer archive_file_id.")
+    if len(set(manifest_archive_file_ids)) != len(manifest_archive_file_ids):
+        raise TargetedRecoveryManifestError("manifest archive_file_ids must be unique - duplicates are refused.")
+
+
+def load_targeted_recovery_manifest(manifest_path: Path) -> "list[int]":
+    """Reads a private, local JSON manifest: either a bare JSON array of
+    integers, or an object with an "archive_file_ids" array - the same
+    permissive shape convention used elsewhere in this codebase's pilot
+    manifests. Never reads anything but this one small file."""
+    try:
+        raw_text = manifest_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise TargetedRecoveryManifestError("manifest file could not be read.") from error
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as error:
+        raise TargetedRecoveryManifestError("manifest file is not valid JSON.") from error
+
+    if isinstance(data, list):
+        ids = data
+    elif isinstance(data, dict) and isinstance(data.get("archive_file_ids"), list):
+        ids = data["archive_file_ids"]
+    else:
+        raise TargetedRecoveryManifestError(
+            'manifest must be a JSON array of integers, or an object with an "archive_file_ids" array.'
+        )
+    validate_targeted_recovery_manifest(ids)
+    return list(ids)
+
+
+def _fetch_targeted_recovery_rows(
+    conn,
+    manifest_archive_file_ids: Sequence[int],
+    extensions: Optional[Sequence[str]] = None,
+    extraction_statuses: Optional[Sequence[str]] = None,
+    failure_categories: Optional[Sequence[str]] = None,
+) -> "List[ArchiveFileRow]":
+    """The manifest is ALWAYS a mandatory, explicit WHERE archive_file_id =
+    ANY(...) filter - every other parameter can only narrow that set
+    further, never replace or widen it. validation_status is always
+    pinned to HUMAN_VALIDATED_CDC (Task 2's "only HUMAN_VALIDATED_CDC/OUI
+    rows" requirement) - the workbook's own OUI column is what the caller
+    used to build the manifest in the first place; this is a second,
+    independent, database-side enforcement of the same rule."""
+    validate_targeted_recovery_manifest(manifest_archive_file_ids)
+
+    conditions = ["c.archive_file_id = ANY(%s)", "c.validation_status = 'HUMAN_VALIDATED_CDC'"]
+    params: list = [list(manifest_archive_file_ids)]
+
+    if extensions:
+        conditions.append("f.extension = ANY(%s)")
+        params.append(list(extensions))
+    if extraction_statuses:
+        conditions.append("c.extraction_status = ANY(%s)")
+        params.append(list(extraction_statuses))
+    if failure_categories:
+        conditions.append("c.extraction_failure_category = ANY(%s)")
+        params.append(list(failure_categories))
+
+    where_clause = " AND ".join(conditions)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            select f.id, f.relative_path, f.filename, f.extension, f.sha256, r.label, r.root_path,
+                   c.extraction_status
+            from knowledge_base.historical_technical_source_candidates c
+            join knowledge_base.archive_files f on f.id = c.archive_file_id
+            join knowledge_base.archive_source_roots r on r.id = f.source_root_id
+            where {where_clause}
+            order by c.archive_file_id asc
+            """,
+            params,
+        )
+        return [
+            ArchiveFileRow(
+                id=r[0], relative_path=r[1], filename=r[2], extension=r[3], sha256=r[4],
+                source_root_label=r[5], source_root_path=r[6], extraction_status=r[7],
+            )
+            for r in cur.fetchall()
+        ]
+
+
+def build_targeted_recovery_scope_config(
+    manifest_archive_file_ids: Sequence[int],
+    extensions: Optional[Sequence[str]],
+    extraction_statuses: Optional[Sequence[str]],
+    failure_categories: Optional[Sequence[str]],
+    archive_source_root_identity: str,
+) -> dict:
+    """A distinct "mode" value from both build_process_persisted_scope_config
+    and build_retry_failed_scope_config - a targeted-recovery checkpoint
+    must never be treated as resumable/compatible with either of those,
+    even if it happened to select an overlapping candidate set."""
+    return {
+        "mode": "targeted_recovery",
+        "selection_mode": "manifest_driven_recovery_queue",
+        "validation_status_filter": "HUMAN_VALIDATED_CDC",
+        "manifest_size": len(manifest_archive_file_ids),
+        "manifest_hash": hashlib.sha256(
+            json.dumps(sorted(manifest_archive_file_ids)).encode("utf-8")
+        ).hexdigest()[:16],
+        "extensions_filter": sorted(extensions) if extensions else None,
+        "extraction_status_filter": sorted(extraction_statuses) if extraction_statuses else None,
+        "failure_category_filter": sorted(failure_categories) if failure_categories else None,
+        "order_by": PROCESS_PERSISTED_ORDER_BY,
+        "classifier_version": TECHNICAL_SOURCE_CLASSIFIER_VERSION,
+        "extraction_config_version": PROCESS_PERSISTED_EXTRACTION_CONFIG_VERSION,
+        "archive_source_root_identity": archive_source_root_identity,
+        "content_inspection_enabled": True,
+        "local_ai_enabled": False,
+    }
+
+
+def run_targeted_recovery_dry_run(
+    manifest_path: Path,
+    extensions: Optional[Sequence[str]] = None,
+    extraction_statuses: Optional[Sequence[str]] = None,
+    failure_categories: Optional[Sequence[str]] = None,
+) -> int:
+    """--targeted-recovery --dry-run: validates the manifest and reports
+    exactly which rows WOULD be selected (aggregate-only), without ever
+    resolving a file path, constructing a ContentInspector, or touching a
+    checkpoint - matches every other mode's own --dry-run contract in this
+    module. This is the safe, always-available entry point, unconditionally
+    reachable with nothing but a manifest and DATABASE_URL. The full
+    batch/checkpoint/persist orchestration lives in
+    run_targeted_recovery_execute below (--targeted-recovery --execute) -
+    a separate, far more heavily guarded function that this one's callers
+    are never routed to by accident (see build_arg_parser's mutually
+    exclusive --dry-run/--execute group)."""
+    manifest_ids = load_targeted_recovery_manifest(manifest_path)
+
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        print("DATABASE_URL is required.", file=sys.stderr)
+        return 1
+
+    conn = _connect(database_url)
+    try:
+        rows = _fetch_targeted_recovery_rows(conn, manifest_ids, extensions, extraction_statuses, failure_categories)
+    finally:
+        conn.close()
+
+    summary = {
+        "manifest_size": len(manifest_ids),
+        "candidates_selected": len(rows),
+        "extensions_filter": sorted(extensions) if extensions else None,
+        "extraction_status_filter": sorted(extraction_statuses) if extraction_statuses else None,
+        "failure_category_filter": sorted(failure_categories) if failure_categories else None,
+        "ordering_rule": PROCESS_PERSISTED_ORDER_BY,
+        "dry_run": True,
+        "persist": False,
+    }
+    _print_summary(summary)
+    return 0
+
+
+# =====================================================================
+# --targeted-recovery --execute: the full, heavily-guarded persistence
+# orchestrator for the EXTRACTION-RECOVERY population only (rows whose
+# extraction_status is currently NOT_ATTEMPTED or FAILED, and
+# validation_status is HUMAN_VALIDATED_CDC). This is a SEPARATE, narrower
+# population from the semantic-review-only population (already
+# extraction_status=SUCCESS, just missing a v3 review) - the two are never
+# mixed in one manifest or one CLI mode; see
+# verify_targeted_recovery_row_eligibility below for the explicit
+# extraction_status allowlist that enforces this.
+#
+# Deliberately does NOT re-derive detected_role/structural_score/
+# structural_band/confidence/technical_source_candidate/review_priority
+# from newly-recovered text - update_extraction_result_only only ever
+# writes extraction_status/extraction_method/extraction_failure_category.
+# Re-classifying a document's role/score from its now-available text is a
+# separate, later semantic-review step, run independently once extraction
+# recovery has made that text available.
+# =====================================================================
+
+TARGETED_RECOVERY_CONFIRMATION_TOKEN = "CONFIRM-CDC-TARGETED-RECOVERY-EXECUTE"
+# Deliberately NOT DATABASE_URL - a dedicated env var name so --execute can
+# never be triggered merely because a generic DATABASE_URL happens to be
+# set in the operator's shell for some unrelated purpose. The operator
+# must deliberately export this exact variable to run a real recovery.
+TARGETED_RECOVERY_DATABASE_URL_ENV_VAR = "CDC_TARGETED_RECOVERY_DATABASE_URL"
+TARGETED_RECOVERY_MAX_BATCH_SIZE = 10
+# The only two extraction_status values --execute is ever allowed to
+# select FROM (both as the initial fetch's implicit filter, applied by the
+# caller, and as this module's own belt-and-suspenders re-check) - this is
+# the exact mechanism that rejects the 26 already-SUCCESS semantic-review-
+# only rows from ever entering extraction recovery.
+TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES: tuple[str, ...] = ("NOT_ATTEMPTED", "FAILED")
+DEFAULT_TARGETED_RECOVERY_EXECUTE_CHECKPOINT_PATH = "scripts/.cdc_targeted_recovery_execute_checkpoint.json"
+
+
+class TargetedRecoveryGuardError(ValueError):
+    """Raised by any --execute safeguard failing closed BEFORE a database
+    connection is opened, or before any row is touched. Never raised by
+    --dry-run, which shares the pure manifest/selection code above but
+    never reaches any of the guard functions below."""
+
+
+@dataclass
+class TargetedRecoveryExecutionRequest:
+    """Every value an operator must supply, explicitly, to run a real
+    --execute. No field has a default - an incomplete invocation is a
+    TypeError before it ever reaches a guard function, let alone the
+    database."""
+
+    manifest_path: Path
+    expected_manifest_sha256: str
+    expected_row_count: int
+    expected_database_name: str
+    deployment_ack: str
+    confirmation_token: str
+    batch_size: int
+
+
+def compute_manifest_file_sha256(manifest_path: Path) -> str:
+    """Hashes the manifest FILE'S RAW BYTES - distinct from
+    build_targeted_recovery_scope_config's manifest_hash, which hashes the
+    sorted, parsed archive_file_id list instead. This one exists so an
+    operator's --expected-manifest-sha256 proves "this is the literal file
+    I reviewed and authorized", catching a hand-edit, whitespace change, or
+    wrong-file mistake that a parsed-content hash would not always catch."""
+    return hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+
+
+def verify_targeted_recovery_execution_guards(
+    request: TargetedRecoveryExecutionRequest, manifest_ids: Sequence[int]
+) -> None:
+    """Pure, no database I/O (the manifest file itself was already read by
+    the caller via load_targeted_recovery_manifest; this only re-hashes
+    those same bytes). Every check here runs, and must pass, BEFORE
+    run_targeted_recovery_execute ever calls _connect(). Order matters
+    only for which error message an operator sees first - every branch is
+    independently fail-closed."""
+    if request.confirmation_token != TARGETED_RECOVERY_CONFIRMATION_TOKEN:
+        raise TargetedRecoveryGuardError(
+            "confirmation token does not match the fixed token required for --execute. "
+            "This is not a secret and grants no access on its own - it exists only to stop "
+            "an accidental or copy-pasted invocation from running for real."
+        )
+    if request.deployment_ack != request.expected_database_name:
+        raise TargetedRecoveryGuardError(
+            "--deployment-ack must exactly equal --expected-database-name. This forces the "
+            "operator to type the target environment's name, not merely pass a flag."
+        )
+    if request.batch_size <= 0 or request.batch_size > TARGETED_RECOVERY_MAX_BATCH_SIZE:
+        raise TargetedRecoveryGuardError(
+            f"--batch-size must be between 1 and {TARGETED_RECOVERY_MAX_BATCH_SIZE} for "
+            "targeted recovery (a deliberately small ceiling - this mode is never meant to "
+            "move large volumes of rows per commit)."
+        )
+    if request.expected_row_count <= 0:
+        raise TargetedRecoveryGuardError("--expected-row-count must be a positive integer.")
+    actual_sha256 = compute_manifest_file_sha256(request.manifest_path)
+    if actual_sha256 != request.expected_manifest_sha256:
+        raise TargetedRecoveryGuardError(
+            "manifest file SHA-256 does not match --expected-manifest-sha256 - the manifest "
+            "on disk has drifted from the one that was reviewed and authorized for this run."
+        )
+    if len(manifest_ids) != request.expected_row_count:
+        raise TargetedRecoveryGuardError(
+            f"manifest lists {len(manifest_ids)} archive_file_id(s); expected exactly "
+            f"{request.expected_row_count} (--expected-row-count)."
+        )
+
+
+def verify_targeted_recovery_row_eligibility(rows: Sequence["ArchiveFileRow"], manifest_ids: Sequence[int]) -> None:
+    """Fails closed on:
+      - unmatched manifest ids: fewer rows returned than manifest entries
+        means at least one archive_file_id either does not exist, or its
+        validation_status is not HUMAN_VALIDATED_CDC (covers HUMAN_REJECTED_CDC
+        ["NON"], HUMAN_UNCERTAIN ["INCERTAIN"], and every unreviewed status -
+        MACHINE_CLASSIFIED/NEEDS_HUMAN_REVIEW - since _fetch_targeted_recovery_rows'
+        WHERE clause already pins validation_status = 'HUMAN_VALIDATED_CDC'
+        and so silently drops anything else from the result set);
+      - any fetched row whose extraction_status is not one of
+        TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES - this is the specific
+        check that rejects the 26 already-SUCCESS, semantic-review-only rows.
+    Never includes an archive_file_id, filename, or path in any raised
+    message - counts only, per this task's confidentiality constraint."""
+    if len(rows) != len(manifest_ids):
+        raise TargetedRecoveryGuardError(
+            f"{len(manifest_ids) - len(rows)} manifest archive_file_id(s) did not resolve to an "
+            "eligible HUMAN_VALIDATED_CDC row (not found, or validation_status is not "
+            "HUMAN_VALIDATED_CDC, e.g. HUMAN_REJECTED_CDC/HUMAN_UNCERTAIN/not yet reviewed). "
+            "Refusing to proceed with a partial or ambiguous manifest."
+        )
+    ineligible = sum(
+        1 for row in rows if row.extraction_status not in TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES
+    )
+    if ineligible:
+        raise TargetedRecoveryGuardError(
+            f"{ineligible} row(s) in the manifest already have extraction_status outside "
+            f"{TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES} (e.g. already SUCCESS). The "
+            "semantic-review-only population must never be submitted to extraction recovery - "
+            "build it into a separate manifest for the (not-yet-built) semantic-review mode instead."
+        )
+
+
+@dataclass
+class TargetedRecoveryBatchCounters:
+    """Aggregate-only counters for one targeted-recovery batch. No field
+    is ever a per-row identifier. as_dict() matches the convention
+    merge_counters_into_aggregate already expects (any object exposing
+    as_dict() -> dict of int/bool values works, not only FullCorpusCounters)."""
+
+    rows_extracted: int = 0
+    extraction_successes: int = 0
+    extraction_failures: int = 0
+    rows_persisted: int = 0
+    batches_completed: int = 0
+    batches_failed: int = 0
+
+    def as_dict(self) -> dict:
+        return {
+            "rows_extracted": self.rows_extracted,
+            "extraction_successes": self.extraction_successes,
+            "extraction_failures": self.extraction_failures,
+            "rows_persisted": self.rows_persisted,
+            "batches_completed": self.batches_completed,
+            "batches_failed": self.batches_failed,
+        }
+
+
+def run_targeted_recovery_batch_extraction(
+    rows: Sequence["ArchiveFileRow"], content_inspector: "ContentInspector"
+) -> "tuple[list[tuple[int, str, Optional[str], Optional[str]]], TargetedRecoveryBatchCounters]":
+    """Local extraction ONLY (Task 7: "process extraction outside database
+    transactions") - no database connection or transaction is opened
+    anywhere in this function. Returns a list of (archive_file_id,
+    extraction_status, extraction_method, extraction_failure_category)
+    tuples ready for persist_targeted_recovery_batch, plus aggregate-only
+    counters. Deliberately does NOT call build_technical_source_candidate
+    or re-derive detected_role/structural_score/review_priority - see this
+    section's module docstring above."""
+    counters = TargetedRecoveryBatchCounters()
+    extraction_counters = DiscoveryCounters()
+    results: list = []
+    for row in rows:
+        file_path = resolve_archive_file_path(row)
+        outcome = content_inspector.inspect(row.id, row.extension, extraction_counters, file_path=file_path)
+        counters.rows_extracted += 1
+        if outcome.attempted and not outcome.failed:
+            extraction_status = "SUCCESS"
+            extraction_method = outcome.extraction_method
+            extraction_failure_category = None
+            counters.extraction_successes += 1
+        else:
+            extraction_status = "FAILED"
+            extraction_method = None
+            extraction_failure_category = categorize_extraction_failure_reason(outcome.reason_code)
+            counters.extraction_failures += 1
+        results.append((row.id, extraction_status, extraction_method, extraction_failure_category))
+    return results, counters
+
+
+def persist_targeted_recovery_batch(
+    conn,
+    repository: "TechnicalSourceCandidateRepository",
+    extraction_results: "Sequence[tuple[int, str, Optional[str], Optional[str]]]",
+) -> bool:
+    """One bounded batch, one transaction (Task 7): locks the exact target
+    rows with SELECT ... FOR UPDATE, re-verifies each row's prior state
+    (validation_status still HUMAN_VALIDATED_CDC, extraction_status still
+    in TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES - defends against a
+    race between the pre-flight fetch and this transaction), then updates
+    ONLY the three extraction columns via update_extraction_result_only.
+    Any mismatch - a missing row, a validation_status that changed, an
+    extraction_status that is no longer eligible, or an update matching
+    zero rows - raises and the whole batch is rolled back; nothing already
+    written in this batch is left partially applied. Returns True on a
+    successful, committed batch."""
+    archive_file_ids = [archive_file_id for archive_file_id, _, _, _ in extraction_results]
+    try:
+        with conn.transaction():
+            locked_rows = repository.lock_rows_for_extraction_update(archive_file_ids)
+            locked_by_id = {row[0]: (row[1], row[2]) for row in locked_rows}
+            if len(locked_by_id) != len(archive_file_ids):
+                raise TargetedRecoveryGuardError(
+                    "batch row count changed between selection and locking - refusing to persist."
+                )
+            for archive_file_id, extraction_status, extraction_method, extraction_failure_category in extraction_results:
+                if archive_file_id not in locked_by_id:
+                    raise TargetedRecoveryGuardError("a batch row could not be locked - refusing to persist.")
+                current_validation_status, current_extraction_status = locked_by_id[archive_file_id]
+                if current_validation_status != "HUMAN_VALIDATED_CDC":
+                    raise TargetedRecoveryGuardError(
+                        "a batch row's validation_status changed since selection - refusing to persist."
+                    )
+                if current_extraction_status not in TARGETED_RECOVERY_ELIGIBLE_EXTRACTION_STATUSES:
+                    raise TargetedRecoveryGuardError(
+                        "a batch row's extraction_status changed since selection - refusing to persist."
+                    )
+                repository.update_extraction_result_only(
+                    archive_file_id, extraction_status, extraction_method, extraction_failure_category
+                )
+        # Same fix as every other --persist mode in this module:
+        # conn.transaction() alone does not durably commit - an explicit
+        # commit (whose failure is itself treated as a failed batch by the
+        # caller) is required.
+        conn.commit()
+        return True
+    except Exception:
+        return False
+
+
+def run_targeted_recovery_execute(
+    request: TargetedRecoveryExecutionRequest,
+    resume: bool = False,
+    checkpoint_file: Optional[str] = None,
+    extensions: Optional[Sequence[str]] = None,
+    extraction_statuses: Optional[Sequence[str]] = None,
+    failure_categories: Optional[Sequence[str]] = None,
+) -> int:
+    """--targeted-recovery --execute: the only code path in this module
+    that can persist a real extraction-recovery result. Every guard in
+    verify_targeted_recovery_execution_guards runs, and must pass, before
+    _connect() is ever called. The manifest is then fetched and every row
+    is checked by verify_targeted_recovery_row_eligibility before a single
+    document is opened. Extraction runs entirely outside any database
+    transaction; persistence is batched and checkpointed exactly like
+    run_process_persisted_candidates_mode, using update_extraction_result_only
+    so no field outside extraction_status/extraction_method/
+    extraction_failure_category is ever written."""
+    manifest_ids = load_targeted_recovery_manifest(request.manifest_path)
+    verify_targeted_recovery_execution_guards(request, manifest_ids)
+
+    database_url = os.getenv(TARGETED_RECOVERY_DATABASE_URL_ENV_VAR, "").strip()
+    if not database_url:
+        print(f"{TARGETED_RECOVERY_DATABASE_URL_ENV_VAR} is required for --execute.", file=sys.stderr)
+        return 1
+
+    checkpoint_path = Path(checkpoint_file or DEFAULT_TARGETED_RECOVERY_EXECUTE_CHECKPOINT_PATH)
+
+    conn = _connect(database_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select current_database()")
+            actual_database_name = cur.fetchone()[0]
+        if actual_database_name != request.expected_database_name:
+            print(
+                f"connected database {actual_database_name!r} does not match "
+                f"--expected-database-name {request.expected_database_name!r}; refusing to proceed.",
+                file=sys.stderr,
+            )
+            return 1
+
+        rows = _fetch_targeted_recovery_rows(conn, manifest_ids, extensions, extraction_statuses, failure_categories)
+        verify_targeted_recovery_row_eligibility(rows, manifest_ids)
+
+        root_identity = _archive_source_root_identity(rows)
+        scope_config = build_targeted_recovery_scope_config(
+            manifest_ids, extensions, extraction_statuses, failure_categories, root_identity
+        )
+        scope_config["executed"] = True  # distinct signature from a --dry-run's (dry-run never computes one at all)
+        scope_signature = compute_process_persisted_scope_signature([row.id for row in rows], scope_config)
+        batches = [rows[i:i + request.batch_size] for i in range(0, len(rows), request.batch_size)]
+
+        existing_checkpoint = load_checkpoint(checkpoint_path)
+        if existing_checkpoint is not None and existing_checkpoint.scope_signature == scope_signature:
+            if not resume:
+                print(
+                    "cdc_discovery: an incomplete targeted-recovery checkpoint already exists for "
+                    "this exact scope (same manifest, filters, and --batch-size). Pass --resume to "
+                    f"continue it, or remove {checkpoint_path} explicitly to start fresh.",
+                    file=sys.stderr,
+                )
+                return 1
+            checkpoint = existing_checkpoint
+        elif existing_checkpoint is not None and resume:
+            print(
+                "cdc_discovery: --resume was passed but the existing targeted-recovery checkpoint "
+                f"does not match the current scope. Refusing to overwrite it - remove {checkpoint_path} "
+                f"explicitly to start fresh. Mismatch: {describe_scope_mismatch(existing_checkpoint.config, scope_config)}",
+                file=sys.stderr,
+            )
+            return 1
+        else:
+            checkpoint = Checkpoint(
+                scope_signature=scope_signature, batch_size=request.batch_size, total_batches=len(batches),
+                config=scope_config,
+            )
+
+        from cdc_content_inspector import LocalContentInspector  # lazy - see module import-boundary note above
+
+        content_inspector: ContentInspector = LocalContentInspector()
+        repository = PostgresTechnicalSourceCandidateRepository(conn)
+
+        for batch_index, batch_rows in enumerate(batches):
+            if batch_index in checkpoint.completed_batches:
+                continue
+
+            extraction_results, batch_counters = run_targeted_recovery_batch_extraction(batch_rows, content_inspector)
+            if persist_targeted_recovery_batch(conn, repository, extraction_results):
+                batch_counters.rows_persisted = len(extraction_results)
+                batch_counters.batches_completed = 1
+                checkpoint.completed_batches.append(batch_index)
+                checkpoint.failed_batches = [b for b in checkpoint.failed_batches if b != batch_index]
+            else:
+                batch_counters.batches_failed = 1
+                if batch_index not in checkpoint.failed_batches:
+                    checkpoint.failed_batches.append(batch_index)
+
+            checkpoint.aggregate = merge_counters_into_aggregate(checkpoint.aggregate, batch_counters)
+            save_checkpoint(checkpoint_path, checkpoint)
+    finally:
+        conn.close()
+
+    summary = dict(checkpoint.aggregate)
+    summary["manifest_size"] = len(manifest_ids)
+    summary["candidates_selected"] = len(rows)
+    summary["batch_size"] = request.batch_size
+    summary["batches_total"] = len(batches)
+    summary["dry_run"] = False
+    summary["execute"] = True
+    _print_summary(summary)
+
+    return 1 if checkpoint.failed_batches else 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)  # --help / -h exits here, before any discovery code runs
@@ -3419,6 +4289,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             resume=args.resume,
             checkpoint_file=args.checkpoint_file or DEFAULT_RETRY_FAILED_CHECKPOINT_PATH,
         )
+
+    if args.targeted_recovery:
+        extensions = args.extensions.split(",") if args.extensions else None
+        extraction_statuses = args.extraction_statuses.split(",") if args.extraction_statuses else None
+        failure_categories = args.failure_categories.split(",") if args.failure_categories else None
+        if args.dry_run:
+            try:
+                return run_targeted_recovery_dry_run(
+                    manifest_path=Path(args.manifest_file),
+                    extensions=extensions,
+                    extraction_statuses=extraction_statuses,
+                    failure_categories=failure_categories,
+                )
+            except TargetedRecoveryManifestError as error:
+                print(f"cdc_discovery: {error}", file=sys.stderr)
+                return 1
+        request = TargetedRecoveryExecutionRequest(
+            manifest_path=Path(args.manifest_file),
+            expected_manifest_sha256=args.expected_manifest_sha256,
+            expected_row_count=args.expected_row_count,
+            expected_database_name=args.expected_database_name,
+            deployment_ack=args.deployment_ack,
+            confirmation_token=args.confirm,
+            batch_size=args.batch_size,
+        )
+        try:
+            return run_targeted_recovery_execute(
+                request,
+                resume=args.resume,
+                checkpoint_file=args.checkpoint_file or DEFAULT_TARGETED_RECOVERY_EXECUTE_CHECKPOINT_PATH,
+                extensions=extensions,
+                extraction_statuses=extraction_statuses,
+                failure_categories=failure_categories,
+            )
+        except (TargetedRecoveryGuardError, TargetedRecoveryManifestError) as error:
+            print(f"cdc_discovery: {error}", file=sys.stderr)
+            return 1
 
     return run_pilot_mode(
         pilot_limit=args.pilot_limit,

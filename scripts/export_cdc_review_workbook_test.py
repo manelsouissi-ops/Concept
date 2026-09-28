@@ -200,17 +200,53 @@ class AutomaticProposalLabelTest(unittest.TestCase):
                 row = synthetic_row(v3_proposed_role=None, detected_role=role)
                 self.assertEqual(export_mod.compute_automatic_proposal_label(row), label)
 
-    def test_unknown_role_is_non_analyse(self):
+    def test_unknown_role_no_v3_is_texte_extrait_sans_analyse_ia(self):
+        # Targeted-recovery Task 9: this state (extraction succeeded, rule-
+        # based role UNKNOWN, no v3 review) is now distinguished from a
+        # never-attempted row - it used to collapse into the same bare
+        # NON_ANALYSE label as NOT_ATTEMPTED; see the accompanying
+        # diagnostic report (2026-09-23).
         row = synthetic_row(v3_proposed_role=None, detected_role="UNKNOWN")
-        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.NON_ANALYSE)
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.TEXTE_EXTRAIT_SANS_ANALYSE_IA)
 
-    def test_extraction_failed_is_extraction_impossible(self):
-        row = synthetic_row(extraction_status="FAILED", detected_role="CDC")  # role must never leak through
-        self.assertEqual(export_mod.compute_automatic_proposal_label(row), "Extraction impossible")
+    def test_extraction_failed_pdf_is_echec_extraction_pdf_delai(self):
+        row = synthetic_row(
+            extraction_status="FAILED", extraction_failure_category="PDF_EXTRACTION_FAILURE",
+            extension="pdf", detected_role="CDC",  # role must never leak through
+        )
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.ECHEC_EXTRACTION_PDF_DELAI)
 
-    def test_not_attempted_is_non_analyse(self):
-        row = synthetic_row(extraction_status="NOT_ATTEMPTED", detected_role="CDC")
-        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.NON_ANALYSE)
+    def test_extraction_failed_doc_conversion_failure_is_echec_conversion_doc(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="CONVERSION_TIMEOUT", extension="doc")
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.ECHEC_CONVERSION_DOC)
+
+    def test_extraction_failed_doc_empty_text_is_conversion_doc_sans_texte(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="EMPTY_EXTRACTED_TEXT", extension="doc")
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.CONVERSION_DOC_SANS_TEXTE)
+
+    def test_extraction_failed_doc_embedded_images_only_is_conversion_doc_sans_texte(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="DOC_EMBEDDED_IMAGES_ONLY", extension="doc")
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.CONVERSION_DOC_SANS_TEXTE)
+
+    def test_extraction_failed_other_falls_back_to_extraction_impossible(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="OTHER", extension="odt")
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.EXTRACTION_IMPOSSIBLE)
+
+    def test_not_attempted_supported_format_is_analyse_non_planifiee(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", detected_role="CDC", extension="doc")
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.ANALYSE_NON_PLANIFIEE)
+
+    def test_not_attempted_unsupported_format_is_format_non_pris_en_charge(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", detected_role="CDC", extension="xls")
+        self.assertEqual(export_mod.compute_automatic_proposal_label(row), export_mod.FORMAT_NON_PRIS_EN_CHARGE)
+
+    def test_every_new_label_is_distinct(self):
+        labels = {
+            export_mod.ANALYSE_NON_PLANIFIEE, export_mod.FORMAT_NON_PRIS_EN_CHARGE,
+            export_mod.TEXTE_EXTRAIT_SANS_ANALYSE_IA, export_mod.ECHEC_EXTRACTION_PDF_DELAI,
+            export_mod.CONVERSION_DOC_SANS_TEXTE, export_mod.ECHEC_CONVERSION_DOC,
+        }
+        self.assertEqual(len(labels), 6)
 
 
 # =====================================================================

@@ -307,6 +307,38 @@ _ROLE_TO_PROPOSAL_LABEL = {
     "METHODOLOGY": "Autre document",
 }
 
+# Targeted-recovery review workflow (Task 9): the labels above, plus
+# "Extraction impossible" and the original bare NON_ANALYSE, previously
+# collapsed several genuinely different technical states into one
+# ambiguous string each - see the accompanying diagnostic report
+# (2026-09-23). Each new label names one specific, distinguishable cause;
+# NON_ANALYSE and "Extraction impossible" are kept only as last-resort
+# fallbacks for a state none of the more specific branches recognizes.
+ANALYSE_NON_PLANIFIEE = "Analyse non planifiée"
+FORMAT_NON_PRIS_EN_CHARGE = "Format non pris en charge"
+TEXTE_EXTRAIT_SANS_ANALYSE_IA = "Texte extrait — analyse IA non effectuée"
+ECHEC_EXTRACTION_PDF_DELAI = "Échec d'extraction PDF — délai dépassé"
+CONVERSION_DOC_SANS_TEXTE = "Conversion DOC sans texte"
+ECHEC_CONVERSION_DOC = "Échec de conversion DOC"
+EXTRACTION_IMPOSSIBLE = "Extraction impossible"
+
+# The extensions LocalContentInspector.inspect() (scripts/cdc_content_inspector.py)
+# can actually attempt extraction for today - kept as a small, local,
+# duplicated constant (never imported) for the same reason
+# assert_loopback_url is duplicated across modules elsewhere in this
+# codebase: this export script's own correctness must never depend on a
+# heavier sibling module's import surface being available at all.
+EXTRACTION_SUPPORTED_EXTENSIONS = ("pdf", "docx", "doc", "odt", "rtf", "xlsx")
+
+# extraction_failure_category values (scripts/technical_source_classifier.py)
+# that mean "the DOC->DOCX conversion step itself never produced a usable
+# output" vs. "conversion succeeded but the resulting text was empty" -
+# two genuinely different DOC failure modes that used to share one label.
+_DOC_CONVERSION_FAILURE_CATEGORIES = (
+    "CONVERSION_FAILED", "CONVERSION_TIMEOUT", "CONVERSION_NO_OUTPUT", "INVALID_DOCX_OUTPUT",
+)
+_DOC_EMPTY_TEXT_CATEGORIES = ("EMPTY_EXTRACTED_TEXT", "EMPTY_OUTPUT", "DOC_EMBEDDED_IMAGES_ONLY")
+
 
 def compute_automatic_proposal_label(row: CandidateExportRow) -> str:
     """Prefers the successful v3 AI proposal; falls back to the
@@ -316,13 +348,29 @@ def compute_automatic_proposal_label(row: CandidateExportRow) -> str:
     fetch_year_candidate_rows'/select_eligible_candidates' own convention
     of only ever attempting a v3 review when extraction_status='SUCCESS',
     so this ordering never actually conflicts with a real v3 result in
-    practice, only defends the display logic itself."""
+    practice, only defends the display logic itself.
+
+    Each branch is checked in order of specificity; a row matching an
+    earlier condition never falls through to a later, more generic one -
+    see the module-level label constants above for what each one means."""
     if row.extraction_status == "FAILED":
-        return "Extraction impossible"
+        if row.extension == "pdf" and row.extraction_failure_category == "PDF_EXTRACTION_FAILURE":
+            return ECHEC_EXTRACTION_PDF_DELAI
+        if row.extension == "doc" and row.extraction_failure_category in _DOC_CONVERSION_FAILURE_CATEGORIES:
+            return ECHEC_CONVERSION_DOC
+        if row.extension == "doc" and row.extraction_failure_category in _DOC_EMPTY_TEXT_CATEGORIES:
+            return CONVERSION_DOC_SANS_TEXTE
+        return EXTRACTION_IMPOSSIBLE
+
     if row.extraction_status == "NOT_ATTEMPTED":
-        return NON_ANALYSE
+        if row.extension in EXTRACTION_SUPPORTED_EXTENSIONS:
+            return ANALYSE_NON_PLANIFIEE
+        return FORMAT_NON_PRIS_EN_CHARGE
+
     role = row.v3_proposed_role if row.has_v3_review else row.detected_role
-    return _ROLE_TO_PROPOSAL_LABEL.get(role, NON_ANALYSE)
+    if role == "UNKNOWN" and not row.has_v3_review:
+        return TEXTE_EXTRAIT_SANS_ANALYSE_IA
+    return _ROLE_TO_PROPOSAL_LABEL.get(role, TEXTE_EXTRAIT_SANS_ANALYSE_IA)
 
 
 def compute_review_priority_group(row: CandidateExportRow) -> int:
