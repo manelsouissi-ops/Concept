@@ -15,6 +15,7 @@ possible from this file at all - nothing here constructs an ai_adapter.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import io
 import sys
 import tempfile
@@ -22,6 +23,7 @@ import time
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 
@@ -284,6 +286,78 @@ class TestXlsxExtraction(unittest.TestCase):
         self.assertEqual(tsc.categorize_extraction_failure_reason("xlsx_malformed"), "XLSX_EXTRACTION_FAILURE")
         self.assertEqual(tsc.categorize_extraction_failure_reason("xlsx_dimensions_exceeded"), "XLSX_DIMENSIONS_EXCEEDED")
         self.assertEqual(tsc.categorize_extraction_failure_reason("xlsx_output_empty"), "EMPTY_EXTRACTED_TEXT")
+        self.assertEqual(tsc.categorize_extraction_failure_reason("xlsx_dependency_missing"), "XLSX_EXTRACTION_FAILURE")
+
+
+class TestXlsxDependencyMissing(unittest.TestCase):
+    """Covers the fail-closed behavior when openpyxl itself is not
+    installed in the running interpreter - a deployment/environment
+    condition (e.g. scripts/archive_cartography's venv lacks it, while
+    services/knowledge-base's venv has it), not a property of any document.
+    Simulated via sys.modules['openpyxl'] = None, the standard mechanism
+    for forcing `import openpyxl` to raise ImportError without needing
+    openpyxl to actually be absent from this test's own interpreter."""
+
+    def setUp(self):
+        self.tmp = _tmpdir()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
+
+    def test_missing_openpyxl_raises_controlled_extraction_error(self):
+        path = self.tmp / "synthetic.xlsx"
+        path.write_bytes(b"placeholder bytes - never read, since the import itself fails first")
+        counters = DiscoveryCounters()
+        with patch.dict(sys.modules, {"openpyxl": None}):
+            with self.assertRaises(insp.ExtractionError) as ctx:
+                insp.extract_xlsx_text(path, counters)
+        self.assertEqual(ctx.exception.reason_code, "xlsx_dependency_missing")
+
+    def test_missing_openpyxl_maps_to_xlsx_extraction_failure_category(self):
+        self.assertEqual(
+            tsc.categorize_extraction_failure_reason("xlsx_dependency_missing"), "XLSX_EXTRACTION_FAILURE"
+        )
+
+    def test_missing_openpyxl_opens_no_database_connection(self):
+        # Structural guarantee: extract_xlsx_text's own signature has no
+        # conn/database parameter at all, so it is physically incapable of
+        # opening one - the same style of proof already used for
+        # run_targeted_recovery_batch_extraction.
+        params = list(inspect.signature(insp.extract_xlsx_text).parameters)
+        self.assertEqual(params, ["path", "counters", "char_limit"])
+
+    def test_missing_openpyxl_causes_no_partial_or_double_counting(self):
+        path = self.tmp / "synthetic2.xlsx"
+        path.write_bytes(b"placeholder")
+        counters = DiscoveryCounters()
+        with patch.dict(sys.modules, {"openpyxl": None}):
+            with self.assertRaises(insp.ExtractionError):
+                insp.extract_xlsx_text(path, counters)
+        self.assertEqual(counters.xlsx_extraction_calls, 1)
+        self.assertEqual(counters.xlsx_extraction_failures, 1)
+        self.assertEqual(counters.xlsx_extraction_successes, 0)
+
+    def test_valid_workbook_behavior_unchanged_when_openpyxl_present(self):
+        # Regression guard: the fix must not alter the success path at all
+        # when the dependency IS available.
+        path = self.tmp / "valid.xlsx"
+        write_synthetic_xlsx(path, {"Feuille1": [["Alpha", "Beta"], ["Gamma synthetique", 42]]})
+        counters = DiscoveryCounters()
+        text = insp.extract_xlsx_text(path, counters)
+        self.assertIn("Gamma synthetique", text)
+        self.assertEqual(counters.xlsx_extraction_calls, 1)
+        self.assertEqual(counters.xlsx_extraction_successes, 1)
+        self.assertEqual(counters.xlsx_extraction_failures, 0)
+
+    def test_error_carries_no_confidential_identifier(self):
+        path = self.tmp / "synthetic3.xlsx"
+        path.write_bytes(b"placeholder")
+        counters = DiscoveryCounters()
+        with patch.dict(sys.modules, {"openpyxl": None}):
+            with self.assertRaises(insp.ExtractionError) as ctx:
+                insp.extract_xlsx_text(path, counters)
+        self.assertNotIn(str(path), ctx.exception.reason_code)
+        self.assertNotIn(path.name, ctx.exception.reason_code)
+        self.assertIsNone(ctx.exception.sanitized_diagnostic)
+        self.assertEqual(ctx.exception.reason_code, "xlsx_dependency_missing")
 
 
 class TestPdfSizeAwareTimeoutPolicy(unittest.TestCase):

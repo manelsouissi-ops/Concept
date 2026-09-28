@@ -541,6 +541,11 @@ _EXTRACTION_FAILURE_CATEGORY_BY_REASON: dict[str, str] = {
     "xlsx_path_missing": "MISSING_SOURCE",
     "xlsx_read_failed": "XLSX_EXTRACTION_FAILURE",
     "xlsx_malformed": "XLSX_EXTRACTION_FAILURE",
+    # The openpyxl dependency itself was unavailable in the running
+    # interpreter - a deployment/environment condition, not a property of
+    # the document, but mapped to the same category as every other XLSX
+    # read/parse failure rather than introducing a new database category.
+    "xlsx_dependency_missing": "XLSX_EXTRACTION_FAILURE",
     "xlsx_dimensions_exceeded": "XLSX_DIMENSIONS_EXCEEDED",
     "xlsx_output_empty": "EMPTY_EXTRACTED_TEXT",
     # DOC->DOCX conversion succeeded, extracted text was empty, AND the

@@ -662,7 +662,17 @@ def extract_xlsx_text(path: Path, counters: DiscoveryCounters, char_limit: int =
         counters.xlsx_extraction_failures += 1
         raise ExtractionError("xlsx_path_missing")
 
-    import openpyxl  # lazy import - matches the established convention (e.g. cdc_candidate_extractor.write_excel)
+    try:
+        import openpyxl  # lazy import - matches the established convention (e.g. cdc_candidate_extractor.write_excel)
+    except ImportError as error:  # ModuleNotFoundError is a subclass of ImportError - covered by this alone
+        # Fails closed rather than letting an unhandled ModuleNotFoundError
+        # abort the whole recovery run: some interpreters this module runs
+        # under (e.g. scripts/archive_cartography's venv) do not have
+        # openpyxl installed, while others (services/knowledge-base's venv)
+        # do. No path/filename is ever included - see ExtractionError's own
+        # "reason_code only, never raw text/paths" contract.
+        counters.xlsx_extraction_failures += 1
+        raise ExtractionError("xlsx_dependency_missing") from error
 
     try:
         workbook = openpyxl.load_workbook(str(path), data_only=True, read_only=True, keep_vba=False)
