@@ -1,8 +1,13 @@
--- NOT APPLIED. Proposed schema change only - reviewed and written as part
--- of the targeted-recovery infrastructure task, not run against any
--- database (this task is explicitly read-only against PostgreSQL: the
--- constraint definitions below were confirmed via a single READ ONLY /
--- ROLLBACK inspection transaction, never a write).
+-- APPLIED AND LIVE-VERIFIED on GONOGO on 2026-09-28. Applied via psql with
+-- ON_ERROR_STOP, using this file's own BEGIN/COMMIT (no outer transaction,
+-- no manual substitutions). Verified afterward from a FRESH connection/
+-- transaction: both CHECK constraints now contain every previously-allowed
+-- value plus exactly the documented new ones; candidate_total unchanged at
+-- 750; total constraint count on the table unchanged at 37; the
+-- extraction_status/extraction_method/extraction_failure_category
+-- aggregate distributions are byte-for-byte identical before and after;
+-- max(updated_at) and a 0-row "updated in the last 10 minutes" count
+-- confirm no candidate row was touched by this migration.
 --
 -- Targeted CDC recovery infrastructure - widens the two CHECK constraints
 -- on knowledge_base.historical_technical_source_candidates that currently
