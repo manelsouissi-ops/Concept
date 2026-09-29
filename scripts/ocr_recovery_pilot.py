@@ -677,20 +677,26 @@ def run_ocr_pilot_for_document(
     review_output_dir: Optional[Path] = None,
     retain_ocr_text: bool = False,
     normalizer: PdfNormalizer = default_pdf_normalizer,
+    review_label: Optional[str] = None,
 ) -> OcrPilotResult:
     """Runs the full guarded OCR workflow for exactly one document. Never
     opens a PostgreSQL connection, never calls Ollama, never persists raw
     text in default mode. `document_workdir_name` must be a caller-chosen,
-    non-identifying label (e.g. "pilot-01") - never a filename or
-    archive_file_id; it also becomes the review-output filename stem when
-    review_output_dir is set.
+    non-identifying label - never a filename or archive_file_id - used
+    ONLY for the ephemeral per-document working directory, which is
+    always deleted before this function returns.
 
     review_output_dir (default None = normal mode, current no-retention
     behavior unchanged): when set to a private, non-Git directory, an
     OCR_SUCCESS or OCR_LOW_QUALITY result's searchable OCR PDF is written
-    there as "<document_workdir_name>.pdf" (mode 600, written atomically),
-    and - only if retain_ocr_text is also True - the extracted text as
-    "<document_workdir_name>.txt". A controlled failure (no valid,
+    there (mode 600, written atomically), and - only if retain_ocr_text is
+    also True - the extracted text too. The filename stem used is
+    `review_label` if given, otherwise `document_workdir_name` (2026-09-29:
+    deliberately a SEPARATE parameter from document_workdir_name - a
+    caller that names its ephemeral workdirs with an internal prefix, e.g.
+    "run2_pilot-01", must still be able to request the clean "PILOT-01"
+    review filename the task's naming convention requires, without the
+    two ever being conflated again). A controlled failure (no valid,
     size-bounded output was ever produced) never writes anything to
     review_output_dir. The ephemeral per-document working directory is
     still fully cleaned up in every case, exactly as in normal mode -
@@ -699,6 +705,8 @@ def run_ocr_pilot_for_document(
     normalized_extension = (extension or "").strip().lower()
     if normalized_extension not in ("doc", "pdf"):
         return OcrPilotResult(technical_outcome=OCR_UNEXPECTED_FAILURE, final_classification=OCR_FAILED, metrics=None)
+
+    effective_review_label = review_label if review_label is not None else document_workdir_name
 
     _reject_symlink_components(private_root)
     workdir = private_root / document_workdir_name
@@ -724,12 +732,12 @@ def run_ocr_pilot_for_document(
                     )
                 return _run_pdf_branch(
                     converted_pdf, workdir, ocr_runner, text_extractor, page_counter,
-                    document_workdir_name, review_output_dir, retain_ocr_text, normalizer,
+                    effective_review_label, review_output_dir, retain_ocr_text, normalizer,
                 )
 
             return _run_pdf_branch(
                 source_copy, workdir, ocr_runner, text_extractor, page_counter,
-                document_workdir_name, review_output_dir, retain_ocr_text, normalizer,
+                effective_review_label, review_output_dir, retain_ocr_text, normalizer,
             )
 
         except OcrError as error:

@@ -837,5 +837,60 @@ class RaisedLimitsRegressionTest(unittest.TestCase):
         self.assertLess(ocr.MAX_EXPANSION_RATIO, 50.0)
 
 
+class ReviewLabelDecouplingTest(unittest.TestCase):
+    """2026-09-29 regression: discovered from the real 7-document review-
+    mode rerun, where the ephemeral workdir name ("pilot_c_v2_pilot-01")
+    leaked into the retained review filename instead of the clean
+    PILOT-01 convention the workbook builder expects. review_label must
+    be independently settable from document_workdir_name."""
+
+    def setUp(self):
+        self.tmp = _tmpdir()
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        self.source, self.sha = _write_source(self.tmp, "src.pdf", b"%PDF-1.4 synthetic %%EOF")
+        self.private_root = self.tmp / "private_root"
+
+    def test_review_label_overrides_workdir_name_for_the_retained_filename(self):
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="internal_run2_pilot-01",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir, review_label="PILOT-01",
+        )
+        self.assertEqual(result.review_pdf_path.name, "PILOT-01.pdf")
+        self.assertNotIn("internal_run2", result.review_pdf_path.name)
+
+    def test_review_label_defaults_to_workdir_name_when_omitted(self):
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-02",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        self.assertEqual(result.review_pdf_path.name, "PILOT-02.pdf")
+
+    def test_ephemeral_workdir_still_named_by_document_workdir_name(self):
+        # The workdir itself (deleted afterward) is unaffected by review_label.
+        seen_workdir = {}
+        def capturing_ocr_runner(input_pdf, output_pdf, languages, timeout):
+            seen_workdir["path"] = input_pdf.parent.name
+            output_pdf.write_bytes(b"%PDF-1.4 %%EOF")
+        ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="internal-name-xyz",
+            ocr_runner=capturing_ocr_runner,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=self.tmp / "review_out", review_label="PILOT-03",
+        )
+        self.assertEqual(seen_workdir["path"], "internal-name-xyz")
+
+
 if __name__ == "__main__":
     unittest.main()
