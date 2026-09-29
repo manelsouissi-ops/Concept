@@ -36,6 +36,23 @@ SAFETY GUARANTEES
   never recomputed, inferred, or overridden by anything in this script -
   it is read once, verbatim, and displayed unchanged.
 
+EXTRACTION-STATE EXPLANATION NOTE (2026-09-29 audit)
+Diagnosis of the 67 NOT_ATTEMPTED and 66 FAILED extraction rows proved:
+all 67 NOT_ATTEMPTED rows are HUMAN_REJECTED_CDC (Youssef=NON) - a
+deliberate POLICY exclusion (two independent selection queries in
+cdc_discovery.py structurally never select a HUMAN_REJECTED_CDC row for
+extraction), never a technical failure - and the 66 FAILED rows split
+into DOC_EMBEDDED_IMAGES_ONLY=39, PDF_EXTRACTION_FAILURE=25,
+EMPTY_EXTRACTED_TEXT=2, each a genuine, controlled extraction attempt
+that did not produce usable text. compute_extraction_status_label() and
+compute_extraction_explanation() below turn those raw, easily-confused
+values into plain-French labels/sentences a non-technical reviewer can
+read without cross-referencing code - and, critically, never describe
+the policy exclusion (NOT_ATTEMPTED + Youssef=NON) as a technical
+failure. The raw extraction_status/extraction_failure_category values
+remain visible in "Motif précis en cas d'échec" and in full on the
+hidden technical sheet - nothing is hidden, only explained.
+
 SEMANTIC-EQUIVALENCE NOTE (2026-09-29 audit)
 Youssef's OUI is a broad USABILITY judgment: "le document est un CDC, OU
 CONTIENT un CDC, utilisable dans la base de connaissances historique" (see
@@ -108,12 +125,84 @@ VISIBLE_HEADERS = [
     "Priorité", "Année", "Projet", "Titre / fichier",
     "Proposition automatique initiale", "Décision de Youssef", "Commentaire humain",
     "Statut d'extraction actuel", "Méthode d'extraction", "Motif précis en cas d'échec",
+    "Explication de l'état d'extraction",
     "Revue IA après récupération", "Verdict IA", "Confiance IA", "Modèle IA", "Date de revue IA",
     "Comparaison décision humaine / verdict IA", "Action recommandée",
 ]
+
+# --- Human-readable extraction-state labels (2026-09-29 audit) -------
+# Maps extraction_failure_category (the DB's narrow, CHECK-constrained
+# vocabulary) to a plain-French label/explanation. DOC_EMBEDDED_IMAGES_ONLY,
+# PDF_EXTRACTION_FAILURE, and EMPTY_EXTRACTED_TEXT are the only three
+# values currently observed among the 66 FAILED rows; the fallback exists
+# only for a category this table has not been extended to cover yet - it
+# is never reached by the current 750-row population, but must still
+# behave honestly (never silently blank, never a fabricated technical
+# claim) if the failure-category vocabulary is widened later.
+EXTRACTION_FAILURE_CATEGORY_LABELS: "dict[str, str]" = {
+    "DOC_EMBEDDED_IMAGES_ONLY": "Échec — document composé d'images, OCR nécessaire",
+    "PDF_EXTRACTION_FAILURE": "Échec d'extraction PDF — diagnostic complémentaire nécessaire",
+    "EMPTY_EXTRACTED_TEXT": "Échec — aucun texte exploitable obtenu",
+}
+EXTRACTION_FAILURE_CATEGORY_LABEL_FALLBACK = "Échec d'extraction — catégorie non détaillée"
+
+EXTRACTION_FAILURE_CATEGORY_EXPLANATIONS: "dict[str, str]" = {
+    "DOC_EMBEDDED_IMAGES_ONLY": (
+        "Le document est composé uniquement d'images scannées ; l'extraction de texte "
+        "nécessiterait une reconnaissance optique de caractères (OCR)."
+    ),
+    "PDF_EXTRACTION_FAILURE": (
+        "L'extraction du texte de ce PDF a échoué pour une raison qui nécessite un "
+        "diagnostic technique complémentaire."
+    ),
+    "EMPTY_EXTRACTED_TEXT": "L'extraction a été tentée mais n'a produit aucun texte exploitable.",
+}
+EXTRACTION_FAILURE_CATEGORY_EXPLANATION_FALLBACK = (
+    "L'extraction a échoué pour une catégorie de motif non détaillée davantage dans la base de données."
+)
+
+
+def compute_extraction_status_label(row: ComparisonRow) -> str:
+    """Never describes a policy exclusion (NOT_ATTEMPTED + Youssef=NON) as
+    a technical failure, and never infers a technical failure for a
+    NOT_ATTEMPTED row without evidence - see the module's EXTRACTION-STATE
+    EXPLANATION NOTE."""
+    if row.extraction_status == "SUCCESS":
+        return "Texte extrait avec succès"
+    if row.extraction_status == "NOT_ATTEMPTED":
+        if row.youssef_decision == "NON":
+            return "Extraction non planifiée — document rejeté lors de la revue humaine"
+        return "Extraction non réalisée — motif à vérifier"
+    if row.extraction_status == "FAILED":
+        return EXTRACTION_FAILURE_CATEGORY_LABELS.get(
+            row.extraction_failure_category, EXTRACTION_FAILURE_CATEGORY_LABEL_FALLBACK
+        )
+    return "Statut d'extraction inconnu"  # unreachable given the DB's own CHECK constraint - never silently blank
+
+
+def compute_extraction_explanation(row: ComparisonRow) -> str:
+    """One short sentence: why extraction was deliberately not scheduled,
+    or what technical failure occurred, or that it succeeded. Companion
+    to compute_extraction_status_label() - same underlying facts, fuller
+    sentence form for the dedicated explanation column."""
+    if row.extraction_status == "SUCCESS":
+        return "Le texte du document a été extrait avec succès et est disponible pour analyse."
+    if row.extraction_status == "NOT_ATTEMPTED":
+        if row.youssef_decision == "NON":
+            return (
+                "L'extraction n'a pas été lancée car Youssef a rejeté ce document lors de la "
+                "revue humaine ; ce n'est pas un échec technique."
+            )
+        return "L'extraction n'a pas été réalisée pour ce document et le motif exact reste à vérifier."
+    if row.extraction_status == "FAILED":
+        return EXTRACTION_FAILURE_CATEGORY_EXPLANATIONS.get(
+            row.extraction_failure_category, EXTRACTION_FAILURE_CATEGORY_EXPLANATION_FALLBACK
+        )
+    return "État d'extraction inconnu."
 TECHNICAL_HEADERS = [
     "candidate_id", "archive_file_id", "relative_path (archive)",
     "is_primary_candidate", "duplicate_of_archive_file_id",
+    "extraction_status (raw)", "extraction_failure_category (raw)",
 ]
 
 
@@ -270,11 +359,34 @@ def compute_agreement(row: ComparisonRow) -> str:
     return AGREEMENT_DESACCORD
 
 
+EXTRACTION_FAILURE_CATEGORY_ACTIONS: "dict[str, str]" = {
+    "DOC_EMBEDDED_IMAGES_ONLY": "Préparer un pilote OCR local",
+    "PDF_EXTRACTION_FAILURE": "Diagnostiquer le PDF localement avant nouvelle tentative",
+    "EMPTY_EXTRACTED_TEXT": "Vérifier si le document est scanné ou endommagé",
+}
+EXTRACTION_FAILURE_CATEGORY_ACTION_FALLBACK = "Diagnostiquer localement avant nouvelle tentative"
+
+
 def compute_recommended_action(row: ComparisonRow, agreement: str) -> str:
+    """SUCCESS-with-a-current-AI-review rows (ACCORD/DESACCORD/A_REVOIR
+    from an actual comparison, i.e. row.has_ai_review is True) keep their
+    existing action message unchanged - only the extraction-state-driven
+    branches (ANALYSE_IA_IMPOSSIBLE, and NON_COMPARE's two distinct
+    causes) were updated for the 2026-09-29 human-readable-explanation
+    audit; see Part 3 of that task."""
     if agreement == AGREEMENT_ANALYSE_IA_IMPOSSIBLE:
-        return "Aucune action IA possible - échec d'extraction contrôlé"
+        return EXTRACTION_FAILURE_CATEGORY_ACTIONS.get(
+            row.extraction_failure_category, EXTRACTION_FAILURE_CATEGORY_ACTION_FALLBACK
+        )
     if agreement == AGREEMENT_NON_COMPARE:
-        return "Lancer la revue IA ciblée pour ce document"
+        if row.extraction_status == "NOT_ATTEMPTED":
+            if row.youssef_decision == "NON":
+                return "Aucune extraction requise sauf nouvelle décision humaine"
+            return "Vérifier le motif avant de planifier une extraction"
+        # extraction_status == "SUCCESS" here (FAILED is handled above,
+        # under ANALYSE_IA_IMPOSSIBLE) - text exists, no current-model
+        # semantic review has run yet.
+        return "Lancer la revue IA seulement si le document est dans le périmètre autorisé"
     if agreement == AGREEMENT_A_REVOIR:
         if row.youssef_decision == "INCERTAIN":
             return "Décision Youssef incertaine - revue humaine à compléter"
@@ -307,9 +419,10 @@ def build_row_cells(row: ComparisonRow) -> list:
         row.original_proposal,
         row.youssef_decision,
         "",  # Commentaire humain - not captured by the current import schema; left honestly blank
-        row.extraction_status,
+        compute_extraction_status_label(row),
         row.extraction_method or "",
         row.extraction_failure_category or "",
+        compute_extraction_explanation(row),
         "OUI" if row.has_ai_review else ("N/A" if row.extraction_status == "FAILED" else "NON"),
         compute_ai_verdict_label(row),
         row.ai_confidence if row.has_ai_review else None,
@@ -325,6 +438,7 @@ def build_technical_row_cells(row: ComparisonRow) -> list:
         row.candidate_id, row.archive_file_id, row.relative_path,
         "OUI" if row.is_primary_candidate else "NON",
         row.duplicate_of_archive_file_id if row.duplicate_of_archive_file_id is not None else "",
+        row.extraction_status, row.extraction_failure_category or "",
     ]
 
 
@@ -402,7 +516,15 @@ def build_workbook(rows: Sequence[ComparisonRow], model_name: str, schema_versio
     if ordered:
         ws.auto_filter.ref = f"A1:{last_col_letter}{last_row}"
 
-    column_widths = {3: 30, 4: 40, 5: 24, 7: 24, 12: 20}
+    # Named by header text (not a hardcoded position) so inserting a new
+    # column never silently mis-widens an unrelated one.
+    column_widths_by_header = {
+        "Projet": 30, "Titre / fichier": 40, "Proposition automatique initiale": 24,
+        "Commentaire humain": 24, "Verdict IA": 20, "Explication de l'état d'extraction": 45,
+    }
+    column_widths = {
+        VISIBLE_HEADERS.index(header) + 1: width for header, width in column_widths_by_header.items()
+    }
     for col_index, width in column_widths.items():
         ws.column_dimensions[get_column_letter(col_index)].width = width
 
@@ -439,9 +561,11 @@ def _build_summary_sheet(ws, rows: Sequence[ComparisonRow], model_name: str, sch
 
     agreement_counts = {value: 0 for value in AGREEMENT_VALUES}
     youssef_counts = {"OUI": 0, "NON": 0, "INCERTAIN": 0}
+    extraction_status_counts: dict = {}
     for row in rows:
         agreement_counts[compute_agreement(row)] += 1
         youssef_counts[row.youssef_decision] += 1
+        extraction_status_counts[row.extraction_status] = extraction_status_counts.get(row.extraction_status, 0) + 1
 
     line("Généré le", generated_at)
     line("Modèle IA", model_name)
@@ -452,6 +576,20 @@ def _build_summary_sheet(ws, rows: Sequence[ComparisonRow], model_name: str, sch
     line("  OUI", youssef_counts["OUI"])
     line("  NON", youssef_counts["NON"])
     line("  INCERTAIN", youssef_counts["INCERTAIN"])
+    line("")
+    line("État d'extraction (voir la colonne 'Explication de l'état d'extraction')")
+    for key in sorted(extraction_status_counts):
+        line(f"  {key}", extraction_status_counts[key])
+    line("")
+    line("Note sur l'état d'extraction (audit du 2026-09-29)")
+    line("  NOT_ATTEMPTED signifie que l'extraction n'a jamais été lancée pour ce")
+    line("  document. Quand Youssef a répondu NON, il s'agit d'une exclusion de")
+    line("  politique volontaire (le document rejeté n'est jamais sélectionné pour")
+    line("  extraction) - ce n'est jamais un échec technique. FAILED signifie qu'une")
+    line("  extraction a été tentée localement et n'a pas produit de texte exploitable ;")
+    line("  la colonne 'Explication de l'état d'extraction' précise la cause pour")
+    line("  chaque ligne, sans jamais présenter une exclusion de politique comme un")
+    line("  échec technique, ni l'inverse.")
     line("")
     line("Comparaison décision humaine / verdict IA")
     for value in AGREEMENT_VALUES:

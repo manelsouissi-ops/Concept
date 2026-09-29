@@ -341,7 +341,7 @@ class ConfidentialityScanTest(unittest.TestCase):
     def test_technical_sheet_never_carries_absolute_root_path(self):
         rows = [synthetic_row()]
         wb = mod.build_workbook(rows, "qwen3:14b", "v3", "2026-09-28 00:00")
-        self.assertEqual(len(mod.TECHNICAL_HEADERS), 5)
+        self.assertEqual(len(mod.TECHNICAL_HEADERS), 7)
         self.assertNotIn("root_path", mod.TECHNICAL_HEADERS)
         self.assertNotIn("source_root_path", mod.TECHNICAL_HEADERS)
 
@@ -615,6 +615,263 @@ class OutputDirectoryPermissionTest(unittest.TestCase):
             self.assertEqual(output_path.parent.stat().st_mode & 0o777, 0o700)
             self.assertEqual((output_path.parent.parent).stat().st_mode & 0o777, 0o700)
             self.assertEqual(output_path.stat().st_mode & 0o777, 0o600)
+
+
+class ExtractionStatusLabelTest(unittest.TestCase):
+    """2026-09-29 audit: every visible extraction label a non-technical
+    reviewer sees must be plain French, never a raw internal status, and
+    must never describe a policy exclusion as a technical failure."""
+
+    def test_success_label(self):
+        row = synthetic_row(extraction_status="SUCCESS")
+        self.assertEqual(mod.compute_extraction_status_label(row), "Texte extrait avec succès")
+
+    def test_not_attempted_with_youssef_non_is_policy_exclusion(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="HUMAN_REJECTED_CDC")
+        label = mod.compute_extraction_status_label(row)
+        self.assertEqual(label, "Extraction non planifiée — document rejeté lors de la revue humaine")
+        self.assertNotIn("échec", label.lower())
+
+    def test_not_attempted_with_youssef_oui_is_generic_not_a_policy_claim(self):
+        # Unexpected combination (0 rows like this exist today) - must
+        # never claim a rejection that didn't happen.
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="HUMAN_VALIDATED_CDC")
+        label = mod.compute_extraction_status_label(row)
+        self.assertEqual(label, "Extraction non réalisée — motif à vérifier")
+        self.assertNotIn("rejeté", label)
+
+    def test_not_attempted_with_youssef_incertain_is_generic_not_a_policy_claim(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="SOME_OTHER_STATUS")
+        label = mod.compute_extraction_status_label(row)
+        self.assertEqual(label, "Extraction non réalisée — motif à vérifier")
+        self.assertNotIn("rejeté", label)
+
+    def test_failed_doc_embedded_images_only_label(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="DOC_EMBEDDED_IMAGES_ONLY")
+        self.assertEqual(
+            mod.compute_extraction_status_label(row), "Échec — document composé d'images, OCR nécessaire"
+        )
+
+    def test_failed_pdf_extraction_failure_label(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="PDF_EXTRACTION_FAILURE")
+        self.assertEqual(
+            mod.compute_extraction_status_label(row),
+            "Échec d'extraction PDF — diagnostic complémentaire nécessaire",
+        )
+
+    def test_failed_empty_extracted_text_label(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="EMPTY_EXTRACTED_TEXT")
+        self.assertEqual(mod.compute_extraction_status_label(row), "Échec — aucun texte exploitable obtenu")
+
+    def test_failed_unknown_category_uses_honest_fallback_not_invented_claim(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="SOME_FUTURE_CATEGORY")
+        label = mod.compute_extraction_status_label(row)
+        self.assertEqual(label, mod.EXTRACTION_FAILURE_CATEGORY_LABEL_FALLBACK)
+        # never silently blank, never invents a specific technical claim
+        self.assertTrue(label)
+
+    def test_every_label_is_a_defined_string_never_none_or_empty(self):
+        combos = [
+            ("SUCCESS", None, "HUMAN_VALIDATED_CDC"),
+            ("SUCCESS", None, "HUMAN_REJECTED_CDC"),
+            ("NOT_ATTEMPTED", None, "HUMAN_REJECTED_CDC"),
+            ("NOT_ATTEMPTED", None, "HUMAN_VALIDATED_CDC"),
+            ("FAILED", "DOC_EMBEDDED_IMAGES_ONLY", "HUMAN_VALIDATED_CDC"),
+            ("FAILED", "PDF_EXTRACTION_FAILURE", "HUMAN_VALIDATED_CDC"),
+            ("FAILED", "EMPTY_EXTRACTED_TEXT", "HUMAN_VALIDATED_CDC"),
+        ]
+        for extraction_status, failure_category, validation_status in combos:
+            row = synthetic_row(
+                extraction_status=extraction_status, extraction_failure_category=failure_category,
+                validation_status=validation_status,
+            )
+            with self.subTest(extraction_status=extraction_status, failure_category=failure_category):
+                label = mod.compute_extraction_status_label(row)
+                self.assertIsInstance(label, str)
+                self.assertTrue(label.strip())
+
+
+class ExtractionExplanationTest(unittest.TestCase):
+    def test_success_explanation_mentions_success_not_failure(self):
+        row = synthetic_row(extraction_status="SUCCESS")
+        explanation = mod.compute_extraction_explanation(row)
+        self.assertIn("succès", explanation.lower())
+
+    def test_not_attempted_non_explanation_explicitly_says_not_a_technical_failure(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="HUMAN_REJECTED_CDC")
+        explanation = mod.compute_extraction_explanation(row)
+        self.assertIn("rejeté", explanation)
+        self.assertIn("pas un échec technique", explanation)
+
+    def test_not_attempted_other_explanation_does_not_claim_rejection(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="HUMAN_VALIDATED_CDC")
+        explanation = mod.compute_extraction_explanation(row)
+        self.assertNotIn("rejeté", explanation)
+
+    def test_each_failure_category_has_a_distinct_non_empty_explanation(self):
+        categories = ["DOC_EMBEDDED_IMAGES_ONLY", "PDF_EXTRACTION_FAILURE", "EMPTY_EXTRACTED_TEXT"]
+        explanations = set()
+        for category in categories:
+            row = synthetic_row(extraction_status="FAILED", extraction_failure_category=category)
+            explanation = mod.compute_extraction_explanation(row)
+            self.assertTrue(explanation.strip())
+            explanations.add(explanation)
+        self.assertEqual(len(explanations), 3)  # all distinct - no copy-paste collapse
+
+    def test_unknown_failure_category_uses_honest_fallback(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="SOME_FUTURE_CATEGORY")
+        explanation = mod.compute_extraction_explanation(row)
+        self.assertEqual(explanation, mod.EXTRACTION_FAILURE_CATEGORY_EXPLANATION_FALLBACK)
+
+
+class ExtractionActionRecommendationTest(unittest.TestCase):
+    def test_human_rejected_not_attempted_action(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="HUMAN_REJECTED_CDC")
+        agreement = mod.compute_agreement(row)
+        self.assertEqual(agreement, mod.AGREEMENT_NON_COMPARE)
+        self.assertEqual(
+            mod.compute_recommended_action(row, agreement),
+            "Aucune extraction requise sauf nouvelle décision humaine",
+        )
+
+    def test_doc_images_only_action(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="DOC_EMBEDDED_IMAGES_ONLY")
+        agreement = mod.compute_agreement(row)
+        self.assertEqual(mod.compute_recommended_action(row, agreement), "Préparer un pilote OCR local")
+
+    def test_pdf_extraction_failure_action(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="PDF_EXTRACTION_FAILURE")
+        agreement = mod.compute_agreement(row)
+        self.assertEqual(
+            mod.compute_recommended_action(row, agreement),
+            "Diagnostiquer le PDF localement avant nouvelle tentative",
+        )
+
+    def test_empty_extracted_text_action(self):
+        row = synthetic_row(extraction_status="FAILED", extraction_failure_category="EMPTY_EXTRACTED_TEXT")
+        agreement = mod.compute_agreement(row)
+        self.assertEqual(
+            mod.compute_recommended_action(row, agreement),
+            "Vérifier si le document est scanné ou endommagé",
+        )
+
+    def test_success_no_semantic_review_action(self):
+        row = synthetic_row(extraction_status="SUCCESS", ai_processing_status=None)
+        agreement = mod.compute_agreement(row)
+        self.assertEqual(agreement, mod.AGREEMENT_NON_COMPARE)
+        self.assertEqual(
+            mod.compute_recommended_action(row, agreement),
+            "Lancer la revue IA seulement si le document est dans le périmètre autorisé",
+        )
+
+    def test_success_with_semantic_review_action_unchanged(self):
+        # SUCCESS + a real AI review (ACCORD/DESACCORD/A_REVOIR) must keep
+        # its existing, already-tested comparison action untouched.
+        row = synthetic_row(
+            extraction_status="SUCCESS", validation_status="HUMAN_VALIDATED_CDC",
+            ai_proposed_role="CDC", ai_processing_status="SUCCESS",
+        )
+        agreement = mod.compute_agreement(row)
+        self.assertEqual(agreement, mod.AGREEMENT_ACCORD)
+        self.assertEqual(mod.compute_recommended_action(row, agreement), "Aucune action - décision et IA concordent")
+
+    def test_not_attempted_non_rejected_action_does_not_reuse_rejected_message(self):
+        row = synthetic_row(extraction_status="NOT_ATTEMPTED", validation_status="HUMAN_VALIDATED_CDC")
+        agreement = mod.compute_agreement(row)
+        action = mod.compute_recommended_action(row, agreement)
+        self.assertNotEqual(action, "Aucune extraction requise sauf nouvelle décision humaine")
+
+
+class ExtractionColumnWorkbookIntegrationTest(unittest.TestCase):
+    def test_explanation_column_present_and_populated(self):
+        rows = [
+            synthetic_row(candidate_id="c1", archive_file_id=1, extraction_status="SUCCESS"),
+            synthetic_row(
+                candidate_id="c2", archive_file_id=2, extraction_status="NOT_ATTEMPTED",
+                validation_status="HUMAN_REJECTED_CDC",
+            ),
+            synthetic_row(
+                candidate_id="c3", archive_file_id=3, extraction_status="FAILED",
+                extraction_failure_category="PDF_EXTRACTION_FAILURE",
+            ),
+        ]
+        wb = mod.build_workbook(rows, "qwen3:14b", "v3", "2026-09-28 00:00")
+        ws = wb["Comparaison Youssef vs IA"]
+        self.assertIn("Explication de l'état d'extraction", mod.VISIBLE_HEADERS)
+        explanation_col = mod.VISIBLE_HEADERS.index("Explication de l'état d'extraction") + 1
+        status_col = mod.VISIBLE_HEADERS.index("Statut d'extraction actuel") + 1
+        for r in range(2, ws.max_row + 1):
+            self.assertTrue(str(ws.cell(row=r, column=explanation_col).value).strip())
+            status_value = ws.cell(row=r, column=status_col).value
+            self.assertNotIn(status_value, ("SUCCESS", "NOT_ATTEMPTED", "FAILED"))  # never a raw status
+
+    def test_raw_values_preserved_on_hidden_technical_sheet(self):
+        rows = [synthetic_row(
+            candidate_id="c1", archive_file_id=1, extraction_status="FAILED",
+            extraction_failure_category="PDF_EXTRACTION_FAILURE",
+        )]
+        wb = mod.build_workbook(rows, "qwen3:14b", "v3", "2026-09-28 00:00")
+        technical = wb["Données techniques"]
+        header = [c.value for c in technical[1]]
+        self.assertIn("extraction_status (raw)", header)
+        self.assertIn("extraction_failure_category (raw)", header)
+        status_col = header.index("extraction_status (raw)") + 1
+        category_col = header.index("extraction_failure_category (raw)") + 1
+        self.assertEqual(technical.cell(row=2, column=status_col).value, "FAILED")
+        self.assertEqual(technical.cell(row=2, column=category_col).value, "PDF_EXTRACTION_FAILURE")
+
+    def test_column_widths_target_the_correct_header_after_insertion(self):
+        # Regression guard: column_widths must be keyed by header text, not
+        # a hardcoded position, since a new column was inserted before
+        # "Verdict IA" and "Comparaison décision humaine / verdict IA".
+        rows = [synthetic_row()]
+        wb = mod.build_workbook(rows, "qwen3:14b", "v3", "2026-09-28 00:00")
+        ws = wb["Comparaison Youssef vs IA"]
+        from openpyxl.utils import get_column_letter
+        verdict_col = mod.VISIBLE_HEADERS.index("Verdict IA") + 1
+        verdict_letter = get_column_letter(verdict_col)
+        self.assertEqual(ws.column_dimensions[verdict_letter].width, 20)
+
+
+class SanitizedTotalsAndExportTest(unittest.TestCase):
+    def test_750_row_export_extraction_totals_present_and_labeled(self):
+        rows = (
+            [synthetic_row(candidate_id=f"s{i}", archive_file_id=i, extraction_status="SUCCESS") for i in range(1, 618)]
+            + [
+                synthetic_row(
+                    candidate_id=f"n{i}", archive_file_id=600 + i, extraction_status="NOT_ATTEMPTED",
+                    validation_status="HUMAN_REJECTED_CDC",
+                )
+                for i in range(1, 68)
+            ]
+            + [
+                synthetic_row(
+                    candidate_id=f"f{i}", archive_file_id=700 + i, extraction_status="FAILED",
+                    extraction_failure_category=(
+                        "DOC_EMBEDDED_IMAGES_ONLY" if i <= 39 else
+                        "PDF_EXTRACTION_FAILURE" if i <= 64 else "EMPTY_EXTRACTED_TEXT"
+                    ),
+                )
+                for i in range(1, 67)
+            ]
+        )
+        self.assertEqual(len(rows), 750)
+        wb = mod.build_workbook(rows, "qwen3:14b", "v3", "2026-09-28 00:00")
+        ws = wb["Comparaison Youssef vs IA"]
+        data_row_count = sum(1 for row in ws.iter_rows(min_row=2) if row[0].value is not None)
+        self.assertEqual(data_row_count, 750)
+
+        status_col = mod.VISIBLE_HEADERS.index("Statut d'extraction actuel") + 1
+        labels = [ws.cell(row=r, column=status_col).value for r in range(2, ws.max_row + 1)]
+        self.assertEqual(sum(1 for v in labels if v == "Texte extrait avec succès"), 617)
+        self.assertEqual(
+            sum(1 for v in labels if v == "Extraction non planifiée — document rejeté lors de la revue humaine"), 67
+        )
+        self.assertEqual(sum(1 for v in labels if v == "Échec — document composé d'images, OCR nécessaire"), 39)
+        self.assertEqual(
+            sum(1 for v in labels if v == "Échec d'extraction PDF — diagnostic complémentaire nécessaire"), 25
+        )
+        self.assertEqual(sum(1 for v in labels if v == "Échec — aucun texte exploitable obtenu"), 2)
 
 
 if __name__ == "__main__":
