@@ -35,6 +35,23 @@ SAFETY GUARANTEES
 - Youssef's own decision (validation_status, and therefore OUI/NON) is
   never recomputed, inferred, or overridden by anything in this script -
   it is read once, verbatim, and displayed unchanged.
+
+SEMANTIC-EQUIVALENCE NOTE (2026-09-29 audit)
+Youssef's OUI is a broad USABILITY judgment: "le document est un CDC, OU
+CONTIENT un CDC, utilisable dans la base de connaissances historique" (see
+export_cdc_review_workbook.py's Instructions sheet, verbatim). The AI's
+proposed_role is a narrower single-value DOCUMENT-IDENTITY classification
+(exactly one of scripts/semantic_review.py's SEMANTIC_ROLES). These are
+related but NOT identical concepts, so a naive OUI-vs-AI_USABLE_CDC_ROLES
+comparison would misrepresent some AI-role mismatches as confident human/AI
+"disagreements" when they are really unresolved semantic ambiguity. See
+AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI and compute_agreement() below: those
+specific mismatches are reported as A_REVOIR (needs human re-review), never
+as a claim that either side is "wrong." The column that used to be labeled
+"Accord Youssef / IA" is now "Comparaison décision humaine / verdict IA" to
+avoid implying the two sides answer the identical question. Both raw values
+("Décision de Youssef", "Verdict IA") are always preserved unmodified in
+their own columns regardless of this classification.
 """
 from __future__ import annotations
 
@@ -56,6 +73,27 @@ DEFAULT_OUTPUT_FILENAME = "cdc_youssef_vs_ai_after_recovery.xlsx"
 # ELIGIBLE_DETECTED_ROLES already uses - never reinvented here.
 AI_USABLE_CDC_ROLES: "tuple[str, ...]" = ("CDC", "DAO_WITH_CDC")
 
+# AI proposed_role values that are NOT in AI_USABLE_CDC_ROLES but are close
+# enough to CDC-adjacent technical-reference content, or reflect the AI's
+# own low confidence, that an "AI disagrees with Youssef's OUI" reading
+# would overstate what is actually known:
+#   - "TDR" (Termes de Référence): a technical-reference/scope-of-work
+#     document type closely related to a CDC in French and international
+#     procurement usage. A document whose PRIMARY role the AI detects as
+#     TDR may still be exactly the kind of document Youssef's broad OUI
+#     ("est un CDC, OU CONTIENT un CDC, utilisable...") is meant to catch -
+#     the AI's single-role classification does not rule that out.
+#   - "UNKNOWN": the AI's own explicit "I could not confidently classify
+#     this" outcome. Treating an uncertain AI verdict as a confident
+#     disagreement against a confident human OUI is not defensible either
+#     way; it is an unresolved case, not a proven mismatch.
+# Deliberately excludes RFP, OFFER, DAO, DCE, OTHER, and the remaining
+# roles: those represent document genres meaningfully distinct in function
+# from a technical specification (a solicitation, a bidder's own response,
+# etc.), so a mismatch against Youssef's OUI there remains a real,
+# reportable signal - see the SEMANTIC-EQUIVALENCE NOTE above.
+AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI: "tuple[str, ...]" = ("TDR", "UNKNOWN")
+
 AGREEMENT_ACCORD = "ACCORD"
 AGREEMENT_DESACCORD = "DESACCORD"
 AGREEMENT_NON_COMPARE = "NON_COMPARE"
@@ -71,7 +109,7 @@ VISIBLE_HEADERS = [
     "Proposition automatique initiale", "Décision de Youssef", "Commentaire humain",
     "Statut d'extraction actuel", "Méthode d'extraction", "Motif précis en cas d'échec",
     "Revue IA après récupération", "Verdict IA", "Confiance IA", "Modèle IA", "Date de revue IA",
-    "Accord Youssef / IA", "Action recommandée",
+    "Comparaison décision humaine / verdict IA", "Action recommandée",
 ]
 TECHNICAL_HEADERS = [
     "candidate_id", "archive_file_id", "relative_path (archive)",
@@ -210,7 +248,13 @@ def compute_agreement(row: ComparisonRow) -> str:
     resolves the uncertainty first), otherwise ACCORD/DESACCORD by
     comparing Youssef's OUI/NON against the AI's usable-CDC-role verdict
     (the same CDC-bearing-role set semantic_review.ELIGIBLE_DETECTED_ROLES
-    already uses)."""
+    already uses). A would-be DESACCORD is instead reported as A_REVOIR
+    when the AI's role is in AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI - see the
+    module's SEMANTIC-EQUIVALENCE NOTE: Youssef's OUI and the AI's
+    proposed_role do not ask exactly the same question, so those specific
+    mismatches are unresolved ambiguity, not a proven disagreement. This
+    only ever relaxes DESACCORD -> A_REVOIR; it never manufactures ACCORD,
+    and never touches a row that already agrees."""
     if row.extraction_status == "FAILED":
         return AGREEMENT_ANALYSE_IA_IMPOSSIBLE
     if not row.has_ai_review:
@@ -219,7 +263,11 @@ def compute_agreement(row: ComparisonRow) -> str:
         return AGREEMENT_A_REVOIR
     youssef_says_usable = row.youssef_decision == "OUI"
     ai_says_usable = row.ai_proposed_role in AI_USABLE_CDC_ROLES
-    return AGREEMENT_ACCORD if youssef_says_usable == ai_says_usable else AGREEMENT_DESACCORD
+    if youssef_says_usable == ai_says_usable:
+        return AGREEMENT_ACCORD
+    if row.ai_proposed_role in AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI:
+        return AGREEMENT_A_REVOIR
+    return AGREEMENT_DESACCORD
 
 
 def compute_recommended_action(row: ComparisonRow, agreement: str) -> str:
@@ -228,7 +276,9 @@ def compute_recommended_action(row: ComparisonRow, agreement: str) -> str:
     if agreement == AGREEMENT_NON_COMPARE:
         return "Lancer la revue IA ciblée pour ce document"
     if agreement == AGREEMENT_A_REVOIR:
-        return "Décision Youssef incertaine - revue humaine à compléter"
+        if row.youssef_decision == "INCERTAIN":
+            return "Décision Youssef incertaine - revue humaine à compléter"
+        return "Rôle IA proche du CDC ou incertain - vérification humaine nécessaire"
     if agreement == AGREEMENT_DESACCORD:
         return "Désaccord Youssef / IA - revue humaine prioritaire"
     return "Aucune action - décision et IA concordent"
@@ -327,7 +377,7 @@ def build_workbook(rows: Sequence[ComparisonRow], model_name: str, schema_versio
         cell.alignment = header_alignment
     ws.row_dimensions[1].height = 30
 
-    agreement_col = VISIBLE_HEADERS.index("Accord Youssef / IA") + 1
+    agreement_col = VISIBLE_HEADERS.index("Comparaison décision humaine / verdict IA") + 1
     first_data_row = 2
     for offset, row in enumerate(ordered):
         row_index = first_data_row + offset
@@ -403,11 +453,25 @@ def _build_summary_sheet(ws, rows: Sequence[ComparisonRow], model_name: str, sch
     line("  NON", youssef_counts["NON"])
     line("  INCERTAIN", youssef_counts["INCERTAIN"])
     line("")
-    line("Accord Youssef / IA")
+    line("Comparaison décision humaine / verdict IA")
     for value in AGREEMENT_VALUES:
         line(f"  {value}", agreement_counts[value])
     line("")
     line("Total désaccords", agreement_counts[AGREEMENT_DESACCORD])
+    line("")
+    line("Note de méthode (audit sémantique du 2026-09-29)")
+    line("  Le OUI de Youssef signifie : le document EST un CDC, OU EN CONTIENT un,")
+    line("  utilisable dans la base de connaissances (jugement d'usage large).")
+    line("  Le rôle proposé par l'IA est une classification d'identité stricte,")
+    line("  une seule valeur parmi le référentiel complet de semantic_review.py.")
+    line("  Ces deux notions sont proches mais non identiques : un DESACCORD")
+    line("  n'est donc affiché que lorsque le rôle IA est clairement distinct")
+    line("  d'un document de référence technique (RFP, OFFER, DAO, DCE, OTHER, ...).")
+    line("  Quand le rôle IA est TDR (proche d'un CDC) ou UNKNOWN (l'IA elle-même")
+    line("  n'est pas sûre), le cas est classé A_REVOIR : ni la décision de")
+    line("  Youssef ni le verdict IA n'est présumé correct ou erroné.")
+    line("  Les valeurs brutes (Décision de Youssef, Verdict IA) restent toujours")
+    line("  visibles, inchangées, dans leurs propres colonnes sur la feuille principale.")
 
 
 def summarize(rows: Sequence[ComparisonRow], output_path: str) -> ComparisonSummary:
@@ -443,14 +507,51 @@ def print_comparison_summary(summary: ComparisonSummary) -> None:
     print("database writes: 0")
 
 
+def _ensure_private_output_directory(path: Path) -> None:
+    """Creates every path component of `path` that does not yet exist,
+    explicitly forcing mode 0o700 on each one this call creates.
+
+    Path.mkdir(parents=True, mode=0o700) only ever applies `mode` to the
+    LEAF directory - any intermediate parent it has to create along the
+    way gets the process's default/umask-derived mode instead, which can
+    leave a private output tree with a lax-permission ancestor. This walks
+    the chain one component at a time and os.chmod()s each newly created
+    one itself, so `mode=` is never relied on alone.
+
+    Refuses to use ANY existing or newly created path component that is a
+    symlink (checked component-by-component, before that component is
+    dereferenced) - a symlinked component could otherwise make the
+    "private" output tree resolve outside its intended location. Does not
+    touch the permissions of a component that already existed."""
+    if not path.is_absolute():
+        raise ValueError(f"output directory must be an absolute path: {path}")
+
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current = current / part
+        if current.is_symlink():
+            raise PermissionError(f"refusing to use a symlinked path component: {current}")
+        if current.exists():
+            if not current.is_dir():
+                raise NotADirectoryError(f"path component exists and is not a directory: {current}")
+            continue
+        os.mkdir(current)
+        if current.is_symlink():
+            raise PermissionError(f"path component became a symlink immediately after creation: {current}")
+        os.chmod(current, 0o700)
+
+    final_mode = os.stat(path).st_mode & 0o777
+    if final_mode != 0o700:
+        raise PermissionError(f"output directory is not mode 700 after creation (found {oct(final_mode)}): {path}")
+
+
 def run_export(conn, output_path: str, model_name: str, schema_version: str, prompt_hash: str) -> ComparisonSummary:
     rows = fetch_comparison_rows(conn, model_name, prompt_hash, schema_version)
     generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     wb = build_workbook(rows, model_name, schema_version, generated_at)
 
     out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(out.parent, 0o700)
+    _ensure_private_output_directory(out.parent)
     wb.save(str(out))
     os.chmod(out, 0o600)
 

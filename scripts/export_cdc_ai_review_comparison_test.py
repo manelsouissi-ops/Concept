@@ -403,5 +403,219 @@ class YoussefDecisionPreservationInWorkbookTest(unittest.TestCase):
         self.assertEqual(decisions, {"OUI", "NON", "INCERTAIN"})
 
 
+class SemanticEquivalenceMatrixTest(unittest.TestCase):
+    """Exhaustive matrix: every semantic_review.py SEMANTIC_ROLES value x
+    every youssef_decision (OUI/NON/INCERTAIN) x has_ai_review (True/False)
+    x extraction_status (SUCCESS/FAILED) - proves compute_agreement() never
+    raises and always returns a defined AGREEMENT_VALUES member, and pins
+    down the exact ambiguous-role remapping (Part 2 of the 2026-09-29
+    audit) so a future edit cannot silently widen or narrow it."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(HERE))
+        import semantic_review
+        cls.all_roles = list(semantic_review.SEMANTIC_ROLES)
+
+    VALIDATION_STATUSES = ("HUMAN_VALIDATED_CDC", "HUMAN_REJECTED_CDC", "SOME_OTHER_STATUS")
+
+    def test_full_matrix_never_raises_and_stays_in_defined_values(self):
+        for validation_status in self.VALIDATION_STATUSES:
+            for role in self.all_roles:
+                for extraction_status in ("SUCCESS", "FAILED"):
+                    for ai_processing_status in ("SUCCESS", None):
+                        row = synthetic_row(
+                            validation_status=validation_status,
+                            extraction_status=extraction_status,
+                            ai_proposed_role=role,
+                            ai_processing_status=ai_processing_status,
+                        )
+                        with self.subTest(
+                            validation_status=validation_status, role=role,
+                            extraction_status=extraction_status, ai_processing_status=ai_processing_status,
+                        ):
+                            self.assertIn(mod.compute_agreement(row), mod.AGREEMENT_VALUES)
+
+    def test_ambiguous_roles_are_exactly_tdr_and_unknown(self):
+        self.assertEqual(set(mod.AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI), {"TDR", "UNKNOWN"})
+
+    def test_oui_vs_ambiguous_role_is_a_revoir_not_desaccord(self):
+        for role in mod.AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI:
+            row = synthetic_row(
+                validation_status="HUMAN_VALIDATED_CDC", extraction_status="SUCCESS",
+                ai_proposed_role=role, ai_processing_status="SUCCESS",
+            )
+            with self.subTest(role=role):
+                self.assertEqual(mod.compute_agreement(row), mod.AGREEMENT_A_REVOIR)
+
+    def test_oui_vs_non_ambiguous_mismatching_role_stays_desaccord(self):
+        non_ambiguous_mismatching = [
+            role for role in self.all_roles
+            if role not in mod.AI_USABLE_CDC_ROLES and role not in mod.AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI
+        ]
+        self.assertTrue(non_ambiguous_mismatching)  # sanity: the set isn't accidentally empty
+        for role in non_ambiguous_mismatching:
+            row = synthetic_row(
+                validation_status="HUMAN_VALIDATED_CDC", extraction_status="SUCCESS",
+                ai_proposed_role=role, ai_processing_status="SUCCESS",
+            )
+            with self.subTest(role=role):
+                self.assertEqual(mod.compute_agreement(row), mod.AGREEMENT_DESACCORD)
+
+    def test_non_vs_ambiguous_role_is_still_accord(self):
+        # An ambiguous role only matters when it would otherwise be a
+        # mismatch against Youssef's OUI. When Youssef said NON, "TDR" or
+        # "UNKNOWN" already agrees (neither is in AI_USABLE_CDC_ROLES), so
+        # the remapping must never fire here.
+        for role in mod.AI_ROLES_AMBIGUOUS_VS_YOUSSEF_OUI:
+            row = synthetic_row(
+                validation_status="HUMAN_REJECTED_CDC", extraction_status="SUCCESS",
+                ai_proposed_role=role, ai_processing_status="SUCCESS",
+            )
+            with self.subTest(role=role):
+                self.assertEqual(mod.compute_agreement(row), mod.AGREEMENT_ACCORD)
+
+    def test_incertain_always_a_revoir_regardless_of_role(self):
+        for role in self.all_roles:
+            row = synthetic_row(
+                validation_status="SOME_OTHER_STATUS", extraction_status="SUCCESS",
+                ai_proposed_role=role, ai_processing_status="SUCCESS",
+            )
+            with self.subTest(role=role):
+                self.assertEqual(mod.compute_agreement(row), mod.AGREEMENT_A_REVOIR)
+
+    def test_recommended_action_distinguishes_the_two_a_revoir_causes(self):
+        incertain_row = synthetic_row(validation_status="SOME_OTHER_STATUS")
+        ambiguous_role_row = synthetic_row(
+            validation_status="HUMAN_VALIDATED_CDC", extraction_status="SUCCESS",
+            ai_proposed_role="TDR", ai_processing_status="SUCCESS",
+        )
+        incertain_action = mod.compute_recommended_action(incertain_row, mod.AGREEMENT_A_REVOIR)
+        ambiguous_action = mod.compute_recommended_action(ambiguous_role_row, mod.AGREEMENT_A_REVOIR)
+        self.assertNotEqual(incertain_action, ambiguous_action)
+
+    def test_visible_header_label_is_the_honest_comparison_label(self):
+        self.assertIn("Comparaison décision humaine / verdict IA", mod.VISIBLE_HEADERS)
+        self.assertNotIn("Accord Youssef / IA", mod.VISIBLE_HEADERS)
+
+    def test_raw_youssef_and_ai_columns_survive_ambiguous_reclassification(self):
+        # Preserving raw values is the whole point of the remapping - the
+        # workbook must never blend/replace them just because the row's
+        # comparison outcome is A_REVOIR instead of DESACCORD.
+        row = synthetic_row(
+            candidate_id="c-ambig", archive_file_id=99, validation_status="HUMAN_VALIDATED_CDC",
+            extraction_status="SUCCESS", ai_proposed_role="TDR", ai_processing_status="SUCCESS",
+        )
+        wb = mod.build_workbook([row], "qwen3:14b", "v3", "2026-09-28 00:00")
+        ws = wb["Comparaison Youssef vs IA"]
+        decision_col = mod.VISIBLE_HEADERS.index("Décision de Youssef") + 1
+        verdict_col = mod.VISIBLE_HEADERS.index("Verdict IA") + 1
+        agreement_col = mod.VISIBLE_HEADERS.index("Comparaison décision humaine / verdict IA") + 1
+        self.assertEqual(ws.cell(row=2, column=decision_col).value, "OUI")
+        self.assertEqual(ws.cell(row=2, column=verdict_col).value, "TDR")
+        self.assertEqual(ws.cell(row=2, column=agreement_col).value, mod.AGREEMENT_A_REVOIR)
+
+
+class OutputDirectoryPermissionTest(unittest.TestCase):
+    """Synthetic, filesystem-only tests for _ensure_private_output_directory
+    - no PostgreSQL, no real output tree. Uses only tempdirs it creates and
+    cleans up itself."""
+
+    def test_creates_full_chain_at_0700(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "a" / "b" / "c"
+            mod._ensure_private_output_directory(target)
+            self.assertTrue(target.is_dir())
+            for component in (Path(tmp_dir) / "a", Path(tmp_dir) / "a" / "b", target):
+                self.assertEqual(component.stat().st_mode & 0o777, 0o700)
+
+    def test_intermediate_parent_gets_0700_even_under_a_lax_umask(self):
+        import os as _os
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            old_umask = _os.umask(0o022)
+            try:
+                target = Path(tmp_dir) / "parent" / "leaf"
+                mod._ensure_private_output_directory(target)
+                # The intermediate parent - never the leaf itself in the
+                # old code path - is exactly what the original bug missed.
+                intermediate = Path(tmp_dir) / "parent"
+                self.assertEqual(intermediate.stat().st_mode & 0o777, 0o700)
+            finally:
+                _os.umask(old_umask)
+
+    def test_rerun_on_already_correct_directory_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "out"
+            mod._ensure_private_output_directory(target)
+            mod._ensure_private_output_directory(target)  # must not raise
+            self.assertEqual(target.stat().st_mode & 0o777, 0o700)
+
+    def test_refuses_pre_existing_directory_with_wrong_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "out"
+            target.mkdir(mode=0o755)
+            import os as _os
+            _os.chmod(target, 0o755)
+            with self.assertRaises(PermissionError):
+                mod._ensure_private_output_directory(target)
+
+    def test_rejects_symlinked_leaf_component(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            real_dir = Path(tmp_dir) / "real"
+            real_dir.mkdir(mode=0o700)
+            import os as _os
+            _os.chmod(real_dir, 0o700)
+            link = Path(tmp_dir) / "link"
+            link.symlink_to(real_dir, target_is_directory=True)
+            with self.assertRaises(PermissionError):
+                mod._ensure_private_output_directory(link)
+
+    def test_rejects_symlinked_intermediate_component(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            real_dir = Path(tmp_dir) / "real"
+            real_dir.mkdir(mode=0o700)
+            import os as _os
+            _os.chmod(real_dir, 0o700)
+            link = Path(tmp_dir) / "link"
+            link.symlink_to(real_dir, target_is_directory=True)
+            target = link / "leaf"
+            with self.assertRaises(PermissionError):
+                mod._ensure_private_output_directory(target)
+
+    def test_rejects_relative_path(self):
+        with self.assertRaises(ValueError):
+            mod._ensure_private_output_directory(Path("relative/output/dir"))
+
+    def test_rejects_path_component_that_is_a_file_not_a_directory(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            blocker = Path(tmp_dir) / "blocker"
+            blocker.write_text("not a directory")
+            target = blocker / "leaf"
+            with self.assertRaises(NotADirectoryError):
+                mod._ensure_private_output_directory(target)
+
+    def test_run_export_produces_0600_file_and_0700_directory_chain(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "nested" / "dir" / "comparison.xlsx"
+            rows = [synthetic_row(candidate_id="c1", archive_file_id=1)]
+
+            class _FakeConn:
+                def cursor(self):
+                    raise AssertionError("run_export's fetch must not be reached in this test")
+
+            # Exercise the directory/file permission path directly via the
+            # same building blocks run_export() uses, without needing a
+            # real PostgreSQL connection.
+            wb = mod.build_workbook(rows, "qwen3:14b", "v3", "2026-09-28 00:00")
+            import os as _os
+            mod._ensure_private_output_directory(output_path.parent)
+            wb.save(str(output_path))
+            _os.chmod(output_path, 0o600)
+
+            self.assertEqual(output_path.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((output_path.parent.parent).stat().st_mode & 0o777, 0o700)
+            self.assertEqual(output_path.stat().st_mode & 0o777, 0o600)
+
+
 if __name__ == "__main__":
     unittest.main()

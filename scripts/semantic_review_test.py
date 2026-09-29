@@ -611,6 +611,29 @@ class IdempotencyAndCheckpointTest(unittest.TestCase):
         key2 = sr.compute_idempotency_key(1, "sha-b", "qwen3:14b", None, "prompt-hash", "v1")
         self.assertNotEqual(key1, key2)
 
+    def test_retry_generation_defaults_to_empty_and_matches_legacy_key(self):
+        # Backward compatibility: every already-persisted idempotency_key
+        # in the database was computed with the old 6-argument formula -
+        # omitting retry_generation (or passing "") must reproduce the
+        # EXACT SAME key, or every existing row would silently stop being
+        # recognized as already-reviewed on a future normal run.
+        key_without_param = sr.compute_idempotency_key(1, "sha-a", "qwen3:14b", "digest-1", "prompt-hash", "v1")
+        key_with_empty = sr.compute_idempotency_key(1, "sha-a", "qwen3:14b", "digest-1", "prompt-hash", "v1", "")
+        self.assertEqual(key_without_param, key_with_empty)
+
+    def test_retry_generation_changes_key_for_an_otherwise_identical_attempt(self):
+        # The exact scenario this exists for: same archive_file_id, same
+        # content_sha256, same model/prompt/schema (nothing about the
+        # document or the AI changed) - only the retry label differs.
+        original = sr.compute_idempotency_key(1, "sha-a", "qwen3:14b", "digest-1", "prompt-hash", "v3")
+        retried = sr.compute_idempotency_key(1, "sha-a", "qwen3:14b", "digest-1", "prompt-hash", "v3", "extraction-fix-2026-09-29")
+        self.assertNotEqual(original, retried)
+
+    def test_different_retry_generations_produce_different_keys(self):
+        retry1 = sr.compute_idempotency_key(1, "sha-a", "qwen3:14b", "digest-1", "prompt-hash", "v3", "gen-1")
+        retry2 = sr.compute_idempotency_key(1, "sha-a", "qwen3:14b", "digest-1", "prompt-hash", "v3", "gen-2")
+        self.assertNotEqual(retry1, retry2)
+
     def test_checkpoint_scope_signature_changes_on_per_role_limit(self):
         config_a = sr.build_scope_config(5, "qwen3:14b", None, "hash", 20000, 512)
         config_b = sr.build_scope_config(3, "qwen3:14b", None, "hash", 20000, 512)
@@ -1795,7 +1818,7 @@ class HumanTaxonomyWidenedTest(unittest.TestCase):
 # =====================================================================
 
 
-def _valid_semantic_execution_request(tmp_dir, ids, database_name="SYNTHETIC_DB", batch_size=2):
+def _valid_semantic_execution_request(tmp_dir, ids, database_name="SYNTHETIC_DB", batch_size=2, retry_generation=""):
     manifest_path = Path(tmp_dir) / "manifest.json"
     manifest_path.write_text(json.dumps(ids), encoding="utf-8")
     sha256 = sr.compute_semantic_review_manifest_sha256(manifest_path)
@@ -1807,6 +1830,7 @@ def _valid_semantic_execution_request(tmp_dir, ids, database_name="SYNTHETIC_DB"
         deployment_ack=database_name,
         confirmation_token=sr.SEMANTIC_REVIEW_CONFIRMATION_TOKEN,
         batch_size=batch_size,
+        retry_generation=retry_generation,
     )
 
 
@@ -1881,6 +1905,39 @@ class TargetedSemanticReviewExecutionGuardsTest(unittest.TestCase):
         with self.assertRaises(sr.SemanticReviewGuardError):
             sr.verify_semantic_review_execution_guards(request, [1, 2, 3])
 
+    def test_retry_generation_defaults_to_empty_and_is_accepted(self):
+        request = _valid_semantic_execution_request(self.tmp_dir, [1, 2, 3])
+        self.assertEqual(request.retry_generation, "")
+        sr.verify_semantic_review_execution_guards(request, [1, 2, 3])  # must not raise
+
+    def test_valid_retry_generation_label_accepted(self):
+        request = _valid_semantic_execution_request(self.tmp_dir, [1, 2, 3])
+        request.retry_generation = "extraction-fix-2026-09-29"
+        sr.verify_semantic_review_execution_guards(request, [1, 2, 3])  # must not raise
+
+    def test_oversized_retry_generation_rejected(self):
+        request = _valid_semantic_execution_request(self.tmp_dir, [1, 2, 3])
+        request.retry_generation = "x" * 101
+        with self.assertRaises(sr.SemanticReviewGuardError):
+            sr.verify_semantic_review_execution_guards(request, [1, 2, 3])
+
+    def test_retry_generation_with_invalid_characters_rejected(self):
+        request = _valid_semantic_execution_request(self.tmp_dir, [1, 2, 3])
+        request.retry_generation = "not valid; DROP TABLE"
+        with self.assertRaises(sr.SemanticReviewGuardError):
+            sr.verify_semantic_review_execution_guards(request, [1, 2, 3])
+
+
+class TargetedSemanticReviewScopeConfigRetryGenerationTest(unittest.TestCase):
+    def test_different_retry_generation_changes_scope_signature(self):
+        config_a = sr.build_targeted_semantic_review_scope_config([1, 2], "qwen3:14b", None, "hash")
+        config_b = sr.build_targeted_semantic_review_scope_config([1, 2], "qwen3:14b", None, "hash", "gen-1")
+        self.assertNotEqual(sr.compute_scope_signature(config_a), sr.compute_scope_signature(config_b))
+
+    def test_default_retry_generation_is_empty_string(self):
+        config = sr.build_targeted_semantic_review_scope_config([1, 2], "qwen3:14b", None, "hash")
+        self.assertEqual(config["retry_generation"], "")
+
 
 class TargetedSemanticReviewRowEligibilityTest(unittest.TestCase):
     def test_all_success_rows_pass(self):
@@ -1944,6 +2001,23 @@ class TargetedSemanticReviewCliGatingTest(unittest.TestCase):
                 sr.main(["--targeted-semantic-review", "--execute", "--manifest-file", "/tmp/does-not-matter.json"])
         self.assertEqual(mock_connect.call_count, 0)
 
+    def test_retry_generation_rejected_outside_targeted_semantic_review(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                sr.main(["--dry-run", "--retry-generation", "gen-1"])
+        self.assertEqual(mock_connect.call_count, 0)
+
+    def test_retry_generation_rejected_with_dry_run(self):
+        patcher, mock_connect = self._connect_should_never_be_called()
+        with patcher, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                sr.main([
+                    "--targeted-semantic-review", "--dry-run", "--manifest-file", "/tmp/does-not-matter.json",
+                    "--retry-generation", "gen-1",
+                ])
+        self.assertEqual(mock_connect.call_count, 0)
+
     def test_model_override_rejected(self):
         patcher, mock_connect = self._connect_should_never_be_called()
         with patcher, redirect_stderr(io.StringIO()):
@@ -1983,8 +2057,10 @@ class TargetedSemanticReviewExecuteIntegrationTest(unittest.TestCase):
         fake_conn.cursor.return_value = fake_cursor
         return fake_conn
 
-    def _run(self, ids, rows=None, batch_size=2, resume=False, database_name="SYNTHETIC_DB", adapter_outcomes=None):
-        request = _valid_semantic_execution_request(self.tmp_dir, ids, database_name=database_name, batch_size=batch_size)
+    def _run(self, ids, rows=None, batch_size=2, resume=False, database_name="SYNTHETIC_DB", adapter_outcomes=None, retry_generation=""):
+        request = _valid_semantic_execution_request(
+            self.tmp_dir, ids, database_name=database_name, batch_size=batch_size, retry_generation=retry_generation,
+        )
         fake_conn = self._fake_conn(database_name)
         rows = rows if rows is not None else [_semantic_row(i) for i in ids]
         repo = FakeRepository()
@@ -2087,6 +2163,145 @@ class TargetedSemanticReviewExecuteIntegrationTest(unittest.TestCase):
             exit_code = sr.run_targeted_semantic_review_execute(request, checkpoint_file=self.checkpoint_file)
         self.assertEqual(exit_code, 1)
         self.assertEqual(mock_connect.call_count, 0)
+
+    def test_retry_generation_produces_a_different_idempotency_key_than_a_normal_run(self):
+        # Same archive_file_id, same synthetic sha256/model/prompt/schema
+        # in both runs (see _semantic_row / fake_model_identity above) -
+        # only retry_generation differs. Separate checkpoint files stand
+        # in for two genuinely separate manifest-driven runs (a normal
+        # run, and a later retry batch), exactly as the private retry
+        # runner is designed to do.
+        normal_checkpoint = str(Path(self.tmp_dir) / "normal_checkpoint.json")
+        retry_checkpoint = str(Path(self.tmp_dir) / "retry_checkpoint.json")
+
+        self.checkpoint_file = normal_checkpoint
+        _exit_code_1, _output_1, repo_normal = self._run([1])
+        self.checkpoint_file = retry_checkpoint
+        _exit_code_2, _output_2, repo_retry = self._run([1], retry_generation="extraction-fix-2026-09-29")
+
+        self.assertEqual(len(repo_normal.inserted), 1)
+        self.assertEqual(len(repo_retry.inserted), 1)
+        self.assertNotEqual(repo_normal.inserted[0].idempotency_key, repo_retry.inserted[0].idempotency_key)
+        # Every other identity dimension is unchanged - only the key differs.
+        self.assertEqual(repo_normal.inserted[0].content_sha256, repo_retry.inserted[0].content_sha256)
+        self.assertEqual(repo_normal.inserted[0].model_name, repo_retry.inserted[0].model_name)
+        self.assertEqual(repo_normal.inserted[0].prompt_hash, repo_retry.inserted[0].prompt_hash)
+        self.assertEqual(repo_normal.inserted[0].schema_version, repo_retry.inserted[0].schema_version)
+
+
+class ExtractTextLocalDispatchTest(unittest.TestCase):
+    """Synthetic, DB-free/Ollama-free tests for _extract_text_local's fix
+    (2026-09-29 27-failure diagnosis): it must dispatch odt/rtf/xlsx (not
+    just pdf/docx/doc), and it must call the size-aware/retrying PDF entry
+    point instead of the plain non-retry one. Only invented placeholder
+    file content is used - no real archive document is ever opened."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="semantic-review-extract-test-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def _counters(self):
+        from cdc_discovery import DiscoveryCounters
+
+        return DiscoveryCounters()
+
+    def test_dispatch_wiring_uses_retry_aware_pdf_and_all_six_formats(self):
+        source = (HERE / "semantic_review.py").read_text(encoding="utf-8")
+        start = source.index("def _extract_text_local(")
+        end = source.index("\ndef _normalize_failure_category", start)
+        body = source[start:end]
+        self.assertIn("extract_pdf_text_with_retry(", body)
+        self.assertNotIn("extract_pdf_text(", body)  # the old non-retry call must be gone
+        for marker in ('normalized == "docx"', 'normalized == "doc"', 'normalized == "odt"',
+                       'normalized == "rtf"', 'normalized == "xlsx"'):
+            self.assertIn(marker, body)
+
+    def test_odt_dispatches_to_the_real_extractor(self):
+        import zipfile
+
+        path = self.tmp / "synthetic.odt"
+        ns = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"'
+        content_xml = (
+            f'<?xml version="1.0"?><office:document-content {ns}>'
+            "<office:body><office:text><text:p>Texte synthetique odt.</text:p>"
+            "</office:text></office:body></office:document-content>"
+        )
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+            z.writestr("content.xml", content_xml)
+
+        text, failure_category = sr._extract_text_local(path, "odt", self._counters())
+        self.assertIsNone(failure_category)
+        self.assertIn("synthetique", text)
+
+    def test_rtf_dispatches_to_the_real_extractor(self):
+        path = self.tmp / "synthetic.rtf"
+        path.write_bytes(rb"{\rtf1\ansi Texte synthetique rtf.}")
+
+        text, failure_category = sr._extract_text_local(path, "rtf", self._counters())
+        self.assertIsNone(failure_category)
+        self.assertIn("synthetique", text)
+
+    def test_xlsx_dispatches_to_the_real_extractor(self):
+        import openpyxl
+
+        path = self.tmp / "synthetic.xlsx"
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        ws = wb.create_sheet("Feuille1")
+        ws.append(["cellule synthetique un", "cellule synthetique deux"])
+        wb.save(str(path))
+
+        text, failure_category = sr._extract_text_local(path, "xlsx", self._counters())
+        self.assertIsNone(failure_category)
+        self.assertIn("synthetique", text)
+
+    def test_unsupported_extension_still_reports_unsupported_format(self):
+        path = self.tmp / "synthetic.zip"
+        path.write_bytes(b"PK\x03\x04synthetic")
+        text, failure_category = sr._extract_text_local(path, "zip", self._counters())
+        self.assertIsNone(text)
+        self.assertEqual(failure_category, "UNSUPPORTED_FORMAT")
+
+    def test_pdf_uses_the_retry_aware_entry_point_not_the_plain_one(self):
+        # A fake converter that times out on the FIRST attempt and succeeds
+        # on the second proves the retry-aware path is actually being used
+        # - the old plain extract_pdf_text() call would propagate the
+        # first ExtractionError straight through with no second attempt.
+        from cdc_content_inspector import ExtractionError
+
+        path = self.tmp / "synthetic.pdf"
+        path.write_bytes(b"%PDF-synthetic")
+        calls = []
+
+        def fake_converter(source, destination, timeout=None):
+            calls.append(timeout)
+            if len(calls) == 1:
+                raise ExtractionError("docling_timeout")
+            destination.write_text("texte pdf synthetique apres relance", encoding="utf-8")
+
+        text, failure_category = sr._extract_text_local(path, "pdf", self._counters(), pdf_converter=fake_converter)
+        self.assertIsNone(failure_category)
+        self.assertEqual(text, "texte pdf synthetique apres relance")
+        self.assertEqual(len(calls), 2)
+
+    def test_pdf_size_aware_timeout_is_actually_applied(self):
+        # Confirms _extract_text_local's PDF path really threads the file's
+        # own size through to resolve_pdf_timeout, instead of a fixed one -
+        # a >2MB synthetic file must get the large-file timeout.
+        from cdc_content_inspector import PDF_LARGE_FILE_INITIAL_TIMEOUT_SECONDS
+
+        path = self.tmp / "large_synthetic.pdf"
+        path.write_bytes(b"%PDF-synthetic-large-" + b"0" * (2_100_000))
+        observed_timeouts = []
+
+        def fake_converter(source, destination, timeout=None):
+            observed_timeouts.append(timeout)
+            destination.write_text("texte pdf synthetique volumineux", encoding="utf-8")
+
+        text, failure_category = sr._extract_text_local(path, "pdf", self._counters(), pdf_converter=fake_converter)
+        self.assertIsNone(failure_category)
+        self.assertEqual(observed_timeouts, [PDF_LARGE_FILE_INITIAL_TIMEOUT_SECONDS])
 
 
 if __name__ == "__main__":

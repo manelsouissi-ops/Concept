@@ -755,21 +755,38 @@ def compute_idempotency_key(
     model_digest: Optional[str],
     prompt_hash: str,
     schema_version: str,
+    retry_generation: str = "",
 ) -> str:
     """Deterministic key over exactly the dimensions the task requires:
     archive_file_id + content sha256 + model identity + prompt hash +
     schema version. Any change to any one of these produces a different
     key, which is what forces a distinct review row rather than reusing an
     incompatible prior result (enforced at the DB layer by this column
-    being UNIQUE - see the migration)."""
-    payload = "|".join([
+    being UNIQUE - see the migration).
+
+    `retry_generation` (added 2026-09-29, for the 27-failure code-defect
+    retry): an explicit, operator-supplied label for a deliberate re-
+    attempt of a document whose archive_file_id/content_sha256/model/
+    prompt/schema are all UNCHANGED from a prior attempt (e.g. an
+    extraction-pipeline bugfix, not a model/prompt/schema change) - so the
+    existing 6-dimension key alone would collide with the prior attempt's
+    key and the retry's real result would be silently dropped by
+    `on conflict (idempotency_key) do nothing`. Left as "" (the default)
+    for every normal call, which reproduces the EXACT SAME payload string
+    - and therefore the exact same key - as before this parameter existed,
+    so no previously computed key anywhere in the database changes.
+    Non-empty only for an explicit, deliberate retry batch."""
+    parts = [
         str(archive_file_id),
         content_sha256,
         model_name,
         model_digest or "",
         prompt_hash,
         schema_version,
-    ])
+    ]
+    if retry_generation:
+        parts.append(retry_generation)
+    payload = "|".join(parts)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -1298,28 +1315,61 @@ def _fetch_rows_for_candidates(conn, archive_file_ids: Sequence[int]) -> dict:
     }
 
 
-def _extract_text_local(file_path: Path, extension: Optional[str], counters) -> tuple[Optional[str], Optional[str]]:
+def _extract_text_local(
+    file_path: Path,
+    extension: Optional[str],
+    counters,
+    pdf_converter=None,
+) -> tuple[Optional[str], Optional[str]]:
     """Returns (text, failure_category). Never returns a filename/path.
     Mirrors scripts/cdc_content_inspector.py's LocalContentInspector.inspect
-    extension dispatch, but returns raw bounded text (for this module's own
-    local Ollama call) instead of rule-based CDC evidence."""
+    extension dispatch exactly (same six formats, same size-aware/retrying
+    PDF entry point), but returns raw bounded text (for this module's own
+    local Ollama call) instead of rule-based CDC evidence.
+
+    `pdf_converter` defaults to cdc_content_inspector's own
+    default_docling_converter (resolved lazily so importing this module
+    never requires Docling) - overridable only for tests, exactly like
+    LocalContentInspector.__init__'s pdf_converter parameter.
+
+    FIXED 2026-09-29 (27-failure diagnosis): this used to call the plain
+    extract_pdf_text (no size-aware timeout, no retry) and had no odt/rtf/
+    xlsx branch at all (unconditional UNSUPPORTED_FORMAT). Every one of
+    those 27 candidates already has a proven-successful extraction at the
+    candidate-discovery stage via LocalContentInspector.inspect (which
+    always used the correct functions below) - see the private read-only
+    diagnosis for this task. This dispatch now matches that already-proven
+    working code path exactly, instead of a second, divergent one."""
     from cdc_content_inspector import (
         EXTRACTION_CHAR_LIMIT,
         ExtractionError,
+        default_docling_converter,
         extract_doc_text,
         extract_docx_text,
-        extract_pdf_text,
+        extract_odt_text,
+        extract_pdf_text_with_retry,
+        extract_rtf_text_standalone,
+        extract_xlsx_text,
     )
     from technical_source_classifier import categorize_extraction_failure_reason
+
+    if pdf_converter is None:
+        pdf_converter = default_docling_converter
 
     normalized = (extension or "").strip().lower()
     try:
         if normalized == "pdf":
-            return extract_pdf_text(file_path, counters, EXTRACTION_CHAR_LIMIT), None
+            return extract_pdf_text_with_retry(file_path, counters, EXTRACTION_CHAR_LIMIT, pdf_converter), None
         if normalized == "docx":
             return extract_docx_text(file_path, counters, EXTRACTION_CHAR_LIMIT), None
         if normalized == "doc":
             return extract_doc_text(file_path, counters, EXTRACTION_CHAR_LIMIT), None
+        if normalized == "odt":
+            return extract_odt_text(file_path, counters, EXTRACTION_CHAR_LIMIT), None
+        if normalized == "rtf":
+            return extract_rtf_text_standalone(file_path, counters, EXTRACTION_CHAR_LIMIT), None
+        if normalized == "xlsx":
+            return extract_xlsx_text(file_path, counters, EXTRACTION_CHAR_LIMIT), None
         return None, "UNSUPPORTED_FORMAT"
     except ExtractionError as error:
         return None, categorize_extraction_failure_reason(error.reason_code)
@@ -1358,10 +1408,11 @@ def _build_review_record(
     prompt_hash: str,
     outcome: Optional[SemanticClassificationOutcome] = None,
     forced_failure_category: Optional[str] = None,
+    retry_generation: str = "",
 ) -> AiReviewRecord:
     idempotency_key = compute_idempotency_key(
         candidate.archive_file_id, candidate.content_sha256, model_identity.name,
-        model_identity.digest, prompt_hash, SCHEMA_VERSION,
+        model_identity.digest, prompt_hash, SCHEMA_VERSION, retry_generation,
     )
     if outcome is None:
         return AiReviewRecord(
@@ -1424,12 +1475,14 @@ def _process_candidate(
     adapter: "SemanticOllamaAdapter",
     model_identity: ModelIdentity,
     prompt_hash: str,
+    retry_generation: str = "",
 ) -> AiReviewRecord:
     """One candidate -> one AiReviewRecord: resolve archive path -> local
     extraction -> local Ollama -> build the record. Shared by run_persist
     (whole-corpus mode) and run_project_persist (--review-by-project mode)
     so the two selection sources feed the exact same, single-implementation
-    pipeline - never two incompatible copies of it."""
+    pipeline - never two incompatible copies of it. `retry_generation` is
+    "" for every normal run - see compute_idempotency_key's docstring."""
     from cdc_discovery import resolve_archive_file_path, DiscoveryCounters
 
     row = rows_by_id.get(candidate.archive_file_id)
@@ -1438,13 +1491,17 @@ def _process_candidate(
         return _build_review_record(
             candidate, model_identity, prompt_hash,
             forced_failure_category="CONNECTION_ERROR" if row is None else "OTHER",
+            retry_generation=retry_generation,
         )
     counters = DiscoveryCounters()
     text, failure_category = _extract_text_local(file_path, row.extension, counters)
     if text is None:
-        return _build_review_record(candidate, model_identity, prompt_hash, forced_failure_category=failure_category or "OTHER")
+        return _build_review_record(
+            candidate, model_identity, prompt_hash,
+            forced_failure_category=failure_category or "OTHER", retry_generation=retry_generation,
+        )
     outcome = adapter.classify(text[:DEFAULT_MAX_INPUT_CHARS])
-    return _build_review_record(candidate, model_identity, prompt_hash, outcome=outcome)
+    return _build_review_record(candidate, model_identity, prompt_hash, outcome=outcome, retry_generation=retry_generation)
 
 
 def _gate_checkpoint(
@@ -1483,12 +1540,13 @@ def _gate_checkpoint(
 def _run_batches(
     conn, checkpoint_path: Path, checkpoint: "SemanticCheckpoint", candidates: Sequence[SelectionCandidate],
     model_identity: ModelIdentity, prompt_hash: str, model: str, keep_alive: str, batch_size: int,
-    report: PersistRunReport,
+    report: PersistRunReport, retry_generation: str = "",
 ) -> None:
     """Shared batching loop: resolve rows once, then process/persist in
     fixed-size batches with per-document transaction durability (see
     persist_batch). Mutates checkpoint/report in place and saves the
-    checkpoint after every batch."""
+    checkpoint after every batch. `retry_generation` is "" for every
+    normal run - see compute_idempotency_key's docstring."""
     already_completed = set(checkpoint.completed_archive_file_ids)
     remaining = [c for c in candidates if c.archive_file_id not in already_completed]
     report.candidates_considered = len(candidates)
@@ -1500,7 +1558,10 @@ def _run_batches(
 
     batches = [remaining[i:i + batch_size] for i in range(0, len(remaining), batch_size)]
     for batch in batches:
-        records = [_process_candidate(c, rows_by_id, adapter, model_identity, prompt_hash) for c in batch]
+        records = [
+            _process_candidate(c, rows_by_id, adapter, model_identity, prompt_hash, retry_generation)
+            for c in batch
+        ]
 
         batch_result = persist_batch(repository, records)
         report.batches_run += 1
@@ -1616,7 +1677,10 @@ def load_semantic_review_manifest(manifest_path: Path) -> "list[int]":
 @dataclass
 class SemanticReviewExecutionRequest:
     """Every value an operator must supply, explicitly, to run a real
-    --execute. No field has a default."""
+    --execute. No required field has a default - retry_generation is the
+    one deliberate exception: it defaults to "" (a normal, non-retry run)
+    and is only ever set for an explicit retry batch (see
+    compute_idempotency_key's docstring)."""
 
     manifest_path: Path
     expected_manifest_sha256: str
@@ -1625,6 +1689,7 @@ class SemanticReviewExecutionRequest:
     deployment_ack: str
     confirmation_token: str
     batch_size: int
+    retry_generation: str = ""
 
 
 def compute_semantic_review_manifest_sha256(manifest_path: Path) -> str:
@@ -1665,6 +1730,13 @@ def verify_semantic_review_execution_guards(
             f"manifest lists {len(manifest_ids)} archive_file_id(s); expected exactly "
             f"{request.expected_row_count} (--expected-row-count)."
         )
+    if request.retry_generation:
+        if len(request.retry_generation) > 100:
+            raise SemanticReviewGuardError("--retry-generation must be 100 characters or fewer.")
+        if not all(ch.isalnum() or ch in "-_." for ch in request.retry_generation):
+            raise SemanticReviewGuardError(
+                "--retry-generation may only contain letters, digits, '-', '_', and '.'."
+            )
 
 
 def _fetch_semantic_review_candidate_rows(conn, manifest_ids: Sequence[int]) -> "list[dict]":
@@ -1722,10 +1794,15 @@ def verify_semantic_review_row_eligibility(rows: "list[dict]", manifest_ids: Seq
 
 def build_targeted_semantic_review_scope_config(
     manifest_ids: Sequence[int], model_name: str, model_digest: Optional[str], prompt_hash: str,
+    retry_generation: str = "",
 ) -> dict:
     """A distinct "mode" value from build_scope_config/build_project_scope_config
     - a targeted semantic-review checkpoint must never be treated as
-    resumable/compatible with either of those."""
+    resumable/compatible with either of those. Includes retry_generation
+    so a checkpoint from a normal run is never silently treated as
+    resumable/compatible with a differently-scoped retry run (or a
+    different retry generation) that happens to reuse the same checkpoint
+    file path."""
     return {
         "mode": "targeted_semantic_review",
         "selection_mode": "manifest_driven_review_queue",
@@ -1738,6 +1815,7 @@ def build_targeted_semantic_review_scope_config(
         "prompt_hash": prompt_hash,
         "schema_version": SCHEMA_VERSION,
         "semantic_classifier_version": SEMANTIC_CLASSIFIER_VERSION,
+        "retry_generation": retry_generation,
         "local_only": True,
     }
 
@@ -1816,7 +1894,7 @@ def run_targeted_semantic_review_execute(
         model_identity = fetch_model_identity(model=DEFAULT_MODEL)
         prompt_hash = compute_prompt_hash()
         scope_config = build_targeted_semantic_review_scope_config(
-            manifest_ids, model_identity.name, model_identity.digest, prompt_hash
+            manifest_ids, model_identity.name, model_identity.digest, prompt_hash, request.retry_generation
         )
         scope_signature = compute_scope_signature(scope_config)
 
@@ -1835,7 +1913,7 @@ def run_targeted_semantic_review_execute(
         report = PersistRunReport()
         _run_batches(
             conn, checkpoint_path, checkpoint, candidates, model_identity, prompt_hash,
-            DEFAULT_MODEL, DEFAULT_KEEP_ALIVE, request.batch_size, report,
+            DEFAULT_MODEL, DEFAULT_KEEP_ALIVE, request.batch_size, report, request.retry_generation,
         )
     finally:
         conn.close()
@@ -2695,6 +2773,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--confirm", type=str, default=None, metavar="TOKEN",
         help=f"(--targeted-semantic-review --execute only) must equal {SEMANTIC_REVIEW_CONFIRMATION_TOKEN!r}.",
     )
+    parser.add_argument(
+        "--retry-generation", type=str, default="", metavar="LABEL",
+        help=(
+            "(--targeted-semantic-review --execute only) opt-in label for a deliberate retry of "
+            "documents that already have a FAILED review under the current model/prompt/schema "
+            "(e.g. after an extraction-pipeline bugfix). Forces a distinct idempotency_key so the "
+            "retry's real result is never silently dropped by ON CONFLICT DO NOTHING, and the "
+            "prior FAILED row is never overwritten. Omit for a normal run."
+        ),
+    )
     return parser
 
 
@@ -2707,11 +2795,12 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         or args.expected_database_name is not None
         or args.deployment_ack is not None
         or args.confirm is not None
+        or args.retry_generation
     ):
         parser.error(
             "--manifest-file/--execute/--expected-manifest-sha256/--expected-row-count/"
-            "--expected-database-name/--deployment-ack/--confirm only apply to "
-            "--targeted-semantic-review."
+            "--expected-database-name/--deployment-ack/--confirm/--retry-generation only apply "
+            "to --targeted-semantic-review."
         )
 
     if args.progress:
@@ -2739,12 +2828,12 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
             if (
                 args.expected_manifest_sha256 is not None or args.expected_row_count is not None
                 or args.expected_database_name is not None or args.deployment_ack is not None
-                or args.confirm is not None or args.resume
+                or args.confirm is not None or args.resume or args.retry_generation
             ):
                 parser.error(
                     "--dry-run cannot be combined with --expected-manifest-sha256/"
                     "--expected-row-count/--expected-database-name/--deployment-ack/--confirm/"
-                    "--resume (those apply only to --execute)."
+                    "--resume/--retry-generation (those apply only to --execute)."
                 )
         if args.execute:
             missing = [
@@ -2816,6 +2905,7 @@ def main(argv: Optional[list] = None) -> int:
             deployment_ack=args.deployment_ack,
             confirmation_token=args.confirm,
             batch_size=args.batch_size,
+            retry_generation=args.retry_generation,
         )
         try:
             return run_targeted_semantic_review_execute(
