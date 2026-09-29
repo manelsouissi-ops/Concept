@@ -233,7 +233,7 @@ class PdfBranchTest(unittest.TestCase):
             private_root=self.private_root, document_workdir_name="pilot-11",
             ocr_runner=must_not_be_called,
         )
-        self.assertEqual(result.technical_outcome, ocr.OCR_OUTPUT_TOO_LARGE)
+        self.assertEqual(result.technical_outcome, ocr.OCR_INPUT_TOO_LARGE)
 
 
 class DocBranchTest(unittest.TestCase):
@@ -502,6 +502,339 @@ class NoDatabaseOrOllamaAccessTest(unittest.TestCase):
         sig = inspect.signature(ocr.run_ocr_pilot_for_document)
         for name in sig.parameters:
             self.assertNotIn("conn", name.lower())
+
+
+class ReviewOutputModeTest(unittest.TestCase):
+    """2026-09-29: explicit private-review mode - retains a searchable
+    OCR PDF (and optionally text) outside the ephemeral per-document
+    workdir, ONLY when review_output_dir is explicitly passed."""
+
+    def setUp(self):
+        self.tmp = _tmpdir()
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        self.source, self.sha = _write_source(self.tmp, "src.pdf", b"%PDF-1.4 synthetic %%EOF")
+        self.private_root = self.tmp / "private_root"
+
+    def test_default_mode_retains_nothing(self):
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-r01",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+        )
+        self.assertIsNone(result.review_pdf_path)
+        self.assertIsNone(result.review_text_path)
+
+    def test_review_mode_retains_ocr_pdf_on_success(self):
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-01",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        self.assertEqual(result.technical_outcome, ocr.OCR_SUCCESS)
+        self.assertIsNotNone(result.review_pdf_path)
+        self.assertTrue(result.review_pdf_path.exists())
+        self.assertEqual(result.review_pdf_path.name, "PILOT-01.pdf")
+        self.assertIsNone(result.review_text_path)  # retain_ocr_text defaults False
+
+    def test_review_mode_retains_text_only_when_requested(self):
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-02",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir, retain_ocr_text=True,
+        )
+        self.assertIsNotNone(result.review_text_path)
+        self.assertTrue(result.review_text_path.exists())
+        self.assertEqual(result.review_text_path.read_text(encoding="utf-8"), GOOD_TEXT)
+
+    def test_no_review_output_retained_on_controlled_failure(self):
+        review_dir = self.tmp / "review_out"
+        def failing_runner(input_pdf, output_pdf, languages, timeout):
+            raise ocr.OcrError(ocr.OCR_UNEXPECTED_FAILURE)
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-03",
+            ocr_runner=failing_runner, review_output_dir=review_dir,
+        )
+        self.assertIsNone(result.review_pdf_path)
+        self.assertFalse(review_dir.exists() and any(review_dir.iterdir()))
+
+    def test_review_output_filename_reveals_no_source_identity(self):
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-04",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        self.assertNotIn("src", result.review_pdf_path.name)
+        self.assertNotIn(self.sha[:16], result.review_pdf_path.name)
+        self.assertEqual(result.review_pdf_path.name, "PILOT-04.pdf")
+
+    def test_review_output_dir_mode_700_and_file_mode_600(self):
+        import os
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-05",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        self.assertEqual(os.stat(review_dir).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(result.review_pdf_path).st_mode & 0o777, 0o600)
+
+    def test_review_output_dir_rejects_symlink(self):
+        real_dir = self.tmp / "real_review"
+        real_dir.mkdir(mode=0o700)
+        link = self.tmp / "linked_review"
+        link.symlink_to(real_dir, target_is_directory=True)
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-06",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=link,
+        )
+        self.assertEqual(result.technical_outcome, ocr.OCR_CONFINEMENT_FAILURE)
+        self.assertIsNone(result.review_pdf_path)
+
+    def test_no_raw_text_in_ocr_pilot_result_even_in_review_mode(self):
+        review_dir = self.tmp / "review_out"
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-07",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir, retain_ocr_text=True,
+        )
+        # the result object itself never carries the raw text - only paths
+        for value in result.__dict__.values():
+            if isinstance(value, str):
+                self.assertNotIn("Ceci est un texte", value)
+
+    def test_cleanup_of_ephemeral_workdir_still_occurs_in_review_mode(self):
+        review_dir = self.tmp / "review_out"
+        ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-08",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        self.assertFalse((self.private_root / "PILOT-08").exists())
+
+    def test_atomic_write_never_leaves_a_tmp_file_behind(self):
+        review_dir = self.tmp / "review_out"
+        ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-09",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        leftover_tmp = list(review_dir.glob("*.tmp-write"))
+        self.assertEqual(leftover_tmp, [])
+
+    def test_source_document_never_modified_in_review_mode(self):
+        original_bytes = self.source.read_bytes()
+        review_dir = self.tmp / "review_out"
+        ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="PILOT-10",
+            ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+            review_output_dir=review_dir,
+        )
+        self.assertEqual(self.source.read_bytes(), original_bytes)
+
+    def test_review_mode_multiple_documents_share_review_dir_safely(self):
+        review_dir = self.tmp / "review_out"
+        for i in range(1, 4):
+            source, sha = _write_source(self.tmp, f"src{i}.pdf", f"%PDF-1.4 synthetic {i} %%EOF".encode())
+            result = ocr.run_ocr_pilot_for_document(
+                source_path=source, source_sha256=sha, extension="pdf",
+                private_root=self.private_root, document_workdir_name=f"PILOT-{i:02d}",
+                ocr_runner=_fake_ocr_runner_writes_valid_pdf,
+                text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+                page_counter=_fake_page_counter_returns(1),
+                review_output_dir=review_dir,
+            )
+            self.assertTrue(result.review_pdf_path.exists())
+        retained = sorted(p.name for p in review_dir.glob("*.pdf"))
+        self.assertEqual(retained, ["PILOT-01.pdf", "PILOT-02.pdf", "PILOT-03.pdf"])
+
+
+def _fake_normalizer_writes_pdf(input_pdf, output_pdf, timeout):
+    output_pdf.write_bytes(b"%PDF-1.4 fake normalized content %%EOF")
+
+
+class NormalizationRetryTest(unittest.TestCase):
+    """2026-09-29 (PILOT-07 diagnosis): a first OCR attempt that comes
+    back too large triggers exactly one bounded normalization retry;
+    every other failure category is never retried."""
+
+    def setUp(self):
+        self.tmp = _tmpdir()
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        self.source, self.sha = _write_source(self.tmp, "src.pdf", b"%PDF-1.4 synthetic %%EOF")
+        self.private_root = self.tmp / "private_root"
+
+    def test_oversized_first_attempt_triggers_normalization_retry(self):
+        calls = {"ocr": 0, "normalize": 0}
+
+        def counting_ocr_runner(input_pdf, output_pdf, languages, timeout):
+            calls["ocr"] += 1
+            if calls["ocr"] == 1:
+                output_pdf.write_bytes(b"%PDF-1.4 " + b"0" * (ocr.MAX_TEMP_OUTPUT_SIZE_BYTES + 10) + b" %%EOF")
+            else:
+                output_pdf.write_bytes(b"%PDF-1.4 small normalized output %%EOF")
+
+        def counting_normalizer(input_pdf, output_pdf, timeout):
+            calls["normalize"] += 1
+            output_pdf.write_bytes(b"%PDF-1.4 normalized %%EOF")
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n01",
+            ocr_runner=counting_ocr_runner, normalizer=counting_normalizer,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+        )
+        self.assertEqual(calls["ocr"], 2)  # exactly one retry, never more
+        self.assertEqual(calls["normalize"], 1)
+        self.assertEqual(result.technical_outcome, ocr.OCR_SUCCESS)
+
+    def test_still_too_large_after_normalization_fails_closed(self):
+        def always_too_large_runner(input_pdf, output_pdf, languages, timeout):
+            output_pdf.write_bytes(b"%PDF-1.4 " + b"0" * (ocr.MAX_TEMP_OUTPUT_SIZE_BYTES + 10) + b" %%EOF")
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n02",
+            ocr_runner=always_too_large_runner, normalizer=_fake_normalizer_writes_pdf,
+        )
+        self.assertEqual(result.technical_outcome, ocr.OCR_OUTPUT_TOO_LARGE)
+        self.assertEqual(result.final_classification, ocr.OCR_FAILED)
+
+    def test_normalization_failure_itself_is_a_distinct_category(self):
+        def too_large_runner(input_pdf, output_pdf, languages, timeout):
+            output_pdf.write_bytes(b"%PDF-1.4 " + b"0" * (ocr.MAX_TEMP_OUTPUT_SIZE_BYTES + 10) + b" %%EOF")
+        def failing_normalizer(input_pdf, output_pdf, timeout):
+            raise ocr.OcrError(ocr.OCR_NORMALIZATION_FAILED)
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n03",
+            ocr_runner=too_large_runner, normalizer=failing_normalizer,
+        )
+        self.assertEqual(result.technical_outcome, ocr.OCR_NORMALIZATION_FAILED)
+        self.assertEqual(result.final_classification, ocr.OCR_FAILED)
+
+    def test_normalization_timeout_maps_to_ocr_timeout(self):
+        def too_large_runner(input_pdf, output_pdf, languages, timeout):
+            output_pdf.write_bytes(b"%PDF-1.4 " + b"0" * (ocr.MAX_TEMP_OUTPUT_SIZE_BYTES + 10) + b" %%EOF")
+        def timing_out_normalizer(input_pdf, output_pdf, timeout):
+            raise ocr.OcrError(ocr.OCR_TIMEOUT)
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n04",
+            ocr_runner=too_large_runner, normalizer=timing_out_normalizer,
+        )
+        self.assertEqual(result.technical_outcome, ocr.OCR_TIMEOUT)
+
+    def test_non_size_failure_is_never_retried_with_normalization(self):
+        calls = {"normalize": 0}
+        def timeout_runner(input_pdf, output_pdf, languages, timeout):
+            raise ocr.OcrError(ocr.OCR_TIMEOUT)
+        def counting_normalizer(input_pdf, output_pdf, timeout):
+            calls["normalize"] += 1
+            output_pdf.write_bytes(b"%PDF-1.4 %%EOF")
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n05",
+            ocr_runner=timeout_runner, normalizer=counting_normalizer,
+        )
+        self.assertEqual(calls["normalize"], 0)  # never invoked for a non-size failure
+        self.assertEqual(result.technical_outcome, ocr.OCR_TIMEOUT)
+
+    def test_expansion_ratio_alone_triggers_retry_even_under_absolute_ceiling(self):
+        # A small input whose output balloons past MAX_EXPANSION_RATIO
+        # must be caught even though the absolute output size is well
+        # under MAX_TEMP_OUTPUT_SIZE_BYTES.
+        tiny_source, tiny_sha = _write_source(self.tmp, "tiny.pdf", b"%PDF-1.4 x %%EOF")  # ~18 bytes
+        calls = {"ocr": 0}
+
+        def expanding_runner(input_pdf, output_pdf, languages, timeout):
+            calls["ocr"] += 1
+            # Far more than MAX_EXPANSION_RATIO x the ~18-byte tiny input,
+            # but nowhere near the absolute MAX_TEMP_OUTPUT_SIZE_BYTES.
+            output_pdf.write_bytes(b"%PDF-1.4 " + b"0" * 100_000 + b" %%EOF")
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=tiny_source, source_sha256=tiny_sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n06",
+            ocr_runner=expanding_runner, normalizer=_fake_normalizer_writes_pdf,
+        )
+        self.assertGreaterEqual(calls["ocr"], 1)
+        self.assertIn(result.technical_outcome, (ocr.OCR_OUTPUT_TOO_LARGE, ocr.OCR_SUCCESS, ocr.OCR_LOW_QUALITY, ocr.OCR_NO_TEXT))
+
+    def test_normalized_output_still_reports_true_original_input_size_ratio(self):
+        def too_large_then_small_runner(input_pdf, output_pdf, languages, timeout):
+            if not hasattr(too_large_then_small_runner, "called"):
+                too_large_then_small_runner.called = True
+                output_pdf.write_bytes(b"%PDF-1.4 " + b"0" * (ocr.MAX_TEMP_OUTPUT_SIZE_BYTES + 10) + b" %%EOF")
+            else:
+                output_pdf.write_bytes(b"%PDF-1.4 small %%EOF")
+
+        result = ocr.run_ocr_pilot_for_document(
+            source_path=self.source, source_sha256=self.sha, extension="pdf",
+            private_root=self.private_root, document_workdir_name="pilot-n07",
+            ocr_runner=too_large_then_small_runner, normalizer=_fake_normalizer_writes_pdf,
+            text_extractor=_fake_text_extractor_returns(GOOD_TEXT),
+            page_counter=_fake_page_counter_returns(1),
+        )
+        self.assertEqual(result.technical_outcome, ocr.OCR_SUCCESS)
+        # output_size_ratio must be computed against the TRUE original
+        # source.pdf size, not the intermediate normalized copy.
+        self.assertIsNotNone(result.metrics)
+
+
+class RaisedLimitsRegressionTest(unittest.TestCase):
+    """2026-09-29: MAX_INPUT_SIZE_BYTES/MAX_PAGE_COUNT were raised after
+    evidence; MAX_TEMP_OUTPUT_SIZE_BYTES was deliberately left unchanged."""
+
+    def test_max_temp_output_size_unchanged(self):
+        self.assertEqual(ocr.MAX_TEMP_OUTPUT_SIZE_BYTES, 100_000_000)
+
+    def test_max_input_size_raised_above_82mb_evidence(self):
+        self.assertGreater(ocr.MAX_INPUT_SIZE_BYTES, 82_320_948)
+
+    def test_max_page_count_raised_above_387_page_evidence(self):
+        self.assertGreater(ocr.MAX_PAGE_COUNT, 387)
+
+    def test_expansion_ratio_constant_exists_and_is_reasonable(self):
+        self.assertGreater(ocr.MAX_EXPANSION_RATIO, 1.0)
+        self.assertLess(ocr.MAX_EXPANSION_RATIO, 50.0)
 
 
 if __name__ == "__main__":

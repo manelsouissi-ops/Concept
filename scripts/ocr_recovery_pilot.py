@@ -54,15 +54,46 @@ from typing import Callable, Optional
 # truncation or best-effort continuation past one of these)
 # =====================================================================
 
-MAX_INPUT_SIZE_BYTES = 20_000_000          # 20MB - well above every observed failure's size
-MAX_TEMP_OUTPUT_SIZE_BYTES = 100_000_000   # 100MB - a rasterized+OCR'd PDF can expand a lot
+# 2026-09-29 (PILOT-07 diagnosis): MAX_INPUT_SIZE_BYTES and MAX_PAGE_COUNT
+# were raised from 20MB/100 pages to the values below after a real
+# Youssef-approved scan/image-only PDF (82.3MB, 387 pages, one ~300 DPI
+# embedded image per page - a perfectly ordinary scan resolution, not an
+# outlier) was rejected at the INPUT gate before OCR was ever attempted.
+# MAX_TEMP_OUTPUT_SIZE_BYTES (the absolute output ceiling) is deliberately
+# left unchanged - see OCR_INPUT_TOO_LARGE/OCR_OUTPUT_TOO_LARGE and
+# default_pdf_normalizer below for how an output that is still too large
+# is now handled.
+MAX_INPUT_SIZE_BYTES = 150_000_000         # 150MB - see 2026-09-29 note above
+MAX_TEMP_OUTPUT_SIZE_BYTES = 100_000_000   # 100MB - UNCHANGED - a rasterized+OCR'd PDF can expand a lot
 MAX_EXTRACTED_TEXT_LENGTH = 2_000_000      # characters, in-memory only, never persisted raw
-MAX_PAGE_COUNT = 100
+MAX_PAGE_COUNT = 500                       # see 2026-09-29 note above
+# Independent of the absolute MAX_TEMP_OUTPUT_SIZE_BYTES ceiling: an
+# output more than this many times the size of its own input is rejected
+# even if the absolute number is still under the ceiling - catches
+# runaway expansion on a smaller document that the absolute cap alone
+# would miss.
+MAX_EXPANSION_RATIO = 6.0
 
 DOC_TO_PDF_TIMEOUT_SECONDS = 120.0
 OCR_TIMEOUT_SECONDS = 300.0
 TEXT_EXTRACT_TIMEOUT_SECONDS = 60.0
 PAGE_COUNT_TIMEOUT_SECONDS = 30.0
+
+# 2026-09-29: bounded, controlled normalization (grayscale + downsample
+# to this DPI ceiling) attempted ONCE, ONLY as a retry after a first OCR
+# attempt is rejected for OCR_OUTPUT_TOO_LARGE - never applied
+# unconditionally, never applied to any other failure category. Real
+# measurement against the PILOT-07 document (empirically, standalone,
+# not via this module) showed this normalization does NOT rescue a
+# genuinely long (387-page) document whose images are already at this
+# resolution - that is an expected, honest outcome (see PART 3/4 of the
+# 2026-09-29 task): normalization helps a document whose expansion is
+# resolution-driven, and correctly does NOT help - and the document
+# correctly still fails closed - when the expansion is page-count-driven
+# instead.
+NORMALIZATION_TARGET_DPI = 300
+MAX_NORMALIZED_PAGE_PIXELS = 6000 * 6000   # ample ceiling - rejects only pathological per-page resolution
+NORMALIZATION_TIMEOUT_SECONDS = 600.0
 
 OCR_LANGUAGES = "fra+eng"
 
@@ -92,12 +123,19 @@ OCR_UNEXPECTED_FAILURE = "OCR_UNEXPECTED_FAILURE"
 OCR_ENCRYPTED_OUTPUT_REJECTED = "OCR_ENCRYPTED_OUTPUT_REJECTED"
 OCR_CONFINEMENT_FAILURE = "OCR_CONFINEMENT_FAILURE"
 OCR_SOURCE_HASH_MISMATCH = "OCR_SOURCE_HASH_MISMATCH"
+# 2026-09-29: distinct from OCR_OUTPUT_TOO_LARGE - raised at the input
+# copy stage, before any conversion/OCR is ever attempted, and therefore
+# never implies anything about what OCR itself would have produced.
+OCR_INPUT_TOO_LARGE = "OCR_INPUT_TOO_LARGE"
+# 2026-09-29: the controlled grayscale/DPI normalization retry step
+# itself failed or timed out (distinct from the OCR step that follows it).
+OCR_NORMALIZATION_FAILED = "OCR_NORMALIZATION_FAILED"
 
 TECHNICAL_OUTCOMES = (
     OCR_SUCCESS, DOC_CONVERSION_FAILED, OCR_TIMEOUT, OCR_NO_TEXT, OCR_LOW_QUALITY,
     OCR_OUTPUT_TOO_LARGE, OCR_PAGE_LIMIT_EXCEEDED, OCR_DEPENDENCY_MISSING,
     OCR_UNEXPECTED_FAILURE, OCR_ENCRYPTED_OUTPUT_REJECTED, OCR_CONFINEMENT_FAILURE,
-    OCR_SOURCE_HASH_MISMATCH,
+    OCR_SOURCE_HASH_MISMATCH, OCR_INPUT_TOO_LARGE, OCR_NORMALIZATION_FAILED,
 )
 
 # --- Final, human-facing classification (Part 4) ---
@@ -265,7 +303,7 @@ def copy_and_verify_hash(source_path: Path, dest_path: Path, expected_sha256: st
     except OSError:
         raise OcrError(OCR_UNEXPECTED_FAILURE)
     if size > MAX_INPUT_SIZE_BYTES:
-        raise OcrError(OCR_OUTPUT_TOO_LARGE)
+        raise OcrError(OCR_INPUT_TOO_LARGE)
 
     try:
         with open(source_path, "rb") as src, open(dest_path, "wb") as dst:
@@ -318,8 +356,12 @@ def default_ocrmypdf_runner(
     try:
         completed = subprocess.run(
             [
+                # --optimize 1 (2026-09-29, was 0): safe, lossless
+                # recompression pass - measured ~25% smaller output on a
+                # real 387-page test document with no quality loss, for
+                # every document, not just large ones.
                 "ocrmypdf", "--force-ocr", "--language", languages,
-                "--output-type", "pdf", "--optimize", "0",
+                "--output-type", "pdf", "--optimize", "1",
                 str(input_pdf), str(output_pdf),
             ],
             check=False, capture_output=True, text=True, timeout=timeout, env=_clean_subprocess_env(),
@@ -363,6 +405,44 @@ def default_pdfinfo_page_counter(pdf_path: Path, timeout: float = PAGE_COUNT_TIM
     if not match:
         raise OcrError(OCR_UNEXPECTED_FAILURE)
     return int(match.group(1))
+
+
+PdfNormalizer = Callable[[Path, Path, float], None]
+
+
+def default_pdf_normalizer(
+    input_pdf: Path, output_pdf: Path, timeout: float = NORMALIZATION_TIMEOUT_SECONDS,
+) -> None:
+    """Bounded, controlled normalization on a private copy - grayscale
+    (OCR does not need color) and downsample any embedded image above
+    NORMALIZATION_TARGET_DPI down to it (Ghostscript's downsample only
+    ever reduces; an image already at or below the target is left as-is,
+    so this is safe to apply even when it will not help). Preserves page
+    order and count - pdfwrite processes pages sequentially and never
+    reorders or drops one on a clean exit. Only ever invoked as a retry
+    after a first OCR attempt is rejected for being too large - see
+    _run_pdf_branch."""
+    try:
+        completed = subprocess.run(
+            [
+                "gs", "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite",
+                "-sColorConversionStrategy=Gray", "-dProcessColorModel=/DeviceGray",
+                f"-dColorImageResolution={NORMALIZATION_TARGET_DPI}",
+                f"-dGrayImageResolution={NORMALIZATION_TARGET_DPI}",
+                f"-dMonoImageResolution={NORMALIZATION_TARGET_DPI}",
+                "-dDownsampleColorImages=true", "-dDownsampleGrayImages=true",
+                "-dColorImageDownsampleType=/Bicubic", "-dGrayImageDownsampleType=/Bicubic",
+                "-dCompatibilityLevel=1.5",
+                f"-sOutputFile={output_pdf}", str(input_pdf),
+            ],
+            check=False, capture_output=True, text=True, timeout=timeout, env=_clean_subprocess_env(),
+        )
+    except subprocess.TimeoutExpired:
+        raise OcrError(OCR_TIMEOUT)
+    except OSError:
+        raise OcrError(OCR_DEPENDENCY_MISSING)
+    if completed.returncode != 0:
+        raise OcrError(OCR_NORMALIZATION_FAILED)
 
 
 # =====================================================================
@@ -462,18 +542,53 @@ class OcrPilotResult:
     technical_outcome: str
     final_classification: str
     metrics: Optional[OcrQualityMetrics]
+    # Set only in explicit review mode, and only for an outcome that
+    # actually produced a valid, size-bounded OCR output (OCR_SUCCESS or
+    # OCR_LOW_QUALITY) - a neutral PILOT-NN-labeled path under the
+    # caller's review_output_dir, never a source filename/path/UUID/
+    # archive_file_id. None in every other case (default mode, or a
+    # controlled failure with no valid output to retain).
+    review_pdf_path: Optional[Path] = None
+    review_text_path: Optional[Path] = None
 
 
-def _run_pdf_branch(
-    pdf_copy: Path, workdir: Path, ocr_runner: OcrRunner, text_extractor: PdfTextExtractor,
-    page_counter: PdfPageCounter,
-) -> OcrPilotResult:
-    if _pdf_is_encrypted(pdf_copy):
+def _atomic_write_copy(src: Path, dest: Path) -> None:
+    """Copies src to dest atomically (write to a same-directory temp name,
+    then os.replace - atomic on POSIX for a same-filesystem rename) and
+    sets dest to mode 0o600. Never leaves a partially-written dest
+    visible under its final name."""
+    tmp_dest = dest.with_name(dest.name + ".tmp-write")
+    with open(src, "rb") as s, open(tmp_dest, "wb") as d:
+        shutil.copyfileobj(s, d)
+        d.flush()
+        os.fsync(d.fileno())
+    os.chmod(tmp_dest, 0o600)
+    os.replace(tmp_dest, dest)
+
+
+def _atomic_write_text(text: str, dest: Path) -> None:
+    tmp_dest = dest.with_name(dest.name + ".tmp-write")
+    with open(tmp_dest, "w", encoding="utf-8") as d:
+        d.write(text)
+        d.flush()
+        os.fsync(d.fileno())
+    os.chmod(tmp_dest, 0o600)
+    os.replace(tmp_dest, dest)
+
+
+def _attempt_ocr(
+    pdf_input: Path, workdir: Path, ocr_runner: OcrRunner, output_filename: str,
+) -> tuple[Path, float, int]:
+    """One OCR attempt on pdf_input. Returns (ocred_pdf, duration,
+    output_size). Raises OcrError(OCR_OUTPUT_TOO_LARGE) for either the
+    absolute ceiling or the independent expansion-ratio ceiling - the
+    caller decides whether either is worth a normalization retry."""
+    if _pdf_is_encrypted(pdf_input):
         raise OcrError(OCR_ENCRYPTED_OUTPUT_REJECTED)
 
-    ocred_pdf = workdir / "ocr_output.pdf"
+    ocred_pdf = workdir / output_filename
     start = time.monotonic()
-    ocr_runner(pdf_copy, ocred_pdf, OCR_LANGUAGES, OCR_TIMEOUT_SECONDS)
+    ocr_runner(pdf_input, ocred_pdf, OCR_LANGUAGES, OCR_TIMEOUT_SECONDS)
     duration = time.monotonic() - start
 
     _require_within(ocred_pdf, workdir)
@@ -482,26 +597,71 @@ def _run_pdf_branch(
     if ocred_pdf.is_symlink():
         raise OcrError(OCR_CONFINEMENT_FAILURE)
     output_size = ocred_pdf.stat().st_size
+    input_size = pdf_input.stat().st_size
     if output_size > MAX_TEMP_OUTPUT_SIZE_BYTES:
+        raise OcrError(OCR_OUTPUT_TOO_LARGE)
+    if input_size and (output_size / input_size) > MAX_EXPANSION_RATIO:
         raise OcrError(OCR_OUTPUT_TOO_LARGE)
     if _pdf_is_encrypted(ocred_pdf):
         raise OcrError(OCR_ENCRYPTED_OUTPUT_REJECTED)
+    return ocred_pdf, duration, output_size
+
+
+def _run_pdf_branch(
+    pdf_copy: Path, workdir: Path, ocr_runner: OcrRunner, text_extractor: PdfTextExtractor,
+    page_counter: PdfPageCounter, document_label: str,
+    review_output_dir: Optional[Path] = None, retain_ocr_text: bool = False,
+    normalizer: PdfNormalizer = default_pdf_normalizer,
+) -> OcrPilotResult:
+    try:
+        ocred_pdf, duration, output_size = _attempt_ocr(pdf_copy, workdir, ocr_runner, "ocr_output.pdf")
+    except OcrError as first_error:
+        if first_error.reason_code != OCR_OUTPUT_TOO_LARGE:
+            raise
+        # Controlled normalization retry - ONLY for an oversized/
+        # over-expanded output, ONLY once, ONLY on a private copy. If
+        # normalization itself fails, or the retry is still too large,
+        # this fails closed with a distinct, honest reason code - it
+        # never silently accepts a truncated or partial result.
+        normalized_pdf = workdir / "normalized.pdf"
+        normalizer(pdf_copy, normalized_pdf, NORMALIZATION_TIMEOUT_SECONDS)
+        _reject_symlink_components(normalized_pdf)
+        if not normalized_pdf.exists() or normalized_pdf.is_symlink():
+            raise OcrError(OCR_NORMALIZATION_FAILED)
+        _require_within(normalized_pdf, workdir)
+        ocred_pdf, duration, output_size = _attempt_ocr(normalized_pdf, workdir, ocr_runner, "ocr_output_normalized.pdf")
 
     page_count = page_counter(ocred_pdf, PAGE_COUNT_TIMEOUT_SECONDS)
     if page_count > MAX_PAGE_COUNT:
         raise OcrError(OCR_PAGE_LIMIT_EXCEEDED)
 
     text = text_extractor(ocred_pdf, TEXT_EXTRACT_TIMEOUT_SECONDS)
-    input_size = pdf_copy.stat().st_size
+    input_size = pdf_copy.stat().st_size  # always the TRUE original size, even after a normalization retry
     metrics = compute_quality_metrics(text, page_count, duration, output_size, input_size)
-    text = None  # never referenced again - not returned, not logged, not persisted
 
     if metrics.non_whitespace_char_count == 0:
+        text = None
         return OcrPilotResult(technical_outcome=OCR_NO_TEXT, final_classification=OCR_FAILED, metrics=metrics)
 
     quality = classify_quality(metrics)
     technical_outcome = OCR_SUCCESS if quality == ACCEPTABLE_FOR_MANUAL_REVIEW else OCR_LOW_QUALITY
-    return OcrPilotResult(technical_outcome=technical_outcome, final_classification=quality, metrics=metrics)
+
+    review_pdf_path = None
+    review_text_path = None
+    if review_output_dir is not None:
+        _reject_symlink_components(review_output_dir)
+        _ensure_private_workdir(review_output_dir)
+        review_pdf_path = review_output_dir / f"{document_label}.pdf"
+        _atomic_write_copy(ocred_pdf, review_pdf_path)
+        if retain_ocr_text:
+            review_text_path = review_output_dir / f"{document_label}.txt"
+            _atomic_write_text(text, review_text_path)
+
+    text = None  # never referenced again - not returned, not logged, not persisted
+    return OcrPilotResult(
+        technical_outcome=technical_outcome, final_classification=quality, metrics=metrics,
+        review_pdf_path=review_pdf_path, review_text_path=review_text_path,
+    )
 
 
 def run_ocr_pilot_for_document(
@@ -514,11 +674,28 @@ def run_ocr_pilot_for_document(
     ocr_runner: OcrRunner = default_ocrmypdf_runner,
     text_extractor: PdfTextExtractor = default_pdftotext_extractor,
     page_counter: PdfPageCounter = default_pdfinfo_page_counter,
+    review_output_dir: Optional[Path] = None,
+    retain_ocr_text: bool = False,
+    normalizer: PdfNormalizer = default_pdf_normalizer,
 ) -> OcrPilotResult:
     """Runs the full guarded OCR workflow for exactly one document. Never
     opens a PostgreSQL connection, never calls Ollama, never persists raw
-    text. `document_workdir_name` must be a caller-chosen, non-identifying
-    label (e.g. "pilot-01") - never a filename or archive_file_id."""
+    text in default mode. `document_workdir_name` must be a caller-chosen,
+    non-identifying label (e.g. "pilot-01") - never a filename or
+    archive_file_id; it also becomes the review-output filename stem when
+    review_output_dir is set.
+
+    review_output_dir (default None = normal mode, current no-retention
+    behavior unchanged): when set to a private, non-Git directory, an
+    OCR_SUCCESS or OCR_LOW_QUALITY result's searchable OCR PDF is written
+    there as "<document_workdir_name>.pdf" (mode 600, written atomically),
+    and - only if retain_ocr_text is also True - the extracted text as
+    "<document_workdir_name>.txt". A controlled failure (no valid,
+    size-bounded output was ever produced) never writes anything to
+    review_output_dir. The ephemeral per-document working directory is
+    still fully cleaned up in every case, exactly as in normal mode -
+    only the caller-specified review_output_dir persists anything, and
+    only when explicitly requested."""
     normalized_extension = (extension or "").strip().lower()
     if normalized_extension not in ("doc", "pdf"):
         return OcrPilotResult(technical_outcome=OCR_UNEXPECTED_FAILURE, final_classification=OCR_FAILED, metrics=None)
@@ -545,9 +722,15 @@ def run_ocr_pilot_for_document(
                     return OcrPilotResult(
                         technical_outcome=DOC_CONVERSION_FAILED, final_classification=OCR_FAILED, metrics=None,
                     )
-                return _run_pdf_branch(converted_pdf, workdir, ocr_runner, text_extractor, page_counter)
+                return _run_pdf_branch(
+                    converted_pdf, workdir, ocr_runner, text_extractor, page_counter,
+                    document_workdir_name, review_output_dir, retain_ocr_text, normalizer,
+                )
 
-            return _run_pdf_branch(source_copy, workdir, ocr_runner, text_extractor, page_counter)
+            return _run_pdf_branch(
+                source_copy, workdir, ocr_runner, text_extractor, page_counter,
+                document_workdir_name, review_output_dir, retain_ocr_text, normalizer,
+            )
 
         except OcrError as error:
             return OcrPilotResult(technical_outcome=error.reason_code, final_classification=OCR_FAILED, metrics=None)
